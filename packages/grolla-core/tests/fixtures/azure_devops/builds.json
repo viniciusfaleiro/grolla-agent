@@ -1,0 +1,71 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "_links": {
+        "self": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/Builds/48211"},
+        "web": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_build/results?buildId=48211"},
+        "sourceVersionDisplayUri": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/builds/48211/sources"},
+        "timeline": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/builds/48211/Timeline"},
+        "badge": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/status/112"}
+      },
+      "properties": {},
+      "tags": [],
+      "validationResults": [],
+      "plans": [{"planId": "c3a1f2e4-58d7-4b0e-a1f6-2d9e8c7b6a51"}],
+      "triggerInfo": {"ci.sourceBranch": "refs/heads/main", "ci.sourceSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "ci.message": "Aumenta o pool de conexões"},
+      "id": 48211,
+      "buildNumber": "20261025.3",
+      "status": "completed",
+      "result": "succeeded",
+      "queueTime": "2026-10-25T10:37:58.1033333Z",
+      "startTime": "2026-10-25T10:38:04.4566667Z",
+      "finishTime": "2026-10-25T10:44:51.2Z",
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/Builds/48211",
+      "definition": {
+        "drafts": [],
+        "id": 112,
+        "name": "authorizer-api-deploy",
+        "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/Definitions/112?revision=9",
+        "uri": "vstfs:///Build/Definition/112",
+        "path": "\\",
+        "type": "build",
+        "queueStatus": "enabled",
+        "revision": 9,
+        "project": {"id": "7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10", "name": "Core", "state": "wellFormed", "visibility": "private"}
+      },
+      "buildNumberRevision": 3,
+      "project": {"id": "7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10", "name": "Core", "state": "wellFormed", "visibility": "private"},
+      "uri": "vstfs:///Build/Build/48211",
+      "sourceBranch": "refs/heads/main",
+      "sourceVersion": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "queue": {"id": 31, "name": "Azure Pipelines", "pool": {"id": 9, "name": "Azure Pipelines", "isHosted": true}},
+      "priority": "normal",
+      "reason": "individualCI",
+      "requestedFor": {"displayName": "Fulana de Tal", "id": "0f9e8d7c-6b5a-4938-2716-05f4e3d2c1b0", "uniqueName": "fulana@credenciadora.com.br"},
+      "requestedBy": {"displayName": "Microsoft.VisualStudio.Services.TFS", "id": "00000002-0000-8888-8000-000000000000", "uniqueName": "00000002-0000-8888-8000-000000000000@2c895908-04e0-4952-89fd-54b0046d6288"},
+      "lastChangedDate": "2026-10-25T10:44:51.453Z",
+      "orchestrationPlan": {"planId": "c3a1f2e4-58d7-4b0e-a1f6-2d9e8c7b6a51"},
+      "logs": {"id": 0, "type": "Container", "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/build/builds/48211/logs"},
+      "repository": {"id": "5febef5a-833d-4e14-b9c0-14cb638f91e6", "type": "TfsGit", "name": "authorizer-api", "url": "https://dev.azure.com/minha-org/Core/_git/authorizer-api", "clean": null, "checkoutSubmodules": false},
+      "retainedByRelease": false,
+      "triggeredByBuild": null,
+      "appendCommitMessageToRunName": true
+    },
+    {
+      "_links": {
+        "web": {"href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_build/results?buildId=48190"}
+      },
+      "id": 48190,
+      "buildNumber": "20261025.2",
+      "status": "inProgress",
+      "queueTime": "2026-10-25T08:12:00.5Z",
+      "definition": {"id": 112, "name": "authorizer-api-deploy"},
+      "sourceBranch": "refs/pull/931/merge",
+      "sourceVersion": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+      "reason": "pullRequest",
+      "requestedFor": {"displayName": "Beltrano Souza", "uniqueName": "beltrano@credenciadora.com.br"},
+      "repository": {"id": "5febef5a-833d-4e14-b9c0-14cb638f91e6", "type": "TfsGit", "name": "authorizer-api"}
+    }
+  ]
+}
