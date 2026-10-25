@@ -25,7 +25,7 @@ from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs] —
     ClientError,
 )
 
-from grolla.application.investigation import ToolResult, ToolUnavailableError
+from grolla.application.investigation import NO_CLOUD_RESOURCES, ToolResult, ToolUnavailableError
 
 # Lista fechada: só estas operações de leitura saem daqui, mesmo que a credencial permita mais.
 READ_OPERATIONS = frozenset(
@@ -295,7 +295,7 @@ def _console(resource: _Resource) -> str | None:
 
 
 def _none_found(service: str) -> ToolResult:
-    return ToolResult(f"nenhum recurso de nuvem encontrado para o serviço {service}", None)
+    return ToolResult(f"{NO_CLOUD_RESOURCES} {service}", None)
 
 
 def _clip(text: str) -> str:

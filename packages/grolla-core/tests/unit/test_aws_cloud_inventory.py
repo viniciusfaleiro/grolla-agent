@@ -6,7 +6,7 @@ parado manualmente e a máquina rodando.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import boto3  # pyright: ignore[reportMissingTypeStubs] — o boto3 não traz stubs de tipo
 import pytest
@@ -14,8 +14,9 @@ from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs] —
     EndpointConnectionError,
 )
 from botocore.stub import Stubber  # pyright: ignore[reportMissingTypeStubs] — sem stubs
+from contracts.cloud_inventory_contract import CloudInventoryContract
 from grolla.adapters.aws import READ_OPERATIONS, AwsCloudInventory
-from grolla.application.investigation import ToolUnavailableError
+from grolla.application.investigation import CloudInventory, ToolUnavailableError
 
 REGION = "us-east-1"
 ACCOUNT = "851725637288"
@@ -87,6 +88,46 @@ def inventory(
     regions: tuple[str, ...] = (REGION,),
 ) -> AwsCloudInventory:
     return AwsCloudInventory(regions, resource_map or {}, session=session)
+
+
+class LabSession:
+    """Responde por operação, em qualquer ordem: a suíte de contrato chama cada consulta à parte.
+
+    As respostas são as mesmas conferidas pelo Stubber nos testes abaixo.
+    """
+
+    ANSWERS: ClassVar[dict[str, Any]] = {
+        "describe_db_instances": {
+            "DBInstances": [
+                {"DBInstanceIdentifier": "grolla-lab-db", "DBInstanceStatus": "stopped"}
+            ]
+        },
+        "describe_instances": {"Reservations": []},
+        "lookup_events": {"Events": []},
+        "describe_alarms": {"MetricAlarms": []},
+    }
+
+    def client(self, service: str, region_name: str, config: Any) -> Any:  # noqa: ARG002
+        return self
+
+    def get_resources(self, TagFilters: list[dict[str, Any]]) -> Any:  # noqa: N803 — API da AWS
+        return TAGGED if TagFilters[0]["Values"] == ["pedidos-api"] else NOTHING_TAGGED
+
+    def __getattr__(self, operation: str) -> Any:
+        def answer(**_arguments: Any) -> Any:
+            return self.ANSWERS[operation]
+
+        return answer
+
+
+class TestAwsCloudInventoryContract(CloudInventoryContract):
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=LabSession())
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=UnreachableSession())
 
 
 def stub_lab_states(session: StubbedSession) -> None:
