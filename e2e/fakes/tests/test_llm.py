@@ -151,3 +151,144 @@ def test_requests_are_recorded_and_reset_goes_back_to_complete() -> None:
     client.post("/_control/reset")
 
     first_turn(client)
+
+
+# ---- Validação: reconhecida pelo schema com `verdicts`
+
+VERIFICATION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"verdicts": {}, "root_cause": {}},
+}
+VERIFICATION_BRIEF = (
+    "Incidente: Taxa de erro alta\nServiços: pedidos-api\n\nResumo da análise inicial: x\n\n"
+    "Hipóteses da análise inicial:\n"
+    "- Deploy recente introduziu a falha (confiança 70%)\n"
+    "  Evidência: build 20261025.2\n"
+    "- Dependência externa instável (confiança 30%)\n"
+    "  Evidência: timeout no banco\n\n"
+    "O que a análise inicial avaliou:\n- query_metric: taxa → subiu"
+)
+
+
+def verification_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        **request(messages),
+        "output_config": {"format": {"type": "json_schema", "schema": VERIFICATION_SCHEMA}},
+    }
+
+
+def verification_turns(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A primeira resposta (ferramentas) e a final da validação."""
+    brief = {"role": "user", "content": VERIFICATION_BRIEF}
+    calls = client.post(PATH, json=verification_request([brief])).json()
+    results = [
+        {"type": "tool_result", "tool_use_id": block["id"], "content": f"achado de {block['name']}"}
+        for block in calls["content"]
+    ]
+    messages = [
+        brief,
+        {"role": "assistant", "content": calls["content"]},
+        {"role": "user", "content": results},
+    ]
+    return calls, client.post(PATH, json=verification_request(messages)).json()
+
+
+def test_complete_verification_confirms_the_first_hypothesis_and_plans_a_rollback() -> None:
+    calls, final = verification_turns(TestClient(create_app()))
+
+    assert calls["stop_reason"] == "tool_use"
+    assert [(b["name"], b["input"]) for b in calls["content"]] == [
+        ("query_metric", {"service": "pedidos-api", "signal": "taxa_de_erro"}),
+        ("recent_deploys", {"service": "pedidos-api"}),
+    ]
+    assert final["stop_reason"] == "end_turn"
+    result = json.loads(final["content"][0]["text"])
+    assert [(v["hypothesis"], v["verdict"]) for v in result["verdicts"]] == [
+        ("Deploy recente introduziu a falha", "confirmada"),
+        ("Dependência externa instável", "rejeitada"),
+    ]
+    assert "achado de recent_deploys" in json.dumps(result, ensure_ascii=False)
+    assert "pedidos-api" in result["root_cause"]
+    assert result["actions"] == [
+        {
+            "action": "Fazer rollback do pedidos-api para o deploy anterior",
+            "target": "pedidos-api",
+            "expected": "A taxa de erro volta ao patamar anterior ao deploy",
+            "link": None,
+        }
+    ]
+    assert result["missing"] == ""
+
+
+def test_inconclusive_verification_has_no_plan_and_says_what_was_missing() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"verification_mode": "inconclusiva"})
+
+    _, final = verification_turns(client)
+
+    result = json.loads(final["content"][0]["text"])
+    assert {v["verdict"] for v in result["verdicts"]} == {"inconclusiva"}
+    assert len(result["verdicts"]) == 2
+    assert result["root_cause"] is None
+    assert result["actions"] == []
+    assert result["missing"]
+
+
+def test_verification_mode_does_not_change_the_initial_analysis() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"verification_mode": "fora_do_ar"})
+
+    first_turn(client)  # análise inicial segue completa
+
+    brief = {"role": "user", "content": VERIFICATION_BRIEF}
+    response = client.post(PATH, json=verification_request([brief]))
+    assert response.status_code == 529
+
+
+def test_initial_mode_does_not_change_the_verification() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar"})
+
+    calls, _ = verification_turns(client)
+
+    assert calls["stop_reason"] == "tool_use"
+
+
+def test_slow_verification_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grolla_fakes.llm, "SLOW_SECONDS", 0.2)
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"verification_mode": "lenta"})
+    start = time.monotonic()
+
+    verification_turns(client)
+
+    assert time.monotonic() - start >= 0.4
+
+
+def test_verification_without_hypotheses_section_still_answers() -> None:
+    client = TestClient(create_app())
+    brief = {"role": "user", "content": "Serviços: pedidos-api"}
+    calls = client.post(PATH, json=verification_request([brief])).json()
+    messages = [
+        brief,
+        {"role": "assistant", "content": calls["content"]},
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "toolu_0", "content": "x"}],
+        },
+    ]
+
+    final = client.post(PATH, json=verification_request(messages)).json()
+
+    result = json.loads(final["content"][0]["text"])
+    assert [v["hypothesis"] for v in result["verdicts"]] == [grolla_fakes.llm.FALLBACK_HYPOTHESIS]
+
+
+def test_reset_brings_the_verification_back_to_complete() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"verification_mode": "inconclusiva"})
+    client.post("/_control/reset")
+
+    _, final = verification_turns(client)
+
+    assert json.loads(final["content"][0]["text"])["root_cause"]
