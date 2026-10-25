@@ -209,7 +209,9 @@ Toda change fecha revisando os READMEs, com `make e2e` e `make check` verdes.
 4. **Respeite as fronteiras** — fornecedor só dentro de `grolla.adapters.<fornecedor>`.
 5. **Mantenha os gates verdes** — nunca desligue regra, suprima aviso ou baixe piso para passar.
 6. **Atualize os READMEs** dos componentes que você tocou.
-7. **Commits** — uma linha imperativa curta, em português; `make check` antes do push.
+7. **Mais de uma área na mesma change?** Ela roda com um agente por área e um agente pai que
+   fecha os contratos, integra e roda o e2e (ver `CLAUDE.md`).
+8. **Commits** — uma linha imperativa curta, em português; `make check` antes do push.
 
 ## 🗺 Roadmap
 
