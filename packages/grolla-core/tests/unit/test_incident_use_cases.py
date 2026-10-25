@@ -2,6 +2,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from grolla.application.incidents import IntakePolicy, deliver_notifications, receive_alerts
+from grolla.domain.analysis import AnalysisStatus
 from grolla.domain.incidents import (
     AlertStatus,
     EventType,
@@ -45,11 +46,33 @@ async def test_new_alert_opens_an_incident_with_its_events_alert_and_card() -> N
     assert [e.type for e in await repository.events_of(incident.id)] == [
         EventType.ALERT_RECEIVED,
         EventType.STATE_CHANGED,
+        EventType.ANALYSIS_REQUESTED,
         EventType.NOTIFICATION_QUEUED,
     ]
     [entry] = repository.outbox
     assert entry.notification.kind is NotificationKind.INCIDENT_OPENED
     assert entry.next_attempt_at == T0
+    analysis = await repository.analysis_of(incident.id)
+    assert analysis is not None
+    assert analysis.status is AnalysisStatus.PENDING
+    assert analysis.requested_at == T0
+
+
+async def test_grouped_alert_does_not_request_another_analysis() -> None:
+    repository = InMemoryIncidentRepository()
+    first = make_alert(service="authorizer-api", labels=team_alert())
+    second = make_alert(service="authorizer-api", labels=team_alert())
+    clock = FakeClock(T0)
+
+    await receive_alerts([first], repository, POLICY, clock)
+    clock.advance(timedelta(minutes=2))
+    await receive_alerts([second], repository, POLICY, clock)
+
+    [incident] = await repository.list_incidents(10)
+    events = [e.type for e in await repository.events_of(incident.id)]
+    assert events.count(EventType.ANALYSIS_REQUESTED) == 1
+    assert list(repository.analyses) == [incident.id]
+    assert repository.analyses[incident.id].requested_at == T0
 
 
 async def test_resent_alert_changes_nothing() -> None:
@@ -59,7 +82,7 @@ async def test_resent_alert_changes_nothing() -> None:
     await receive_alerts([alert, alert, alert], repository, POLICY, FakeClock(T0))
 
     [incident] = await repository.list_incidents(10)
-    assert len(await repository.events_of(incident.id)) == 3
+    assert len(await repository.events_of(incident.id)) == 4
     assert len(repository.outbox) == 1
 
 

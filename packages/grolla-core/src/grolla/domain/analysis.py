@@ -27,7 +27,7 @@ class PartialReason(StrEnum):
 
 # Como o motivo aparece para o time: "análise parcial: tempo esgotado".
 PARTIAL_REASON_TEXT = {
-    PartialReason.LLM_FAILED: "falha do modelo de linguagem",
+    PartialReason.LLM_FAILED: "LLM indisponível",
     PartialReason.TIMEOUT: "tempo esgotado",
     PartialReason.BUDGET: "orçamento de tokens esgotado",
     PartialReason.INVALID_RESULT: "resultado inválido",
