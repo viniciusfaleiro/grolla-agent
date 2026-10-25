@@ -6,7 +6,9 @@ description = "Núcleo do agent-grolla: domínio, casos de uso, ports e adapters
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic",
+    "anthropic",
     "httpx2",
+    "mcp",
     "procrastinate",
     "psycopg[binary]",
     "pydantic",

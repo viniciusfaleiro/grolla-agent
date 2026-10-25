@@ -1,12 +1,13 @@
 from collections.abc import AsyncIterator
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import grolla_worker.app
 import pytest
 from grolla.adapters.postgres import PostgresDatabase
 from grolla.application.clock import Clock
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
-from grolla.bootstrap import WorkerContainer, WorkerSettings
+from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
@@ -29,14 +30,28 @@ DATABASE_URL = "postgresql://grolla:grolla@localhost:5433/grolla"  # nunca é co
 @pytest.fixture
 async def container() -> AsyncIterator[WorkerContainer]:
     database = PostgresDatabase(DATABASE_URL)
+    repository = InMemoryIncidentRepository()
+    config = TeamConfig(team="t", page_base_url="http://grolla")
+    pending = cast(Any, None)  # provisório: os fakes da investigação chegam do grolla-dominio
     yield WorkerContainer(
         settings=WorkerSettings(
-            database_url=DATABASE_URL, teams_webhook_url=SecretStr("http://chat")
+            database_url=DATABASE_URL,
+            config_file=Path("/nao-usado.yaml"),
+            teams_webhook_url=SecretStr("http://chat"),
+            anthropic_api_key=SecretStr("chave"),
+            azure_devops_token=SecretStr("token"),
         ),
+        config=config,
         clock=FakeClock(),
         database=database,
-        outbox=InMemoryNotificationOutbox(InMemoryIncidentRepository()),
+        outbox=InMemoryNotificationOutbox(repository),
         notifier=FakeChatNotifier(),
+        repository=repository,
+        analysis_queue=pending,
+        model=pending,
+        telemetry=pending,
+        changes=pending,
+        analysis=config.analysis_policy(),
     )
     await database.dispose()
 

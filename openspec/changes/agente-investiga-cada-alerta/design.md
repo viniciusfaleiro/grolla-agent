@@ -249,6 +249,7 @@ class AnalysisPolicy:
 
 
 async def run_next_analysis(
+    *,
     queue: AnalysisQueue,
     repository: IncidentRepository,
     model: LanguageModel,

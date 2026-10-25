@@ -1,4 +1,7 @@
-"""SigNoz: webhook de alertas (formato compatível com Alertmanager) como AlertIngress."""
+"""SigNoz: webhook de alertas (compatível com Alertmanager) como AlertIngress.
+
+A telemetria via MCP fica em `grolla.adapters.signoz.telemetry`.
+"""
 
 import base64
 import hmac

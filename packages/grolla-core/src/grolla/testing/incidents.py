@@ -12,6 +12,7 @@ from grolla.application.incidents import (
     NotificationFailedError,
     OutboxItem,
 )
+from grolla.domain.analysis import Analysis
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -74,6 +75,9 @@ class InMemoryIncidentRepository:
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         return [alert for owner, alert in self.links if owner == incident_id]
 
+    async def analysis_of(self, incident_id: UUID) -> Analysis | None:
+        raise NotImplementedError
+
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         return [event for event in self.events if event.incident_id == incident_id]
 
@@ -118,6 +122,9 @@ class InMemoryUnitOfWork:
         outbox = self._repository.outbox
         next_id = max((entry.id for entry in outbox), default=0) + 1
         outbox.append(OutboxEntry(next_id, notification, next_attempt_at=at))
+
+    async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
+        raise NotImplementedError
 
 
 class InMemoryNotificationOutbox:

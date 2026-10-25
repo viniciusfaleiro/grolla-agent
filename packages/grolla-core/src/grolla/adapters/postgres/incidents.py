@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.application.incidents import IncidentUnitOfWork, OutboxItem
+from grolla.domain.analysis import Analysis
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -232,6 +233,9 @@ class PostgresUnitOfWork:
             },
         )
 
+    async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
+        raise NotImplementedError
+
     async def enqueue(self, notification: Notification, at: datetime) -> None:
         await self._connection.execute(
             sa.text(
@@ -294,6 +298,9 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             return [_alert(row) for row in result]
+
+    async def analysis_of(self, incident_id: UUID) -> Analysis | None:
+        raise NotImplementedError
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         async with self._engine.connect() as connection:

@@ -31,7 +31,11 @@ class ApiSettings(Settings):
 
 
 class WorkerSettings(Settings):
+    config_file: Path
     teams_webhook_url: SecretStr
+    anthropic_api_key: SecretStr
+    azure_devops_token: SecretStr
+    anthropic_base_url: str | None = None  # só o e2e aponta para o fake
 
 
 def load_settings[S: Settings](kind: type[S]) -> S:

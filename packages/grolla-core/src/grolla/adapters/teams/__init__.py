@@ -11,12 +11,14 @@ TIMEOUT_SECONDS = 10.0
 
 _HEADLINES = {
     NotificationKind.INCIDENT_OPENED: "Incidente novo",
+    NotificationKind.ANALYSIS_READY: "Análise pronta",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
 
 _COLORS = {
     NotificationKind.INCIDENT_OPENED: "Attention",
+    NotificationKind.ANALYSIS_READY: "Accent",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }

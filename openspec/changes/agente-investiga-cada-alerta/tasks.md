@@ -2,14 +2,14 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 Dependências: `anthropic` e `mcp` no `grolla-core`, `mcp` no `grolla-fakes`; `uv lock`.
-- [ ] 0.2 `grolla.domain.analysis`, as alterações em `grolla.domain.incidents` (eventos, `ANALYSIS_READY`, `Notification.analysis`, `Decision.request_analysis`) e as assinaturas do design.
-- [ ] 0.3 Ports, `Toolbox`, `TokenBudget`, modelos e exceções em `grolla.application.investigation` e `grolla.application.analysis`; `request_analysis` e `analysis_of` nos ports de incidentes. Corpos com `raise NotImplementedError`.
-- [ ] 0.4 Stubs dos adapters: `grolla.adapters.anthropic`, `grolla.adapters.signoz` (Telemetry), `grolla.adapters.azure_devops` e `PostgresAnalysisQueue`.
-- [ ] 0.5 Migração `0003` (`analyses` e `llm_usage`).
-- [ ] 0.6 `TeamConfig` com `investigation`, `llm`, `signoz` e `azure_devops`; `WorkerSettings` com os segredos novos e `GROLLA_CONFIG_FILE`; `prepare_worker()` ligando os adapters ainda vazios.
-- [ ] 0.7 Compose do e2e: config do e2e (timeout curto e URLs dos fakes) e variáveis do worker apontando para o `grolla-fakes`.
-- [ ] 0.8 `make check` verde com os stubs e commit de contrato.
+- [x] 0.1 Dependências: `anthropic` e `mcp` no `grolla-core`, `mcp` no `grolla-fakes`; `uv lock`.
+- [x] 0.2 `grolla.domain.analysis`, as alterações em `grolla.domain.incidents` (eventos, `ANALYSIS_READY`, `Notification.analysis`, `Decision.request_analysis`) e as assinaturas do design.
+- [x] 0.3 Ports, `Toolbox`, `TokenBudget`, modelos e exceções em `grolla.application.investigation` e `grolla.application.analysis`; `request_analysis` e `analysis_of` nos ports de incidentes. Corpos com `raise NotImplementedError`.
+- [x] 0.4 Stubs dos adapters: `grolla.adapters.anthropic`, `grolla.adapters.signoz` (Telemetry), `grolla.adapters.azure_devops` e `PostgresAnalysisQueue`.
+- [x] 0.5 Migração `0003` (`analyses` e `llm_usage`).
+- [x] 0.6 `TeamConfig` com `investigation`, `llm`, `signoz` e `azure_devops`; `WorkerSettings` com os segredos novos e `GROLLA_CONFIG_FILE`; `prepare_worker()` ligando os adapters ainda vazios.
+- [x] 0.7 Compose do e2e: config do e2e (timeout curto e URLs dos fakes) e variáveis do worker apontando para o `grolla-fakes`.
+- [x] 0.8 `make check` verde com os stubs e commit de contrato.
 
 ## 1. grolla-dominio
 
