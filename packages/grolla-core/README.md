@@ -73,7 +73,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   projeção e o card na outbox são gravados juntos ou nada é gravado.
 - `register_alert` é um `INSERT … ON CONFLICT DO NOTHING RETURNING id`: devolve `False` para um
   reenvio, mesmo com dois processos.
-- `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação;
+- `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
+  esperando retentativa segura os seguintes do mesmo incidente, para a ordem por incidente;
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou
   `notification_failed` com `{"kind", "attempts"[, "error"]}`.
 - `data` dos eventos, `labels` e `raw` voltam do banco como JSON: horários viram ISO 8601 e ids

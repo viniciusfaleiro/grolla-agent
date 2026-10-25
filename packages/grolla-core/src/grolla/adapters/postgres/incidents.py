@@ -314,9 +314,15 @@ class PostgresNotificationOutbox:
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 sa.text(
-                    "SELECT id, notification, attempts FROM outbox"
+                    "SELECT id, notification, attempts FROM outbox AS item"
                     " WHERE delivered_at IS NULL AND failed_at IS NULL"
-                    " AND next_attempt_at <= :now ORDER BY id LIMIT :limit"
+                    " AND next_attempt_at <= :now"
+                    # Card mais antigo do incidente esperando retentativa segura os seguintes.
+                    " AND NOT EXISTS (SELECT 1 FROM outbox AS older"
+                    " WHERE older.incident_id = item.incident_id AND older.id < item.id"
+                    " AND older.delivered_at IS NULL AND older.failed_at IS NULL"
+                    " AND older.next_attempt_at > :now)"
+                    " ORDER BY id LIMIT :limit"
                 ),
                 {"now": now, "limit": limit},
             )
