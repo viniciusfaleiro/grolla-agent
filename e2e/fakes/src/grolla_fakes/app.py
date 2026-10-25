@@ -10,7 +10,9 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
+from grolla_fakes.azure_devops import AzureDevOpsFake
 from grolla_fakes.console import ApiTarget, console_router
+from grolla_fakes.signoz_mcp import SignozFake
 from grolla_fakes.state import FakesState, RecordedRequest, Scenario
 
 CONTROL_PREFIX = "/_control"
@@ -20,10 +22,16 @@ def create_app(api: ApiTarget | None = None) -> FastAPI:
     app = FastAPI(title="grolla-fakes")
     state = FakesState()
     app.include_router(console_router(state, api or ApiTarget.from_env()))
+    signoz, azure_devops = SignozFake(state), AzureDevOpsFake(state)
+    app.include_router(signoz.control_router())
+    app.mount("/signoz", signoz.asgi)  # o servidor MCP atende em /signoz/mcp
+    app.include_router(azure_devops.router())
 
     @app.post(f"{CONTROL_PREFIX}/reset", status_code=204)
     async def reset() -> None:  # pyright: ignore[reportUnusedFunction]
         state.reset()
+        signoz.reset()
+        azure_devops.reset()
 
     @app.post(f"{CONTROL_PREFIX}/scenario", status_code=204)
     async def load_scenario(scenario: Scenario) -> None:  # pyright: ignore[reportUnusedFunction]

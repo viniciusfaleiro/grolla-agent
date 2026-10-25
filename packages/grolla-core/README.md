@@ -40,6 +40,8 @@ os deployables só montam o processo.
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL) | `grolla.adapters.teams.TeamsChatNotifier` |
+| **Telemetria (MCP do SigNoz)** | `Telemetry` pelo `signoz-mcp-server` (streamable HTTP, sem chave: ela fica no container do servidor). Lista fechada de leitura (`signoz_aggregate_traces`, `signoz_search_logs`, `signoz_search_traces`, `signoz_get_service_top_operations`); outra ferramenta é recusada sem chamar o servidor. Sinais neutros viram agregações sobre os spans (`taxa_de_erro` = spans com erro ÷ total, `latencia_p99` = p99 de `duration_nano`, `vazao` = `rate()`), em 6 pontos na janela; logs de erro são `severity_number >= 17`. Resumo compacto em português com link para o SigNoz; timeout de 20 s por chamada; erro, timeout ou resposta fora do formato viram `ToolUnavailableError` | `grolla.adapters.signoz.telemetry.SignozTelemetry` |
+| **Deploys (Azure DevOps)** | `ChangeHistory` pela API REST (`_apis/build/builds?repositoryId=…&repositoryType=TfsGit&minTime=…`), PAT somente leitura em Basic. Repositório pelo mapa (exceções) ou pelo nome do serviço nos `projects` (`_apis/git/repositories/{nome}`), com cache em memória; sem repositório, responde "serviço sem repositório mapeado". Até 10 builds com horário, versão, branch, autor e resultado, e link do pipeline; HTTP ≠ 200, rede ou formato inesperado viram `ToolUnavailableError` | `grolla.adapters.azure_devops.AzureDevOpsChangeHistory` |
 | **Configuração** | Variáveis `GROLLA_*` validadas por processo (`ApiSettings`, `WorkerSettings`); erro nomeia a variável | `grolla.bootstrap.load_settings` |
 | **Configuração do time** | YAML com filtro de labels, labels de serviço, janela e regras de severidade; erro aponta o campo | `grolla.bootstrap.load_team_config` |
 | **Composição** | Migra e monta as dependências de cada processo | `grolla.bootstrap.prepare_api` · `prepare_worker` |
@@ -120,7 +122,8 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py
   application/     clock.py · incidents.py
-  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) · signoz/ · teams/
+  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) ·
+                   signoz/ (webhook + telemetry.py, cliente MCP) · azure_devops/ · teams/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/
