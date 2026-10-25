@@ -30,7 +30,13 @@ os deployables só montam o processo.
 | **Relógio do sistema** | Adapter real do `Clock` | `grolla.adapters.system_clock.SystemClock` |
 | **Relógio fake** | Relógio parado que só anda quando o teste manda | `grolla.testing.clock.FakeClock` |
 | **Incidentes (domínio)** | Severidade por regras, agrupamento por serviço na janela, estados Detectado/Informado, eventos e cards — decisões puras | `grolla.domain.incidents.decide_firing` · `decide_resolved` |
-| **Receber alertas** | Filtro por time, deduplicação e uma transação por alerta | `grolla.application.incidents.receive_alerts` |
+| **Receber alertas** | Filtro por time, deduplicação e uma transação por alerta; incidente novo grava o pedido de análise (`analysis_requested`) na mesma transação | `grolla.application.incidents.receive_alerts` |
+| **Análise (domínio)** | Análise concluída (hipóteses por confiança) ou parcial (motivo e o que foi avaliado); texto de cada motivo para card e página | `grolla.domain.analysis.complete` · `partial` · `PARTIAL_REASON_TEXT` |
+| **Ferramentas da investigação** | `query_metric`, `search_logs`, `find_traces` e `recent_deploys` com JSON Schema fechado e janela do `lookback`; falha vira avaliação "não foi possível consultar", nunca exceção | `grolla.application.investigation.Toolbox` |
+| **Orçamento e prompt** | Limite de tokens por análise (entrada, saída e cache); roteiro curto neutro (impacto, deploys, traces, logs) e mensagem montada do incidente | `TokenBudget` · `SYSTEM_PROMPT` · `brief_text` |
+| **Rodar a análise** | Reivindica o pedido, investiga sob timeout, converte toda falha em parcial e grava análise, evento, card `analysis_ready` e uso do modelo numa transação; o reaper encerra como "interrompida" o que passou do timeout + 2 min | `grolla.application.analysis.run_next_analysis` · `reap_stuck_analyses` |
+| **Ports da investigação** | `Telemetry`, `ChangeHistory`, `LanguageModel`, `AnalysisQueue` | `grolla.application.investigation` · `grolla.application.analysis` |
+| **Fakes da investigação** | Telemetria e histórico roteirizados, modelo que chama ferramentas e devolve, falha ou demora, fila de análises em memória | `grolla.testing.investigation` · `InMemoryAnalysisQueue` · `make_analysis` |
 | **Entregar cards** | Outbox em ordem por incidente, espera dobrando a cada falha, desistência no limite | `grolla.application.incidents.deliver_notifications` |
 | **Ports de incidentes** | `AlertIngress`, `ChatNotifier`, `IncidentRepository`/`IncidentUnitOfWork`, `NotificationOutbox` | `grolla.application.incidents` |
 | **Fakes de incidentes** | Repositório e outbox em memória, canal de chat que grava e falha sob comando, entrada de alertas | `grolla.testing.incidents` · `grolla.testing.builders` |
@@ -104,7 +110,7 @@ uv run pytest packages/grolla-core/tests/unit           # só unitários (sem re
 |---|---|---|
 | `tests/unit/` | Unitários; inclui a prova de que a rede está bloqueada | bloqueada |
 | `tests/integration/` | Postgres real via Testcontainers (fixture `database_url`) | liberada |
-| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`, `IncidentRepositoryContract`, `NotificationOutboxContract`, `ChatNotifierContract`, `AlertIngressContract`) | — |
+| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`, `IncidentRepositoryContract`, `NotificationOutboxContract`, `ChatNotifierContract`, `AlertIngressContract`, `TelemetryContract`, `ChangeHistoryContract`, `LanguageModelContract`, `AnalysisQueueContract`) | — |
 
 Todo adapter e todo fake de um port herdam a suíte de contrato dele:
 
@@ -119,10 +125,10 @@ class TestSystemClockContract(ClockContract):
 
 ```
 src/grolla/
-  domain/          incidents.py
-  application/     clock.py · incidents.py
+  domain/          incidents.py · analysis.py
+  application/     clock.py · incidents.py · investigation.py · analysis.py
   adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) · signoz/ · teams/ · anthropic/
   bootstrap/       settings.py · team_config.py · container.py
-  testing/         clock.py (FakeClock) · incidents.py (fakes) · builders.py
+  testing/         clock.py (FakeClock) · incidents.py · investigation.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/
 ```

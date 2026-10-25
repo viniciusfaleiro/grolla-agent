@@ -91,8 +91,10 @@ def test_p3_alert_opens_an_informed_incident_with_a_card() -> None:
     assert types(decision) == [
         EventType.ALERT_RECEIVED,
         EventType.STATE_CHANGED,
+        EventType.ANALYSIS_REQUESTED,
         EventType.NOTIFICATION_QUEUED,
     ]
+    assert decision.request_analysis
     assert decision.events[0].data["severity_reason"] == "severidade padrão"
     assert decision.events[1].data == {"from": "detectado", "to": "informado"}
     [card] = decision.notifications
@@ -106,7 +108,12 @@ def test_p1_alert_opens_an_incident_that_stays_detected() -> None:
 
     assert decision.incident is not None
     assert decision.incident.state is IncidentState.DETECTED
-    assert types(decision) == [EventType.ALERT_RECEIVED, EventType.NOTIFICATION_QUEUED]
+    assert types(decision) == [
+        EventType.ALERT_RECEIVED,
+        EventType.ANALYSIS_REQUESTED,
+        EventType.NOTIFICATION_QUEUED,
+    ]
+    assert decision.request_analysis
     assert decision.events[0].data["severity_rule"] == 1
     assert decision.events[0].data["severity_reason"] == "regra 2"
 
@@ -127,6 +134,7 @@ def test_alert_of_the_same_service_in_the_window_is_grouped_without_card() -> No
     assert types(decision) == [EventType.ALERT_GROUPED]
     assert decision.events[0].data["reason"] == "mesmo serviço"
     assert decision.notifications == ()
+    assert not decision.request_analysis
 
 
 def test_most_recent_candidate_wins() -> None:

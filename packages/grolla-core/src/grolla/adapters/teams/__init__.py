@@ -12,7 +12,6 @@ from grolla.domain.analysis import (
     Evaluation,
     Evidence,
     Hypothesis,
-    PartialReason,
 )
 from grolla.domain.incidents import Notification, NotificationKind
 
@@ -32,9 +31,6 @@ _COLORS = {
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }
 
-
-# O canal diz "LLM indisponível" para a falha do modelo: é o que o time entende de cara.
-_PARTIAL_REASONS = {**PARTIAL_REASON_TEXT, PartialReason.LLM_FAILED: "LLM indisponível"}
 
 _NOTHING = "- nenhuma consulta concluída"
 
@@ -118,7 +114,7 @@ def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[
     else:  # o resumo da parcial só repete o motivo, que já vai logo abaixo do título
         body = [
             _headline("Análise parcial", notification, "Warning"),
-            _text(f"Motivo: {_PARTIAL_REASONS[analysis.partial_reason]}"),
+            _text(f"Motivo: {PARTIAL_REASON_TEXT[analysis.partial_reason]}"),
             *_identity(notification),
         ]
     body.append(
