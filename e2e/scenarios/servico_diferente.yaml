@@ -1,5 +1,5 @@
 # Com um incidente ativo de um serviço, um alerta de outro serviço abre outro incidente, com o
-# seu "investigando" e a sua análise.
+# seu "investigando", a sua análise e a sua causa raiz.
 name: serviço diferente abre outro incidente
 given:
   fakes:
@@ -74,7 +74,8 @@ then:
   - expect_fake_requests:
       path: /teams/webhook
       contains: [diferente-autoriza-api]
-      count: 2
+      count: 3
+      timeout_seconds: 90
   - expect_fake_requests:
       path: /teams/webhook
       contains: [diferente-captura-api, Análise pronta]
@@ -83,4 +84,5 @@ then:
   - expect_fake_requests:
       path: /teams/webhook
       contains: [diferente-captura-api]
-      count: 2
+      count: 3
+      timeout_seconds: 90
