@@ -31,7 +31,7 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Saúde do worker** | `200` se o último heartbeat tem até 2 min, senão `503`; corpo `{"last_heartbeat": <iso ou null>}` | `GET /health/worker` |
 | **Webhook de alertas** | HTTP Basic: `401` sem credencial válida (sem efeito), `422` em payload inválido ou não-JSON, `202` depois de processar os alertas | `POST /webhooks/alerts` |
 | **Lista de incidentes** | HTML server-side: título, severidade, estado, serviços e detecção, mais recentes primeiro | `GET /incidents` |
-| **Página do incidente** | HTML: dados do incidente; a análise (em andamento, concluída ou parcial com o motivo, com resumo, "O que avaliei", hipóteses com confiança e evidências com link e o plano proposto); alertas (status, regra, resumo, origem) e a timeline de eventos; `404` se não existe | `GET /incidents/{id}` |
+| **Página do incidente** | HTML: dados do incidente; a análise (em andamento, concluída ou parcial com o motivo, com resumo, "O que avaliei", hipóteses com confiança e evidências com link e o plano proposto); a validação logo abaixo (validando as hipóteses, concluída ou parcial com o motivo, com a causa raiz em destaque ou "causa raiz não confirmada" e o que faltou, o veredito de cada hipótese com justificativa e evidências, o plano de ação com alvo, efeito esperado e link e o que avaliei na validação); a causa raiz também aparece perto do título; alertas (status, regra, resumo, origem) e a timeline de eventos; `404` se não existe | `GET /incidents/{id}` |
 
 ## ⚡ Como rodar
 

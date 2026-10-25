@@ -34,7 +34,7 @@ Teams, Spike.sh, MCPs).
 | **Modo do LLM** | Troca o comportamento da Messages API fake: `completa` (padrão), `fora_do_ar` ou `lenta`; responde 204 | `POST /_control/llm` `{"mode": "fora_do_ar"}` |
 | **Roteiro da telemetria** | Fixa respostas ou falhas das ferramentas do MCP do SigNoz | `POST /_control/signoz` |
 | **Roteiro dos deploys** | Limita repositórios, fixa builds ou derruba a API do Azure DevOps | `POST /_control/azure-devops` |
-| **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker (investigando e análise) como um canal do Teams, põe o Teams aceitando (202) ou falhando (500) e escolhe o roteiro do LLM fake (completa, fora do ar, lenta) | `GET /_console` |
+| **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker (investigando, análise e causa raiz) como um canal do Teams, põe o Teams aceitando (202) ou falhando (500) e escolhe o roteiro do LLM fake para a análise (completa, fora do ar, lenta) e para a validação (completa, fora do ar, lenta, inconclusiva) | `GET /_console` |
 | **Superfície fake** | Qualquer outro método/caminho: grava e responde pelo roteiro | `/{qualquer caminho}` |
 
 ```json
@@ -95,7 +95,8 @@ docker compose --profile e2e --project-name grolla-demo down --volumes
 O console chama a api pelo servidor (`GROLLA_FAKES_API_URL`, `GROLLA_FAKES_API_USER`,
 `GROLLA_FAKES_API_PASSWORD`; os padrões são os do e2e), então o navegador não precisa de CORS
 nem vê a senha. O canal lista o que chegou em `POST /teams/webhook`, com o status que o fake
-respondeu: o card "investigando" e, depois, o card de análise. O renderer entende `TextBlock`
+respondeu: o card "investigando", o card de análise e, depois da validação, o card "Causa
+raiz" (causa raiz, hipóteses com o veredito, plano de ação e o que faltou). O renderer entende `TextBlock`
 (com quebra de linha e linhas `- item` como lista), `FactSet`, `Container`, `ColumnSet` e
 `Action.OpenUrl`.
 
@@ -103,6 +104,12 @@ O seletor **Roteiro do LLM fake** escolhe como o LLM fake responde às próximas
 análise completa (padrão), LLM fora do ar ou análise lenta. Os dois últimos geram a análise
 parcial. O seletor chama `POST /_control/llm {"mode": "completa" | "fora_do_ar" | "lenta"}`,
 e `/_control/reset` volta para `completa`.
+
+O seletor **Validação das hipóteses** faz o mesmo para a segunda fase: causa raiz confirmada
+(padrão), LLM fora do ar, validação lenta ou inconclusiva (termina sem causa raiz, com o que
+faltou). Fora do ar e lenta geram a validação parcial. Ele chama
+`POST /_control/llm {"verification_mode": "completa" | "fora_do_ar" | "lenta" | "inconclusiva"}`;
+os dois campos do controle são opcionais e um não mexe no outro.
 
 ## 🧪 Testes
 

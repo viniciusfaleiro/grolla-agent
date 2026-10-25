@@ -34,7 +34,7 @@
 
 ## 4. grolla-web
 
-- [ ] 4.1 Seção "Validação" na página do incidente (vereditos, causa raiz, plano e avaliações) e o card da causa raiz no console; testes; README; `make check` verde.
+- [x] 4.1 Seção "Validação" na página do incidente (vereditos, causa raiz, plano e avaliações) e o card da causa raiz no console; testes; README; `make check` verde.
 
 ## 5. grolla-e2e
 
