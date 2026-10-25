@@ -97,7 +97,7 @@ async def test_builds_are_filtered_by_repository_and_since_with_basic_pat() -> N
         "repositoryId": REPO_ID,
         "repositoryType": "TfsGit",
         "minTime": "2026-10-25T05:00:00Z",
-        "queryOrder": "startTimeDescending",
+        "queryOrder": "queueTimeDescending",
         "$top": "10",
         "api-version": "7.1",
     }

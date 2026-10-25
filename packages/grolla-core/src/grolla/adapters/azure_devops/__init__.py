@@ -102,7 +102,9 @@ class AzureDevOpsChangeHistory:
             "repositoryId": repository.id,
             "repositoryType": "TfsGit",
             "minTime": since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "queryOrder": "startTimeDescending",
+            # Com minTime, o Azure DevOps real devolve zero builds se a ordem for por início;
+            # pela fila funciona e dá a mesma ordem para deploys em sequência.
+            "queryOrder": "queueTimeDescending",
             "$top": str(MAX_BUILDS),
         }
         path = f"{quote(repository.project)}/_apis/build/builds"
