@@ -12,6 +12,7 @@ O agent-grolla é um agente de SRE que acompanha o ambiente de adquirência e ca
 - Entregar ao on-call uma investigação já em andamento, com hipóteses ranqueadas e evidências.
 - Manter um registro completo e auditável de cada incidente, sem esforço manual do time.
 - Gerar o rascunho do post mortem automaticamente, para revisão e aprovação humana.
+- Aprender com o tempo sobre o ambiente (infra, componentes, padrões, incidentes passados) e usar esse conhecimento para investigar melhor a cada incidente, inclusive avisando o time quando um problema parecido já aconteceu.
 
 ## Não-objetivos da v1
 
@@ -198,6 +199,7 @@ A investigação é feita por um worker LLM por incidente, que usa os MCPs do Si
 
 ### Roteiro padrão de investigação
 
+0. **Histórico:** buscar incidentes passados parecidos e o conhecimento já acumulado sobre os serviços afetados (ver [Aprendizado contínuo](#aprendizado-contínuo-e-memória-do-ambiente)). Se houver um caso parecido, a causa e a correção dele viram a primeira hipótese a confirmar ou descartar.
 1. **Delimitar o impacto:** quais serviços, endpoints, bandeiras, emissores e lojistas foram afetados, e desde quando.
 2. **Mudanças recentes:** deploys, PRs mergeados e pipelines no Azure DevOps nas últimas 2–6 horas dos serviços afetados e de suas dependências.
 3. **Traces:** spans com erro ou lentidão, para localizar em que dependência o problema começa (banco, bandeira, serviço interno, fila).
@@ -256,6 +258,7 @@ O Teams é o canal de notificação, e o war room web é onde o time interage co
 | Momento | Conteúdo do card |
 |---|---|
 | Detecção (P0/P1) | "Identifiquei a anomalia X, baseado nas evidências Y, que pode ser um problema. Vou começar a investigar." Severidade, serviços afetados, impacto estimado, link do war room |
+| Já vi isso antes | "Isso parece o incidente #N de 12/09 (causa: pool de conexões do RDS esgotado; resolvido com restart do authorizer-api)." Link do incidente e do post mortem, e o grau de semelhança |
 | Acionamento | Confirmação de que o on-call foi acionado no Spike.sh e por quê |
 | Update periódico (5 min) | Status, o que mudou desde o último update, hipótese principal e confiança, impacto acumulado |
 | Hipóteses prontas | Top 3 hipóteses em ordem de prioridade, ações sugeridas, link para detalhes |
@@ -343,6 +346,34 @@ O agente gera o rascunho do post mortem assim que o incidente é encerrado, a pa
 - Lista de post mortems por status, com filtros por severidade, serviço e período, e alerta para action items vencidos.
 - **Fase 2:** criação dos action items como work items no Azure DevOps.
 
+## Aprendizado contínuo e memória do ambiente
+
+O agente acumula conhecimento sobre o ambiente a cada incidente, investigação, post mortem e conversa, e usa esse conhecimento para direcionar as próximas investigações. Um incidente parecido com um do passado é avisado ao time logo no começo: "já vi isso no incidente #N".
+
+### Duas memórias
+
+| Memória | O que guarda | De onde vem |
+|---|---|---|
+| **Incidentes passados** | Sintomas (alertas, serviços, padrões de erro, métricas afetadas), causa confirmada, fatores contribuintes, o que resolveu, hipóteses descartadas | O próprio log de eventos e os post mortems aprovados; nada é perdido, porque tudo é gravado desde o primeiro incidente |
+| **Conhecimento do ambiente** | Fatos sobre infra e componentes: dependências, donos, padrões normais ("o TPS cai às 3h pelo batch de conciliação"), alertas que costumam ser ruído, armadilhas conhecidas, runbooks | Extraído pelo agente ao encerrar incidentes e aprovar post mortems, das correções do time no chat ("isso é normal") e do console |
+
+### Incidentes parecidos
+
+- Ao abrir um incidente e no início de cada investigação, o agente busca casos passados parecidos.
+- A busca começa determinística e barata: mesmos serviços ou dependências, mesma regra de alerta, mesma assinatura de erro; e busca textual nos títulos, hipóteses confirmadas e post mortems. O LLM reordena os candidatos e explica a semelhança. Busca semântica por embeddings só entra se a busca simples se mostrar insuficiente nos evals.
+- Com semelhança relevante, o agente posta o card "já vi isso antes" no Teams e no war room, com links, e coloca a causa passada como primeira hipótese, sempre com "como confirmar".
+
+### Conhecimento do ambiente
+
+- Cada fato tem fonte (incidente, post mortem, mensagem ou conversa do console), data, quem confirmou e última verificação.
+- **O agente propõe, um humano confirma.** Fatos novos entram como propostos; só fatos confirmados são usados para direcionar investigações. Uma página de conhecimento lista, edita, confirma e aposenta fatos.
+- Fatos sem verificação há muito tempo, ou contrariados por um incidente novo, voltam para revisão.
+- O conhecimento nunca muda regras de severidade nem aciona ninguém por conta própria; ele pode sugerir mudanças nas regras, que um humano aplica.
+
+### Medir se está melhorando
+
+A seção "Avaliação do agente" do post mortem alimenta métricas por período: acerto da hipótese principal, tempo até a hipótese certa e quantas vezes o histórico ajudou. Os evals reproduzem incidentes reais para comparar a investigação com e sem o conhecimento acumulado.
+
 ## Modelo de dados
 
 O coração do modelo é um log de eventos imutável por incidente: o estado atual, a timeline, os updates e o post mortem são todos derivados dele. Banco: PostgreSQL no mesmo host (container), com backup diário para S3.
@@ -358,8 +389,10 @@ O coração do modelo é um log de eventos imutável por incidente: o estado atu
 | `postmortems` | incident_id, status, conteúdo por seção, versões, aprovador |
 | `action_items` | postmortem_id, descrição, dono, prazo, tipo, status, link do work item |
 | `llm_usage` | incident_id, etapa, modelo, tokens de entrada e saída, custo estimado |
+| `knowledge_facts` | texto do fato, serviços relacionados, fonte (incidente, post mortem, mensagem), status (proposto, confirmado, aposentado), quem confirmou, última verificação |
+| `incident_similarities` | incident_id, incidente passado, semelhança, motivo, se o time confirmou que era o mesmo problema |
 
-Tipos de evento principais: `alert_received`, `alert_grouped`, `state_changed`, `severity_changed`, `oncall_paged`, `investigation_cycle`, `hypothesis_updated`, `teams_posted`, `human_message`, `human_action`, `transcript_ingested`, `resolution_proposed`, `incident_closed`.
+Tipos de evento principais: `alert_received`, `alert_grouped`, `state_changed`, `severity_changed`, `oncall_paged`, `investigation_cycle`, `hypothesis_updated`, `teams_posted`, `human_message`, `human_action`, `transcript_ingested`, `resolution_proposed`, `incident_closed`, `similar_incident_found`, `knowledge_proposed`, `knowledge_confirmed`.
 
 ## Configuração por deployment
 
@@ -437,7 +470,7 @@ O agente é somente leitura em todas as integrações, e o custo de LLM é limit
 - Webhook de entrada do SigNoz protegido por token e, se possível, restrito ao IP/VPC do SigNoz.
 - War room acessível apenas por rede interna ou VPN na fase 1; SSO na fase 2.
 - Mascaramento leve antes de enviar dados ao LLM (padrões de cartão, CPF, tokens e chaves), como defesa extra mesmo sem PAN nos logs.
-- Conteúdo vindo de logs, código e chat é tratado como dado, nunca como instrução ao agente (proteção contra prompt injection em logs).
+- Conteúdo vindo de logs, código, chat e da memória do agente (incidentes passados e conhecimento acumulado) é tratado como dado, nunca como instrução ao agente (proteção contra prompt injection).
 
 ### Controle de custo
 
@@ -464,6 +497,7 @@ O maior risco da v1 é acionar o on-call automaticamente desde o primeiro dia se
 | War room sem autenticação na fase 1 | Acesso só por rede interna/VPN; SSO como pré-requisito para ampliar o uso |
 | Incidentes duplicados entre times | Aceito na v1; correlação entre instâncias numa fase futura |
 | Custo de LLM sem teto definido | Limite por incidente, modelos por etapa, painel de custo |
+| Conhecimento errado ou desatualizado direcionando a investigação | Agente propõe e humano confirma; fonte e data em cada fato; revisão de fatos antigos ou contrariados; histórico sempre como hipótese a confirmar, nunca como conclusão |
 | EC2 única como ponto de falha | Heartbeat monitorado, núcleo funcionando sem LLM, backup do banco no S3 |
 
 ### Questões em aberto
@@ -472,7 +506,7 @@ O maior risco da v1 é acionar o on-call automaticamente desde o primeiro dia se
 - [ ] Confirmar que os alertas no SigNoz têm labels de time e serviço para o filtro por instância.
 - [ ] Confirmar se o Spike.sh tem uma escala por time ou se o agente precisa escolher a escala.
 - [ ] Definir quem é o IC padrão quando ninguém assume no war room.
-- [ ] Definir retenção dos dados de incidente e post mortem.
+- [ ] Definir retenção dos dados de incidente e post mortem (o aprendizado depende de histórico longo).
 - [ ] Definir o orçamento mensal de LLM após 4 semanas de uso medido.
 
 ## Roadmap por fases
@@ -483,7 +517,7 @@ A Fase 1 entrega o ciclo completo para um time, da detecção ao post mortem; as
 
 ```mermaid
 flowchart LR
-    F1["<b>Fase 1 · MVP</b><br/>Alertas, triagem e Spike.sh<br/>Investigação com Claude + MCPs<br/>War room, console e transcrição<br/>Post mortem editável e PDF<br/>Acesso só por rede interna"]
+    F1["<b>Fase 1 · MVP</b><br/>Alertas, triagem e Spike.sh<br/>Investigação com Claude + MCPs<br/>War room, console e transcrição<br/>Post mortem editável e PDF<br/>Aprendizado e incidentes parecidos<br/>Acesso só por rede interna"]
     G1{{"Gate: 1º P0/P1 conduzido<br/>de ponta a ponta"}}
     F2["<b>Fase 2 · Endurecimento</b><br/>SSO no war room e post mortem<br/>Thresholds calibrados com dados<br/>Action items no Azure DevOps<br/>Painel de custo e orçamento<br/>Vigias criados pelo chat"]
     G2{{"Gate: 4 semanas de uso<br/>medido e revisado"}}
@@ -497,7 +531,7 @@ flowchart LR
 
 | Fase | Entregas | Gate de saída |
 |---|---|---|
-| **Fase 1 · MVP** | Alertas, triagem e Spike.sh; investigação com Claude + MCPs; war room, console e transcrição; post mortem editável e PDF; acesso só por rede interna | 1º P0/P1 conduzido de ponta a ponta |
+| **Fase 1 · MVP** | Alertas, triagem e Spike.sh; investigação com Claude + MCPs; war room, console e transcrição; post mortem editável e PDF; aprendizado contínuo e incidentes parecidos; acesso só por rede interna | 1º P0/P1 conduzido de ponta a ponta |
 | **Fase 2 · Endurecimento** | SSO no war room e post mortem; thresholds calibrados com dados; action items no Azure DevOps; painel de custo e orçamento; vigias criados pelo chat | 4 semanas de uso medido e revisado |
 | **Fase 3 · Escala** | Correlação entre instâncias; portal único de post mortems; remediação com aprovação humana | — |
 

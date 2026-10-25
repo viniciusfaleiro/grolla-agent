@@ -18,7 +18,9 @@ fechar. A spec de produto é [`docs/initial-spec.md`](../docs/initial-spec.md).
 - **Acionamento com modo sombra.** O S3 nasce com `pager.mode: shadow`: o agente só posta no
   Teams "eu teria acionado o on-call". O modo real é ligado por config depois de 1–2 semanas de
   calibração das regras de severidade.
-- S7–S10 são independentes entre si e podem ser reordenados pela dor do plantão.
+- **A memória começa no S2.** O aprendizado depende de histórico: desde o primeiro incidente, o
+  log de eventos guarda sintomas, decisões e desfechos com detalhe suficiente para comparar casos.
+- S8–S11 são independentes entre si e podem ser reordenados pela dor do plantão.
 
 ## S1 · Fundação ✅
 
@@ -65,6 +67,9 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
   `recent_deploys`, `read_file`); saída JSON validada; card "hipóteses prontas" e seção de
   hipóteses no war room; mapa serviço → repositório; limite de tokens por incidente e
   `llm_usage`; núcleo segue funcionando se o LLM cair.
+- **Incidentes parecidos (v1):** antes de investigar, busca determinística e textual nos
+  incidentes encerrados (mesmos serviços, regra de alerta, assinatura de erro); o caso parecido
+  vira a primeira hipótese e gera o card "já vi isso no incidente #N".
 - **Ports:** `LanguageModel`, `Telemetry`, `ChangeHistory`.
 - **Evals:** `evals/` começa aqui, com replay dos incidentes reais gravados desde o S2.
 
@@ -84,33 +89,44 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
   lista com filtros e action items vencidos.
 - **Ports:** `DocumentRenderer`.
 
-## S7 · Menos ruído
+## S7 · O agente aprende
+
+- **Valor:** a cada incidente o agente conhece melhor o ambiente e investiga melhor; o time
+  ouve "já vimos isso" com a causa e a correção do caso passado.
+- **Escopo:** extração de fatos sobre o ambiente ao encerrar incidentes, ao aprovar post mortems
+  e das correções do time no chat; página de conhecimento (propor → confirmar → aposentar, com
+  fonte e data); fatos confirmados entram no contexto da investigação; incidentes parecidos
+  passam a usar também os post mortems aprovados e a confirmação do time ("era o mesmo
+  problema"); revisão de fatos antigos ou contrariados; métricas de acerto do agente por período.
+- **Evals:** investigação com e sem conhecimento acumulado nos mesmos incidentes reais.
+
+## S8 · Menos ruído
 
 - **Valor:** menos incidentes duplicados e menos alertas sem severidade.
 - **Escopo:** agrupamento pelo LLM quando a regra determinística não decide; sugestão de
   severidade quando nenhuma regra casa (na dúvida, o nível mais alto); motivo registrado na
   timeline.
 
-## S8 · Console de operação
+## S9 · Console de operação
 
 - **Valor:** respostas sobre a saúde do ambiente sem incidente aberto.
 - **Escopo:** chat geral com sessões salvas; respostas com evidência e gráficos; "abrir incidente
   a partir desta conversa"; prioridade menor que incidentes e limite de tokens próprio.
 
-## S9 · Transcrição de call
+## S10 · Transcrição de call
 
 - **Valor:** o que foi decidido na call entra no registro sem esforço manual.
 - **Escopo:** upload da transcrição; extração de decisões, ações, horários e participantes como
   eventos "origem: transcrição"; reavaliação das hipóteses.
 
-## S10 · Investigação na AWS
+## S11 · Investigação na AWS
 
 - **Valor:** hipóteses que também olham a infraestrutura AWS.
 - **Escopo:** role somente leitura por conta; AWS Health, alarmes do CloudWatch, RDS, ELB,
   EKS/ECS, quotas e CloudTrail como ferramentas neutras da investigação.
 - **Ports:** `CloudInventory`.
 
-## Fase 2 (depois do S10)
+## Fase 2 (depois do S11)
 
 SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com
 dados; action items como work items no Azure DevOps; painel de custo e orçamento de LLM; vigias

@@ -37,6 +37,10 @@ melhores profissionais de SRE** com quem o autor já trabalhou — o Grolla. Che
 separar sinal de ruído, levantar hipóteses com evidência e manter o registro de tudo o que
 aconteceu durante a crise.
 
+E, como um bom SRE, ele **aprende com o tempo**: guarda o que viu em cada incidente e o que
+descobriu sobre o ambiente, e usa isso para investigar melhor — inclusive avisando o time quando
+um problema parecido já aconteceu ("já vi isso no incidente #N").
+
 Duas decisões atravessam o projeto inteiro:
 
 - **Somente leitura.** O agente sugere ações; quem executa e quem encerra o incidente é uma pessoa.
@@ -221,10 +225,11 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes ✅
 - **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams e página do incidente
 - **S3 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
-- **S4 — Investigação pronta** · hipóteses ranqueadas com evidência do SigNoz e do Azure DevOps
+- **S4 — Investigação pronta** · hipóteses ranqueadas com evidência do SigNoz e do Azure DevOps, começando pelos incidentes parecidos
 - **S5 — Agente acompanha a crise** · updates, impacto financeiro, chat e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
-- **S7–S10** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS
+- **S7 — O agente aprende** · memória do ambiente e de incidentes passados: "já vi isso no incidente #N"
+- **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS
 
 ## 📄 Licença
 
