@@ -1,0 +1,615 @@
+{
+  "status": "success",
+  "data": {
+    "type": "raw",
+    "meta": {
+      "rowsScanned": 120000,
+      "bytesScanned": 5400000,
+      "durationMs": 87
+    },
+    "data": {
+      "results": [
+        {
+          "queryName": "A",
+          "nextCursor": "",
+          "rows": [
+            {
+              "timestamp": "2026-10-25T10:59:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000000",
+                "span_id": "0000000000000000",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:58:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000001",
+                "span_id": "0000000000000001",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:58:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000002",
+                "span_id": "0000000000000002",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:57:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000003",
+                "span_id": "0000000000000003",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:57:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000004",
+                "span_id": "0000000000000004",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:56:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000005",
+                "span_id": "0000000000000005",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:56:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000006",
+                "span_id": "0000000000000006",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000007",
+                "span_id": "0000000000000007",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000008",
+                "span_id": "0000000000000008",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000009",
+                "span_id": "0000000000000009",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000a",
+                "span_id": "000000000000000a",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000b",
+                "span_id": "000000000000000b",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000c",
+                "span_id": "000000000000000c",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000d",
+                "span_id": "000000000000000d",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000e",
+                "span_id": "000000000000000e",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000000f",
+                "span_id": "000000000000000f",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000010",
+                "span_id": "0000000000000010",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000011",
+                "span_id": "0000000000000011",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000012",
+                "span_id": "0000000000000012",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:49:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000013",
+                "span_id": "0000000000000013",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:49:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000014",
+                "span_id": "0000000000000014",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:48:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000015",
+                "span_id": "0000000000000015",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:48:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000016",
+                "span_id": "0000000000000016",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:47:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000017",
+                "span_id": "0000000000000017",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:47:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000018",
+                "span_id": "0000000000000018",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:46:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "00000000000000000000000000000019",
+                "span_id": "0000000000000019",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:46:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000001a",
+                "span_id": "000000000000001a",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:45:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000001b",
+                "span_id": "000000000000001b",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:45:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000001c",
+                "span_id": "000000000000001c",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:44:30Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000001d",
+                "span_id": "000000000000001d",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:44:00Z",
+              "data": {
+                "body": "connection timeout to authorizer-db:5432 after 5000ms (pool exhausted)\n\tat db.Pool.acquire",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "0000000000000000000000000000001e",
+                "span_id": "000000000000001e",
+                "attributes_string": {
+                  "code.function": "acquire"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:40:00Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:39:30Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:39:00Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:38:30Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:38:00Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:37:30Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:37:00Z",
+              "data": {
+                "body": "issuer gateway returned 503",
+                "severity_text": "ERROR",
+                "severity_number": 17,
+                "trace_id": "",
+                "span_id": "",
+                "attributes_string": {},
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
