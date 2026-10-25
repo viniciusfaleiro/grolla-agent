@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from grolla_fakes.console import ApiTarget, console_router
+from grolla_fakes.llm import llm_router
 from grolla_fakes.state import FakesState, RecordedRequest, Scenario
 
 CONTROL_PREFIX = "/_control"
@@ -20,6 +21,7 @@ def create_app(api: ApiTarget | None = None) -> FastAPI:
     app = FastAPI(title="grolla-fakes")
     state = FakesState()
     app.include_router(console_router(state, api or ApiTarget.from_env()))
+    app.include_router(llm_router(state))
 
     @app.post(f"{CONTROL_PREFIX}/reset", status_code=204)
     async def reset() -> None:  # pyright: ignore[reportUnusedFunction]
