@@ -19,7 +19,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-S3%20investiga%20cada%20alerta%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-S3.1%20causa%20raiz%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -57,7 +57,9 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **Webhook de alertas** | Recebe os alertas do SigNoz com HTTP Basic, filtra pelo time e deduplica reenvios | `POST /webhooks/alerts` |
 | **Incidentes** | Agrupa alertas do mesmo serviço numa janela de 15 min, aplica as regras de severidade do YAML (só sobe) e muda o estado (Detectado / Informado) | `receive_alerts` |
 | **Investigação de todo alerta** | Card "Estou investigando" na hora e, em até 5 min, "Análise pronta": o que avaliou (métricas, logs, traces, deploys), hipóteses com confiança e evidência, plano proposto e botões para o incidente e o SigNoz. Falha, timeout ou orçamento viram **análise parcial**, nunca silêncio | job `run_analyses` · `make evals` |
-| **Ferramentas neutras** | `query_metric`, `search_logs`, `find_traces` e `recent_deploys` sobre o MCP do SigNoz (só leitura, lista fechada) e a API de builds do Azure DevOps | `grolla.application.investigation.Toolbox` |
+| **Causa raiz** | Depois da análise inicial, o agente valida cada hipótese em detalhe (confirmada, rejeitada ou inconclusiva) e posta **"Causa raiz"** com um plano de ação concreto, como "fazer rollback para o build X" ou "religar o RDS Y", para o time validar e executar. O plano nunca traz passo de investigação | job `run_verifications` |
+| **Ferramentas neutras** | `query_metric` (pontos de 1 min, com o minuto da mudança), `search_logs` (WARN e acima, mensagens agrupadas), `find_traces` e `recent_deploys` (com a mensagem do commit), sobre o MCP do SigNoz (só leitura, lista fechada) e a API de builds do Azure DevOps | `grolla.application.investigation.Toolbox` |
+| **Nuvem (AWS)** | `cloud_resources`, `cloud_changes` e `cloud_alarms`, só leitura: estado do RDS, EC2 e ELB do serviço (tag `service=<nome>`), mudanças no CloudTrail e alarmes do CloudWatch | `grolla.adapters.aws.AwsCloudInventory` |
 | **Cards no Teams** | Investigando, análise, severidade elevada e normalizado, entregues por outbox com retentativa e em ordem por incidente | job periódico `deliver_notifications` |
 | **Páginas** | Lista de incidentes e página com estado, severidade, análise completa, alertas e timeline | `GET /incidents` · `GET /incidents/{id}` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
@@ -70,7 +72,7 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |
 | **Console de testes** | Dispara alarmes, escolhe o roteiro do LLM fake e mostra os cards do agente como num canal do Teams | `http://localhost:9000/_console` |
 
-> Até o S3: todo alerta vira incidente com "estou investigando" e a análise do agente no Teams.
+> Até o S3.1: todo alerta vira incidente com "estou investigando", a análise inicial e, em seguida, a causa raiz validada com um plano de ação concreto.
 > Acionamento do on-call, war room e post mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
 
 ## 🏛 Arquitetura
@@ -104,7 +106,7 @@ flowchart LR
 `IncidentRepository`, `Scheduler`, `DocumentRenderer` e `Clock`. Cada um nasce no slice que o
 usa, com suíte de contrato, fake e adapter real. Hoje existem `Clock`, `AlertIngress` e `Telemetry`
 (SigNoz), `ChatNotifier` (Teams), `LanguageModel` (Anthropic), `ChangeHistory` (Azure DevOps),
-`IncidentRepository`, `NotificationOutbox` e `AnalysisQueue` (Postgres).
+`CloudInventory` (AWS), `IncidentRepository`, `NotificationOutbox` e `AnalysisQueue` (Postgres).
 
 ## 🧰 Stack
 
@@ -249,11 +251,12 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes ✅
 - **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams, página do incidente e console de testes ✅ (aceite em produção junto com o S3)
 - **S3 — O agente investiga cada alerta** · "estou investigando" em segundos e, em até 5 min, a análise: o que avaliou, hipóteses com evidência, plano proposto e botão para o incidente ✅ (aceite em produção junto com o S2)
+- **S3.1 — Até a causa raiz** · validação de cada hipótese, causa raiz com plano de ação concreto e consulta somente leitura à AWS (o S11 adiantado com escopo mínimo) ✅
 - **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
 - **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, incidentes parecidos, updates, impacto financeiro, chat e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
 - **S7 — O agente aprende** · memória do ambiente e de incidentes passados: "já vi isso no incidente #N"
-- **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS
+- **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · AWS completa (ECS/EKS, quotas, Health, multi-conta)
 
 ## 📄 Licença
 

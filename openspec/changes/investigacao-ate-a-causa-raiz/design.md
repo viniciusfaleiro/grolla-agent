@@ -177,6 +177,19 @@ STAGE_VERIFICATION = "verification"
 10. **Prompt** ganha uma linha: quando logs e traces apontam para uma dependência (banco, fila, rede), consultar `cloud_resources` e `cloud_changes`. E uma regra: só sugerir rollback quando o início do problema vem depois de um deploy, e explicar a relação.
 11. **Sem fake da AWS no `grolla-fakes`.** O e2e roda sem a seção `cloud`, e as ferramentas respondem `NO_CLOUD`. *Mais simples considerada e escolhida:* o adapter é coberto pelo Stubber, e o caminho real é validado no laboratório.
 
+## Desvios de contrato combinados na implementação
+
+Registrados pelo agente pai na integração. O código é a referência.
+
+1. **Constantes novas.** `NO_CLOUD_RESOURCES` ("nenhum recurso de nuvem encontrado para o serviço") em `grolla.application.investigation` e `NO_ROOT_CAUSE` ("causa raiz não confirmada") em `grolla.application.analysis`.
+2. **Falha da nuvem.** O `CloudInventory` levanta `ToolUnavailableError` em falha de credencial, permissão ou rede, como os outros ports. O `Toolbox` transforma isso em "não foi possível consultar".
+3. **Suíte da fila da validação.** É a classe própria `VerificationQueueContract`, separada da `AnalysisQueueContract`.
+4. **Inconclusivo termina como `concluida`.** A validação com todas as hipóteses inconclusivas fica `concluida`, com `root_cause=None`, sem ações e com `missing` preenchido. O status `parcial` fica só para falha, tempo esgotado, orçamento esgotado, resultado inválido (inclusive `NotConcreteError`) ou interrupção. Nesse caso, `missing` = "Validação parcial: <motivo>.".
+5. **`check_plan` também pega o imperativo.** O code review do agente pai mudou a regra para recusar ainda as formas imperativas dos verbos de investigação ("Verifique", "Cheque", "Avalie"), comparando pelo radical.
+6. **Pedido da validação no `finish`.** O `finish` da análise cria a validação pendente só quando a análise tem hipóteses e só se de fato gravou. O pedido repetido mantém o primeiro.
+7. **LLM fake.** O controle é `POST /_control/llm {"mode"?, "verification_mode"?}`. O fake reconhece a fase de validação pelo schema com `verdicts`.
+8. **Uma correção no adapter do LLM.** Quando o plano recebe `NotConcreteError`, o adapter da Anthropic manda uma mensagem de correção e tenta de novo. Se falhar outra vez, levanta `InvalidAnalysisError`.
+
 ## Risks / Trade-offs
 
 - [Credencial com permissão demais] → um usuário IAM dedicado com a política mínima da proposta. No laboratório, uso a conta root só para criar esse usuário.

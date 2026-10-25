@@ -89,6 +89,15 @@ feito junto com o S2, no primeiro deploy.
   minutos, a análise, que o time considera útil (o que avaliou, ao menos uma hipótese com
   evidência e um plano).
 
+## S3.1 · Até a causa raiz ✅
+
+Entregue na change `investigacao-ate-a-causa-raiz`, depois do laboratório real com a pedidos-api
+na AWS. O agente valida cada hipótese, chega à causa raiz e propõe um plano de ação concreto
+(rollback, religar o recurso), além de consultar a AWS só para leitura: estado dos recursos por
+tag, CloudTrail e CloudWatch. É o S11 adiantado com escopo mínimo. Também corrigiu a leitura de
+logs (WARN e acima), as séries (1 min, com o minuto da mudança) e os deploys (com a mensagem do
+commit).
+
 ## S4 · On-call acionado sozinho
 
 - **Valor:** P0/P1 acionam o Spike.sh em minutos, com o link da página do incidente e a análise
@@ -152,7 +161,10 @@ feito junto com o S2, no primeiro deploy.
 - **Escopo:** upload da transcrição; extração de decisões, ações, horários e participantes como
   eventos "origem: transcrição"; reavaliação das hipóteses.
 
-## S11 · Investigação na AWS
+## S11 · AWS completa
+
+O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para cá o restante.
+
 
 - **Valor:** hipóteses que também olham a infraestrutura AWS.
 - **Escopo:** role somente leitura por conta; AWS Health, alarmes do CloudWatch, RDS, ELB,

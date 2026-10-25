@@ -11,18 +11,18 @@
 
 ## 1. grolla-dominio
 
-- [ ] 1.1 `verified`/`verification_partial` e a validação do plano concreto: verbos de investigação recusados e plano vazio sem causa confirmada.
-- [ ] 1.2 Ferramentas `cloud_resources`, `cloud_changes` e `cloud_alarms` no `Toolbox`, e o `NoCloudInventory`.
-- [ ] 1.3 `run_next_verification` e `reap_stuck_verifications` (timeout, parcial em toda falha, card `ROOT_CAUSE`).
-- [ ] 1.4 Prompt da análise inicial (usar a nuvem para dependências; rollback só com o deploy antes do problema) e `VERIFICATION_PROMPT`.
-- [ ] 1.5 Fakes: `ScriptedLanguageModel.verify`, `FakeCloudInventory` e a fila da validação em memória, com as suítes de contrato. Commit cedo.
-- [ ] 1.6 Pisos de cobertura e `make check` verde.
+- [x] 1.1 `verified`/`verification_partial` e a validação do plano concreto: verbos de investigação recusados e plano vazio sem causa confirmada.
+- [x] 1.2 Ferramentas `cloud_resources`, `cloud_changes` e `cloud_alarms` no `Toolbox`, e o `NoCloudInventory`.
+- [x] 1.3 `run_next_verification` e `reap_stuck_verifications` (timeout, parcial em toda falha, card `ROOT_CAUSE`).
+- [x] 1.4 Prompt da análise inicial (usar a nuvem para dependências; rollback só com o deploy antes do problema) e `VERIFICATION_PROMPT`.
+- [x] 1.5 Fakes: `ScriptedLanguageModel.verify`, `FakeCloudInventory` e a fila da validação em memória, com as suítes de contrato. Commit cedo.
+- [x] 1.6 Pisos de cobertura e `make check` verde.
 
 ## 2. grolla-persistencia
 
-- [ ] 2.1 Migração 0004 e a fila da validação (`SKIP LOCKED`, `stuck`, `finish_verification` só em andamento).
-- [ ] 2.2 `finish` da análise pede a validação quando há hipóteses, na mesma transação; `verification_of`.
-- [ ] 2.3 Integração passando nas suítes de contrato; README do core; `make check` verde.
+- [x] 2.1 Migração 0004 e a fila da validação (`SKIP LOCKED`, `stuck`, `finish_verification` só em andamento).
+- [x] 2.2 `finish` da análise pede a validação quando há hipóteses, na mesma transação; `verification_of`.
+- [x] 2.3 Integração passando nas suítes de contrato; README do core; `make check` verde.
 
 ## 3. grolla-integracoes
 
@@ -38,7 +38,7 @@
 
 ## 5. grolla-e2e
 
-- [ ] 5.1 Cenários:
+- [x] 5.1 Cenários:
   - alerta gera investigando, análise inicial e causa raiz, nessa ordem;
   - validação parcial;
   - inicial parcial sem hipóteses não pede validação.
@@ -49,14 +49,14 @@
 
 - [ ] 6.1 Juntar os branches dos agentes e resolver conflitos.
 - [ ] 6.2 Fazer o code review do conjunto entregue e os ajustes que couberem.
-- [ ] 6.3 `deploy/`: seções `cloud` e de limites, as variáveis `AWS_*` e a política IAM mínima.
+- [x] 6.3 `deploy/`: seções `cloud` e de limites, as variáveis `AWS_*` e a política IAM mínima.
 - [ ] 6.4 Laboratório:
   - criar o IAM somente leitura;
   - marcar os recursos da pedidos-api com a tag `service=pedidos-api`;
   - repetir os dois cenários.
 
   A causa raiz precisa sair certa nos dois, com o plano de ação (rollback e religar o RDS).
-- [ ] 6.5 Registrar no `design.md` os desvios de contrato.
+- [x] 6.5 Registrar no `design.md` os desvios de contrato.
 - [ ] 6.6 Revisar e atualizar os READMEs do pai e de cada componente.
 - [ ] 6.7 Rodar `make e2e` e garantir todos os cenários verdes.
 - [ ] 6.8 Rodar `make fmt && make check` e garantir tudo verde.
