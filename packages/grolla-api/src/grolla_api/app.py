@@ -39,6 +39,9 @@ EVENT_LABELS = {
     EventType.ANALYSIS_REQUESTED: "Análise pedida",
     EventType.ANALYSIS_COMPLETED: "Análise concluída",
     EventType.ANALYSIS_PARTIAL: "Análise parcial",
+    EventType.VERIFICATION_REQUESTED: "Validação pedida",
+    EventType.VERIFICATION_COMPLETED: "Validação concluída",
+    EventType.VERIFICATION_PARTIAL: "Validação parcial",
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -46,6 +49,13 @@ ANALYSIS_STATUS_LABELS = {
     AnalysisStatus.RUNNING: "análise em andamento",
     AnalysisStatus.COMPLETED: "análise concluída",
     AnalysisStatus.PARTIAL: "análise parcial",
+}
+
+VERIFICATION_STATUS_LABELS = {
+    AnalysisStatus.PENDING: "validando as hipóteses",
+    AnalysisStatus.RUNNING: "validando as hipóteses",
+    AnalysisStatus.COMPLETED: "validação concluída",
+    AnalysisStatus.PARTIAL: "validação parcial",
 }
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -112,8 +122,10 @@ def create_app(services: Services) -> FastAPI:
             "alerts": await services.repository.alerts_of(found.id),
             "events": await services.repository.events_of(found.id),
             "analysis": await services.repository.analysis_of(found.id),
+            "verification": await services.repository.verification_of(found.id),
             "event_labels": EVENT_LABELS,
             "analysis_labels": ANALYSIS_STATUS_LABELS,
+            "verification_labels": VERIFICATION_STATUS_LABELS,
             "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
         }
         return templates.TemplateResponse(request, "incident.html", context)
