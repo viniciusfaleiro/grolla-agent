@@ -28,3 +28,6 @@ htmlcov/
 
 # Segredos locais lidos pelo docker compose
 .env
+
+# Worktrees dos agentes paralelos (Claude Code)
+.claude/worktrees/

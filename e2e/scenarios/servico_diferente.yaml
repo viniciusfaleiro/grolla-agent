@@ -1,0 +1,75 @@
+# Com um incidente ativo de um serviço, um alerta de outro serviço abre outro incidente e outro card.
+name: serviço diferente abre outro incidente
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no diferente-autoriza-api
+              service_name: diferente-autoriza-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no diferente-autoriza-api
+              description: O p99 de latência do diferente-autoriza-api está em 1,8 s.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=105
+            fingerprint: e2e-diferente-1
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no diferente-captura-api
+              service.name: diferente-captura-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 2 s no diferente-captura-api
+              description: O p99 de latência do diferente-captura-api está em 2 s.
+            startsAt: "2026-01-01T10:01:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=106
+            fingerprint: e2e-diferente-2
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'diferente-autoriza-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'diferente-captura-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(DISTINCT incident_id) FROM alerts
+        WHERE fingerprint IN ('e2e-diferente-1', 'e2e-diferente-2')
+      count: 2
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [diferente-autoriza-api]
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [diferente-captura-api]
+      count: 1

@@ -19,7 +19,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-S1%20funda%C3%A7%C3%A3o%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-S2%20alertas%20viram%20incidentes%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -54,14 +54,22 @@ por capacidade ficam em [`openspec/`](openspec/).
 
 | Área | O que entrega | Ponto de entrada |
 |---|---|---|
-| **Health check** | Api saudável só com o banco acessível (200 / 503) | `GET /health` |
+| **Webhook de alertas** | Recebe os alertas do SigNoz com HTTP Basic, filtra pelo time e deduplica reenvios | `POST /webhooks/alerts` |
+| **Incidentes** | Agrupa alertas do mesmo serviço numa janela de 15 min, aplica as regras de severidade do YAML (só sobe) e muda o estado (Detectado / Informado) | `receive_alerts` |
+| **Cards no Teams** | Incidente novo, severidade elevada e normalizado, entregues por outbox com retentativa e em ordem por incidente | job periódico `deliver_notifications` |
+| **Páginas** | Lista de incidentes e página com estado, severidade, alertas e timeline | `GET /incidents` · `GET /incidents/{id}` |
+| **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
+| **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
+| **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
 | **Heartbeat do worker** | Prova de vida gravada no banco a cada 15 s | job periódico `heartbeat` |
+| **Deploy manual** | Compose de produção, config da Credenciadora e passo a passo | [`deploy/`](deploy/) |
 | **Migrações** | Schema versionado por Alembic, aplicado no startup sob advisory lock | `grolla.adapters.postgres.migrate` |
 | **Harness** | Todos os gates num comando só | `make check` |
 | **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |
+| **Console de testes** | Dispara alarmes e mostra os cards do agente como num canal do Teams | `http://localhost:9000/_console` |
 
-> Slice 1 entrega a fundação. Alertas, severidade, acionamento, investigação, war room e post
-> mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
+> Até o S2: alertas viram incidentes com card no Teams e página. Acionamento do on-call,
+> investigação, war room e post mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
 
 ## 🏛 Arquitetura
 
@@ -75,7 +83,7 @@ flowchart LR
   worker["grolla-worker<br/>jobs + timers"] --> boot
   boot["bootstrap<br/>liga port → adapter"] --> adapters
   boot --> app
-  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · system_clock · …"] --> app
+  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · signoz · teams · system_clock"] --> app
   app["application<br/>casos de uso + ports"] --> dom["domain<br/>regras puras"]
   adapters --> dom
 ```
@@ -92,7 +100,8 @@ flowchart LR
 **Ports por capacidade, nunca por fornecedor:** `AlertIngress`, `AlertSource`, `Telemetry`,
 `ChangeHistory`, `CloudInventory`, `Pager`, `ChatNotifier`, `LanguageModel`, `EventLog`,
 `IncidentRepository`, `Scheduler`, `DocumentRenderer` e `Clock`. Cada um nasce no slice que o
-usa, com suíte de contrato, fake e adapter real. Hoje existe o `Clock`.
+usa, com suíte de contrato, fake e adapter real. Hoje existem `Clock`, `AlertIngress` (SigNoz),
+`ChatNotifier` (Teams), `IncidentRepository` e `NotificationOutbox` (Postgres).
 
 ## 🧰 Stack
 
@@ -100,7 +109,9 @@ usa, com suíte de contrato, fake e adapter real. Hoje existe o `Clock`.
 - **FastAPI** + uvicorn na api; **procrastinate** (fila no próprio Postgres) no worker.
 - **PostgreSQL 16** via **SQLAlchemy Core** + **psycopg 3**, migrações **Alembic**.
 - **pydantic** / **pydantic-settings** para contratos e configuração (`GROLLA_*`).
-- **Docker Compose**: uma imagem por deployable; deploy previsto numa EC2, uma instância por time.
+- **Jinja2** para as páginas server-side; **httpx2** como cliente HTTP dos adapters.
+- **Docker Compose**: uma imagem por deployable; deploy manual numa EC2, uma instância por time
+  ([`deploy/`](deploy/)).
 
 ## ⚡ Como rodar
 
@@ -194,6 +205,14 @@ then:
 
 Cenário novo é só um YAML novo em `e2e/scenarios/`.
 
+**Testar à mão:** o console de testes do `grolla-fakes` dispara alarmes e mostra os cards do
+agente como num canal do Teams.
+
+```bash
+docker compose --profile e2e --project-name grolla-demo up -d --build --wait
+# http://localhost:9000/_console  ·  incidentes em http://localhost:8000/incidents
+```
+
 ## 🧭 Spec-driven development
 
 Mudança de comportamento passa pelo **[OpenSpec](openspec/)** — é obrigatório, e
@@ -223,10 +242,10 @@ Construído em **slices de valor**: cada um fecha uma funcionalidade de ponta a 
 produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 
 - **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes ✅
-- **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams e página do incidente
-- **S3 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
-- **S4 — Investigação pronta** · hipóteses ranqueadas com evidência do SigNoz e do Azure DevOps, começando pelos incidentes parecidos
-- **S5 — Agente acompanha a crise** · updates, impacto financeiro, chat e proposta de encerramento
+- **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams, página do incidente e console de testes ✅ (aceite em produção junto com o S3)
+- **S3 — O agente investiga cada alerta** · "estou investigando" em segundos e, em até 5 min, a análise: o que avaliou, hipóteses com evidência, plano proposto e botão para o incidente
+- **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
+- **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, incidentes parecidos, updates, impacto financeiro, chat e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
 - **S7 — O agente aprende** · memória do ambiente e de incidentes passados: "já vi isso no incidente #N"
 - **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS

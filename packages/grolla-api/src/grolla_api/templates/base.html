@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Incidentes{% endblock %} · agent-grolla</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .sev { font-weight: bold; }
+  .muted { color: #666; }
+</style>
+</head>
+<body>
+<nav><a href="/incidents">Incidentes</a></nav>
+{% block content %}{% endblock %}
+</body>
+</html>

@@ -6,6 +6,7 @@ description = "Substitutos controláveis dos serviços externos para os testes e
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi",
+    "httpx2",
     "uvicorn",
 ]
 

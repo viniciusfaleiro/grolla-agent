@@ -30,6 +30,11 @@ services:
         condition: service_healthy
     environment:
       GROLLA_DATABASE_URL: postgresql://grolla:grolla@db:5432/grolla
+      GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
+      GROLLA_ALERTS_WEBHOOK_USER: signoz
+      GROLLA_ALERTS_WEBHOOK_PASSWORD: segredo-do-e2e
+    volumes:
+      - ./e2e/config.yaml:/etc/grolla/grolla.yaml:ro
     ports:
       - "8000:8000"
     healthcheck:
@@ -49,6 +54,8 @@ services:
         condition: service_healthy
     environment:
       GROLLA_DATABASE_URL: postgresql://grolla:grolla@db:5432/grolla
+      # O Teams do e2e é a rota /teams/webhook do grolla-fakes.
+      GROLLA_TEAMS_WEBHOOK_URL: http://fakes:9000/teams/webhook
 
   fakes:
     build:
@@ -56,6 +63,11 @@ services:
       dockerfile: e2e/fakes/Dockerfile
     image: grolla-fakes:local
     profiles: ["e2e"]
+    environment:
+      # O console de testes (http://localhost:9000/_console) dispara alertas no webhook da api.
+      GROLLA_FAKES_API_URL: http://api:8000
+      GROLLA_FAKES_API_USER: signoz
+      GROLLA_FAKES_API_PASSWORD: segredo-do-e2e
     ports:
       - "9000:9000"
     healthcheck:

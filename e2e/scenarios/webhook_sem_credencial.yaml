@@ -1,0 +1,40 @@
+# Webhook sem credencial ou com senha errada é recusado com 401 e nada é gravado.
+name: webhook sem credencial é 401
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http: &sem_credencial
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      status: 401
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no sem-credencial-api
+              service_name: sem-credencial-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no sem-credencial-api
+              description: A taxa de erro HTTP 5xx do sem-credencial-api está em 7,2%.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=111
+            fingerprint: e2e-sem-credencial-1
+  - http:
+      <<: *sem_credencial
+      auth: [signoz, senha-errada]
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM alerts WHERE fingerprint = 'e2e-sem-credencial-1'
+      count: 0
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'sem-credencial-api' = ANY(services)
+      count: 0

@@ -17,6 +17,10 @@ class PostgresDatabase:
             connect_args={"connect_timeout": PING_TIMEOUT_SECONDS},
         )
 
+    @property
+    def engine(self) -> AsyncEngine:
+        return self._engine
+
     async def ping(self) -> bool:
         try:
             async with self._engine.connect() as connection:

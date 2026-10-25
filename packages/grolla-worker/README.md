@@ -26,12 +26,14 @@ do procrastinate.
 | Área | O que entrega | Job |
 |---|---|---|
 | **Heartbeat** | Grava o horário do `Clock` na tabela `heartbeats` a cada 15 s — prova de vida do worker | periódico `heartbeat` (`* * * * * */15`) |
+| **Entrega de cards** | Entrega a outbox de notificações no canal do time (Adaptive Card via Workflow do Teams), em ordem por incidente, com retentativa e espera crescente; registra no incidente a entrega ou a desistência | periódico `deliver_notifications` (`* * * * * */5`, uma rodada por vez com `queueing_lock` e `lock`) |
 
 ## ⚡ Como rodar
 
 ```bash
 docker compose up -d db
 export GROLLA_DATABASE_URL=postgresql://grolla:grolla@localhost:5433/grolla
+export GROLLA_TEAMS_WEBHOOK_URL=https://...  # Workflow do Teams do canal do time
 uv run grolla-worker
 ```
 
@@ -44,6 +46,7 @@ docker build -f packages/grolla-worker/Dockerfile -t grolla-worker:local .
 | Variável | Obrigatória | Padrão |
 |---|---|---|
 | `GROLLA_DATABASE_URL` | sim | — |
+| `GROLLA_TEAMS_WEBHOOK_URL` | sim | — (URL do Workflow do Teams que posta no canal; é segredo) |
 | `GROLLA_LOG_LEVEL` | não | `INFO` |
 
 ## 🧪 Testes
@@ -52,8 +55,8 @@ docker build -f packages/grolla-worker/Dockerfile -t grolla-worker:local .
 uv run pytest packages/grolla-worker
 ```
 
-- `tests/unit/` — a lógica do job (`beat`) com `FakeClock`, sem banco; e a recusa em subir sem
-  `GROLLA_DATABASE_URL`.
+- `tests/unit/` — a lógica do job (`beat`) com `FakeClock`, sem banco; o job de entrega com os
+  fakes da outbox e do chat; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — um heartbeat enfileirado é processado pelo worker contra Postgres real.
 
 ## 🗂 Layout
@@ -61,7 +64,7 @@ uv run pytest packages/grolla-worker
 ```
 src/grolla_worker/
   heartbeat.py  lógica do job, independente da fila
-  app.py        build_app(): registra os jobs no procrastinate
+  app.py        build_app(): registra os jobs no procrastinate (heartbeat e entrega de cards)
   main.py       entrypoint `grolla-worker`: settings → migrações → worker
 tests/          unit/ · integration/
 Dockerfile

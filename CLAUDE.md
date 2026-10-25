@@ -30,9 +30,10 @@ quem encerra um incidente é sempre um humano.
 
 ## Estado atual
 
-Slice 1 (`fundacao-harness`): workspace, harness completo e esqueleto dos deployables. A api
-responde `/health`, o worker grava um heartbeat a cada 15 s, o e2e sobe tudo com os fakes.
-Nenhuma regra de negócio ainda. Próximo: S2 (alertas viram incidentes) — ver
+S1 (`fundacao-harness`): workspace, harness e esqueleto dos deployables. S2
+(`alertas-viram-incidentes`): webhook do SigNoz, deduplicação, agrupamento por serviço,
+severidade por regras do YAML, log de eventos imutável, cards no Teams por outbox, páginas de
+incidentes e o pacote de deploy manual (`deploy/`). Próximo: S3 (o agente investiga cada alerta) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)
@@ -153,7 +154,9 @@ Os jobs do `grolla-worker` ficam com o papel cuja lógica eles disparam, indicad
 4. **Integração (agente pai).** O agente pai é o único que altera os arquivos compartilhados
    (`pyproject.toml`, `uv.lock`, `grolla.bootstrap`, `docker-compose.yml`, `Makefile`, este
    arquivo, os READMEs do pai e `openspec/`). No fim, ele junta os branches, resolve conflitos,
-   **roda `make e2e` e `make check`**, revisa os READMEs e só então a change pode ser arquivada.
+   **faz o code review do todo** (consistência entre componentes, duplicação, desvio de contrato,
+   simplicidade, cobertura das specs) e ajusta o que fizer sentido, **roda `make e2e` e
+   `make check`**, revisa os READMEs e só então a change pode ser arquivada.
 
 ## 📘 READMEs — sempre atualizados
 

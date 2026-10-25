@@ -15,7 +15,13 @@ fechar. A spec de produto é [`docs/initial-spec.md`](../docs/initial-spec.md).
   real e o protocolo do fornecedor no `grolla-fakes`.
 - **O e2e de cada slice reproduz o caminho de valor** com os fakes (ex.: alerta repetido gera um
   card só).
-- **Acionamento com modo sombra.** O S3 nasce com `pager.mode: shadow`: o agente só posta no
+- **O agente precisa valer mais que o alerta.** O SigNoz já manda o próprio webhook para o
+  Teams do time, então um card que só repete o alerta tem pouco valor. Por isso a investigação
+  vem logo depois do S2 (S3), antes do acionamento: todo alerta chega ao canal com "estou
+  investigando" e, minutos depois, a análise (o que avaliei, hipóteses, plano proposto e o
+  botão para a página do incidente). **O S2 não vai sozinho para o canal do time**: o aceite em
+  produção do S2 e do S3 é feito junto (ou o S2 roda num canal de teste).
+- **Acionamento com modo sombra.** O S4 nasce com `pager.mode: shadow`: o agente só posta no
   Teams "eu teria acionado o on-call". O modo real é ligado por config depois de 1–2 semanas de
   calibração das regras de severidade.
 - **A memória começa no S2.** O aprendizado depende de histórico: desde o primeiro incidente, o
@@ -28,11 +34,15 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
 `grolla-worker`, `grolla-fakes` e cenário de fumaça. Change arquivada:
 `changes/archive/2026-10-25-fundacao-harness`.
 
-## S2 · Alertas viram incidentes
+## S2 · Alertas viram incidentes ✅
+
+Entregue na change `alertas-viram-incidentes`, com o console de testes no `grolla-fakes`. O aceite
+com alertas reais é feito junto com o S3 (sozinho, o S2 repete o que o SigNoz já manda). Ficaram
+para depois: poller de 60 s, agrupamento por dependência (precisa do `Telemetry`, S3), Secrets
+Manager e backup automatizado (o deploy é manual; o `deploy/README.md` traz o backup por cron).
 
 - **Valor:** um card no Teams por problema, não por alerta — deduplicado, agrupado e com
-  severidade — e uma página por incidente com a timeline. Para P2/P3 a funcionalidade da spec
-  termina aqui.
+  severidade — e uma página por incidente com a timeline.
 - **Escopo:** webhook do SigNoz com token (+ poller de 60 s como rede de segurança);
   deduplicação por fingerprint; agrupamento determinístico (mesmo `service.name` ou dependência
   direta, janela de 15 min); regras de severidade no YAML do time; log de eventos imutável e
@@ -46,10 +56,40 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
   labels de time e serviço.
 - **Aceite:** alertas reais do time piloto viram incidentes no Teams, sem duplicados.
 
-## S3 · On-call acionado sozinho
+## S3 · O agente investiga cada alerta
 
-- **Valor:** P0/P1 acionam o Spike.sh em minutos, com o link da página do incidente; o time
-  assume, reclassifica e encerra pelo war room.
+- **Valor:** o canal recebe mais do que o alerta do SigNoz. Em segundos, "estou investigando";
+  em até 5 minutos, a análise: **o que o agente avaliou**, **hipóteses** ranqueadas com
+  evidência e links, **plano proposto** para o time e o botão **Abrir incidente**. Vale para
+  toda severidade; P0/P1 seguem investigando mais fundo nos slices seguintes.
+- **Escopo:**
+  - Card **"investigando"** no lugar do card "incidente novo" do S2, postado antes de qualquer
+    chamada ao LLM.
+  - **Análise inicial** assíncrona no worker (job por incidente), com limite de tempo (5 min) e de
+    tokens por config, roteiro curto: impacto (métricas do serviço), mudanças recentes (deploys),
+    traces com erro, padrões de log novos.
+  - Ferramentas neutras para o LLM: `query_metric`, `search_logs`, `find_traces`,
+    `recent_deploys`.
+  - Saída JSON validada (avaliações feitas, hipóteses com confiança e evidência, plano proposto)
+    gravada como evento.
+  - Card **"análise"** com o resultado e seção de análise na página do incidente.
+  - **Análise parcial garantida**: se o LLM falhar ou estourar tempo ou orçamento, o card sai
+    mesmo assim, dizendo o que avaliou e o que faltou.
+  - Alertas agrupados num incidente já analisado não abrem análise nova.
+  - Modelos por etapa no YAML e `llm_usage`.
+  - O console de testes mostra os dois cards em sequência; o `grolla-fakes` ganha os protocolos
+    do LLM, do SigNoz e do Azure DevOps.
+- **Ports:** `LanguageModel`, `Telemetry`, `ChangeHistory`.
+- **Evals:** `evals/` começa aqui. Cenários roteirizados com telemetria fake, que viram replay
+  dos incidentes reais gravados desde o S2.
+- **Aceite:** num alerta real da Credenciadora, o canal recebe "investigando" e, em até 5
+  minutos, a análise, que o time considera útil (o que avaliou, ao menos uma hipótese com
+  evidência e um plano).
+
+## S4 · On-call acionado sozinho
+
+- **Valor:** P0/P1 acionam o Spike.sh em minutos, com o link da página do incidente e a análise
+  inicial já anexada; o time assume, reclassifica e encerra pelo war room.
 - **Escopo:** acionamento com chave de deduplicação e limite por 10 min; estados Detectado →
   Acionado → Em tratamento; ack do Spike move o estado; ações rápidas no war room (assumir IC,
   mudar severidade, separar/juntar, encerrar — encerrar resolve no Spike); autor identificado por
@@ -58,24 +98,14 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
 - **Aceite:** em modo sombra, o canal mostra os acionamentos que teriam acontecido; após a
   calibração, um P0/P1 real aciona o on-call.
 
-## S4 · Investigação pronta quando o on-call chega
-
-- **Valor:** o on-call recebe hipóteses ranqueadas com evidência e links para o SigNoz e o Azure
-  DevOps, em vez de começar do zero.
-- **Escopo:** roteiro de investigação inicial (impacto, mudanças recentes, traces, logs, código);
-  ferramentas neutras para o LLM (`query_metric`, `search_logs`, `find_traces`,
-  `recent_deploys`, `read_file`); saída JSON validada; card "hipóteses prontas" e seção de
-  hipóteses no war room; mapa serviço → repositório; limite de tokens por incidente e
-  `llm_usage`; núcleo segue funcionando se o LLM cair.
-- **Incidentes parecidos (v1):** antes de investigar, busca determinística e textual nos
-  incidentes encerrados (mesmos serviços, regra de alerta, assinatura de erro); o caso parecido
-  vira a primeira hipótese e gera o card "já vi isso no incidente #N".
-- **Ports:** `LanguageModel`, `Telemetry`, `ChangeHistory`.
-- **Evals:** `evals/` começa aqui, com replay dos incidentes reais gravados desde o S2.
-
 ## S5 · Agente acompanha a crise
 
 - **Valor:** o time foca em resolver; o canal fica informado e o registro em dia.
+- **Investigação profunda (P0/P1):** depois da análise inicial, ciclos até 10 min ou confiança
+  mínima; leitura de código pelo mapa serviço → repositório (`read_file`); hipóteses no war room.
+- **Incidentes parecidos (v1):** antes de investigar, busca determinística e textual nos
+  incidentes encerrados (mesmos serviços, regra de alerta, assinatura de erro); o caso parecido
+  vira a primeira hipótese e aparece na análise como "já vi isso no incidente #N".
 - **Escopo:** ciclos de 5 min, update só quando muda (e curto a cada 15 min sem mudança);
   impacto financeiro estimado; chat com o agente no war room; gatilho de ciclo por mensagem ou
   alerta agrupado; proposta de Mitigado e de encerramento após 15 min estáveis, com confirmação
@@ -134,5 +164,4 @@ criados pelo chat.
 
 ## Em aberto
 
-- Time piloto da primeira instância (define as regras de severidade, o canal do Teams e o mapa
-  serviço → repositório).
+- Labels reais dos alertas da Credenciadora (filtro e serviço são configuráveis no YAML).

@@ -2,12 +2,12 @@ import asyncio
 import logging
 
 import procrastinate
-from grolla.bootstrap import ConfigError, Container, load_settings, prepare
+from grolla.bootstrap import ConfigError, WorkerContainer, prepare_worker
 
 from grolla_worker.app import build_app
 
 
-async def run(app: procrastinate.App, container: Container) -> None:
+async def run(app: procrastinate.App, container: WorkerContainer) -> None:
     try:
         async with app.open_async():
             await app.run_worker_async()
@@ -17,9 +17,8 @@ async def run(app: procrastinate.App, container: Container) -> None:
 
 def main() -> None:
     try:
-        settings = load_settings()
+        container = prepare_worker()
     except ConfigError as error:
         raise SystemExit(f"grolla-worker: {error}") from error
-    logging.basicConfig(level=settings.log_level)
-    container = prepare(settings)
+    logging.basicConfig(level=container.settings.log_level)
     asyncio.run(run(build_app(container), container))

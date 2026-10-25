@@ -1,0 +1,62 @@
+# O único alerta disparando do incidente chega como resolvido: o incidente normaliza e o canal
+# recebe o card de normalização (além do card de abertura).
+name: último alerta resolvido normaliza o incidente
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Latência alta no normaliza-api
+              service_name: normaliza-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no normaliza-api
+              description: O p99 de latência do normaliza-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=110
+            fingerprint: e2e-normaliza-1
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: resolved
+        version: "4"
+        alerts:
+          - <<: *alerta
+            status: resolved
+            endsAt: "2026-01-01T10:20:00Z"
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events e JOIN incidents i ON i.id = e.incident_id
+        WHERE 'normaliza-api' = ANY(i.services) AND e.type = 'incident_normalized'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents
+        WHERE 'normaliza-api' = ANY(services) AND cardinality(firing) = 0
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [normaliza-api]
+      count: 2
