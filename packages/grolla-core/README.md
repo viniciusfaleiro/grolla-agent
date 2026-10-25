@@ -43,7 +43,7 @@ os deployables só montam o processo.
 | **Postgres** | Engine async, ping, heartbeats | `grolla.adapters.postgres.PostgresDatabase` |
 | **Repositório de incidentes** | Unidade de trabalho transacional, deduplicação de alertas, log de eventos e projeção | `grolla.adapters.postgres.PostgresIncidentRepository` |
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
-| **Fila de análises** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, análises presas e encerramento numa transação (análise, eventos, card e `llm_usage`) | `grolla.adapters.postgres.PostgresAnalysisQueue` |
+| **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL). O incidente novo é o card "Estou investigando", que lista o que vai ser checado. O card de análise traz o resumo e as seções "O que avaliei", "Hipóteses" (com confiança e evidência) e "Plano proposto", além dos botões "Abrir incidente" e "Ver no SigNoz". A análise parcial ("Análise parcial") diz o motivo logo abaixo do título | `grolla.adapters.teams.TeamsChatNotifier` |
@@ -73,6 +73,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0001`: schema da fila do procrastinate + tabela `heartbeats`.
 - `0002`: incidentes, log de eventos, alertas recebidos e outbox (abaixo).
 - `0003`: fila e resultado das análises iniciais e uso do modelo de linguagem (abaixo).
+- `0004`: fila e resultado da validação das hipóteses até a causa raiz (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -90,6 +91,12 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 |---|---|---|
 | `analyses` | A análise inicial de cada incidente: é a fila (`pendente` → `em_andamento`) e a projeção do resultado (`concluida`/`parcial`), com `evaluations`, `hypotheses` e `plan` em `jsonb` e o `partial_reason` | `incident_id` é a chave: **uma análise por incidente**; índices parciais nos pendentes e nos em andamento |
 | `llm_usage` | Uma linha por resposta do modelo: etapa, modelo, tokens de entrada, saída e cache, horário | — |
+
+### Tabela da validação (0004)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `verifications` | A validação das hipóteses de cada incidente, com a mesma forma da `analyses`: é a fila (`pendente` → `em_andamento`) e a projeção do resultado (`concluida`/`parcial`), com `verdicts`, `actions` e `evaluations` em `jsonb`, a `root_cause`, o que faltou (`missing`) e o `partial_reason` | `incident_id` é a chave: **uma validação por incidente**; índices parciais nos pendentes e nos em andamento |
 
 ### Repositórios
 
@@ -117,6 +124,13 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   limite. `finish` grava, numa transação, a análise, os eventos, o card na outbox e o
   `llm_usage`: ou tudo, ou nada. Só grava se a análise ainda está `em_andamento`; se já foi
   encerrada (o reaper fechou como interrompida), não faz nada, e sai um card só por análise.
+  Quando a análise tem hipóteses, o mesmo `finish` insere o pedido da validação (`pendente`
+  desde `at`, `ON CONFLICT DO NOTHING`); sem hipóteses, não há validação.
+- `claim_verification`, `stuck_verifications` e `finish_verification` fazem o mesmo sobre
+  `verifications`, com as mesmas garantias (`tests/integration/test_postgres_verification.py`).
+  `verification_of` devolve a validação em qualquer estado, ou `None` se nunca foi pedida. O
+  card `root_cause` leva a validação completa no JSON da outbox; cards anteriores à 0004, sem a
+  chave, voltam sem validação.
 - `data` dos eventos, `labels` e `raw` voltam do banco como JSON: horários viram ISO 8601 e ids
   viram texto.
 

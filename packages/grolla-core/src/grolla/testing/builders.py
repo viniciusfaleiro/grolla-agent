@@ -6,13 +6,18 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from grolla.domain.analysis import (
+    Action,
     Analysis,
     AnalysisDraft,
     AnalysisStatus,
     Evaluation,
     Evidence,
     Hypothesis,
+    HypothesisVerdict,
     PartialReason,
+    Verdict,
+    Verification,
+    VerificationDraft,
 )
 from grolla.domain.incidents import (
     Alert,
@@ -171,5 +176,77 @@ def make_analysis(  # noqa: PLR0913 — cada campo da análise é ajustável no 
         evaluations=() if empty else make_evaluations(),
         hypotheses=draft.hypotheses if full else (),
         plan=draft.plan if full else (),
+        partial_reason=partial_reason,
+    )
+
+
+def make_verification_draft(*, confirmed: bool = True) -> VerificationDraft:
+    """Rascunho da validação sobre as hipóteses do `make_draft`.
+
+    Confirmada: a primeira hipótese confirmada, a segunda rejeitada, causa raiz e duas ações
+    (uma com link). Sem confirmação: as duas inconclusivas, sem plano e com o que faltou.
+    """
+    evidence = (Evidence("Evidência da validação", "https://origem.interno/1"),)
+    if not confirmed:
+        return VerificationDraft(
+            verdicts=tuple(
+                HypothesisVerdict(f"Hipótese {n}", Verdict.INCONCLUSIVE, "Sem dado", evidence)
+                for n in (1, 2)
+            ),
+            root_cause=None,
+            actions=(),
+            missing="Faltou o histórico de mudanças da dependência",
+        )
+    return VerificationDraft(
+        verdicts=(
+            HypothesisVerdict("Hipótese 1", Verdict.CONFIRMED, "Erros após o deploy", evidence),
+            HypothesisVerdict("Hipótese 2", Verdict.REJECTED, "Dependência saudável", evidence),
+        ),
+        root_cause="Deploy 2.4.1 introduziu erro em POST /capturas às 10:02",
+        actions=(
+            Action(
+                "Fazer rollback do capture-api para o build 2.4.0",
+                "capture-api",
+                "Taxa de erro volta para 0,2%",
+                "https://origem.interno/1",
+            ),
+            Action("Escalar o time de capturas", "time de capturas", "Correção do bug", None),
+        ),
+        missing="",
+    )
+
+
+def make_verification(  # noqa: PLR0913 — cada campo da validação é ajustável no teste
+    incident_id: UUID,
+    *,
+    status: AnalysisStatus = AnalysisStatus.COMPLETED,
+    requested_at: datetime = T0,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+    partial_reason: PartialReason | None = None,
+) -> Verification:
+    """Validação no estado pedido: pendente e em andamento vêm vazias; concluída vem cheia."""
+    empty = status in (AnalysisStatus.PENDING, AnalysisStatus.RUNNING)
+    if status is AnalysisStatus.PARTIAL and partial_reason is None:
+        partial_reason = PartialReason.TIMEOUT
+    if status is not AnalysisStatus.PENDING and started_at is None:
+        started_at = requested_at + timedelta(seconds=5)
+    if not empty and finished_at is None:
+        finished_at = requested_at + timedelta(minutes=3)
+    draft = make_verification_draft()
+    full = status is AnalysisStatus.COMPLETED
+    return Verification(
+        incident_id=incident_id,
+        status=status,
+        requested_at=requested_at,
+        started_at=started_at,
+        finished_at=finished_at,
+        verdicts=draft.verdicts if full else (),
+        root_cause=draft.root_cause if full else None,
+        actions=draft.actions if full else (),
+        missing=draft.missing
+        if full
+        else ("Validação parcial: tempo esgotado." if not empty else ""),
+        evaluations=() if empty else make_evaluations(),
         partial_reason=partial_reason,
     )
