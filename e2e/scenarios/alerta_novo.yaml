@@ -1,5 +1,5 @@
 # Alerta novo do time vira incidente (warning → P2): o canal recebe o card "investigando" e,
-# com o roteiro padrão do LLM fake, depois o card da análise concluída. O uso do LLM fica gravado.
+# com o roteiro padrão do LLM fake, depois o card da análise concluída e o da causa raiz. O uso do LLM fica gravado.
 name: alerta novo vira incidente, investigando e análise
 given:
   fakes:
@@ -42,7 +42,8 @@ then:
   - expect_fake_requests:
       path: /teams/webhook
       contains: [novo-api]
-      count: 2
+      count: 3
+      timeout_seconds: 90
   - expect_db_count:
       sql: >-
         SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id

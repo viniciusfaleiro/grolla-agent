@@ -1,0 +1,69 @@
+# Caminho de valor da validação: o alerta gera, em ordem, o card "investigando", o card da
+# análise inicial (que avisa que as hipóteses estão em validação) e o card da causa raiz, com o
+# veredito das hipóteses e um plano de ação concreto. No roteiro padrão, o LLM fake confirma a
+# primeira hipótese e sugere o rollback do serviço.
+name: alerta chega até a causa raiz
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no causa-raiz-api
+              service_name: causa-raiz-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no causa-raiz-api
+              description: A taxa de erro HTTP 5xx do causa-raiz-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=114
+            fingerprint: e2e-causa-raiz-1
+then:
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [causa-raiz-api, P1, Estou investigando]
+      then: [causa-raiz-api, Análise pronta, Estou validando as hipóteses]
+      timeout_seconds: 60
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [causa-raiz-api, Análise pronta, Estou validando as hipóteses]
+      then: [causa-raiz-api, "Causa raiz · P1", Hipóteses, Plano de ação]
+      timeout_seconds: 90
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains:
+        - causa-raiz-api
+        - "Causa raiz · P1"
+        - Fazer rollback do causa-raiz-api para o deploy anterior
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [causa-raiz-api]
+      count: 3
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM verifications v JOIN incidents i ON i.id = v.incident_id
+        WHERE 'causa-raiz-api' = ANY(i.services) AND v.status = 'concluida'
+        AND v.partial_reason IS NULL AND v.root_cause IS NOT NULL
+        AND jsonb_array_length(v.actions) >= 1
+      count: 1
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM llm_usage u JOIN incidents i ON i.id = u.incident_id
+        WHERE 'causa-raiz-api' = ANY(i.services) AND u.stage = 'verification'
+      at_least: 1
+      timeout_seconds: 5

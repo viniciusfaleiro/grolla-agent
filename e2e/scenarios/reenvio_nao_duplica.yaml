@@ -1,5 +1,5 @@
 # O mesmo alerta disparando chega três vezes: um incidente, um alerta recebido, uma análise e
-# os cards de um alerta novo só ("investigando" e análise).
+# os cards de um alerta novo só ("investigando", análise e causa raiz).
 name: reenvio não duplica
 given:
   fakes:
@@ -57,4 +57,5 @@ then:
   - expect_fake_requests:
       path: /teams/webhook
       contains: [reenvio-api]
-      count: 2
+      count: 3
+      timeout_seconds: 90
