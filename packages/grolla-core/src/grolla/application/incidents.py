@@ -172,6 +172,8 @@ async def _receive(
     await uow.save(decision.incident)
     await uow.append(decision.events)
     await uow.link_alert(alert, decision.incident.id)
+    if decision.request_analysis:
+        await uow.request_analysis(decision.incident.id, now)
     for notification in decision.notifications:
         await uow.enqueue(notification, now)
 

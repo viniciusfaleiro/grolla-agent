@@ -225,8 +225,12 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
         )
         incident = replace(incident, state=target)
 
+    if current is None:
+        events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
     notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
-    return _decision(incident, events, notifications, now)
+    return replace(
+        _decision(incident, events, notifications, now), request_analysis=current is None
+    )
 
 
 def decide_resolved(
