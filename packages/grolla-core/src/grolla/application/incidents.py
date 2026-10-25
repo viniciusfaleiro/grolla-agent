@@ -86,7 +86,11 @@ class OutboxItem:
 
 class NotificationOutbox(Protocol):
     async def due(self, now: datetime, limit: int) -> list[OutboxItem]:
-        """Itens pendentes com horário de tentativa vencido, em ordem de criação."""
+        """Itens pendentes com horário de tentativa vencido, em ordem de criação.
+
+        Para manter a ordem por incidente, um item não vence enquanto houver item mais antigo
+        do mesmo incidente pendente e com a próxima tentativa ainda no futuro.
+        """
         ...
 
     async def delivered(self, item: OutboxItem, at: datetime) -> None:
