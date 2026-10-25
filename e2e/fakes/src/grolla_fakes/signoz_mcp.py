@@ -154,11 +154,12 @@ def _aggregate(
         ]
 
     scale = step / DEFAULT_STEP_SECONDS
-    if arguments.get("groupBy") == "has_error":
-        series = [
-            _labeled(False, values(OK_SPANS_PER_10_MIN * scale, OK_SPANS_PER_10_MIN * scale)),
-            _labeled(True, values(ERROR_SPANS_BEFORE * scale, ERROR_SPANS_AFTER * scale)),
-        ]
+    errors = (ERROR_SPANS_BEFORE * scale, ERROR_SPANS_AFTER * scale)
+    if arguments.get("aggregation") == "count" and str(arguments.get("error")).lower() == "true":
+        series = [{"values": values(*errors)}]  # como o SigNoz real: só os spans com erro
+    elif arguments.get("aggregation") == "count":
+        ok = OK_SPANS_PER_10_MIN * scale
+        series = [{"values": values(ok + errors[0], ok + errors[1])}]
     elif arguments.get("aggregation") == "p99":
         series = [{"values": values(P99_BEFORE_NS, P99_AFTER_NS)}]
     else:
@@ -166,11 +167,6 @@ def _aggregate(
     return _envelope(
         "time_series", {"queryName": "A", "aggregations": [{"index": 0, "series": series}]}
     )
-
-
-def _labeled(has_error: bool, values: list[dict[str, Any]]) -> dict[str, Any]:
-    key = {"name": "has_error", "signal": "traces", "fieldContext": "span"}
-    return {"labels": [{"key": key, "value": has_error}], "values": values}
 
 
 def _logs(

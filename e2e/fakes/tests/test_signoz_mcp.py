@@ -47,22 +47,23 @@ async def test_lists_only_the_read_tools() -> None:
 
 
 async def test_default_error_rate_rises_after_the_deploy() -> None:
-    result = await call(
-        create_app(),
-        "signoz_aggregate_traces",
-        {
-            "aggregation": "count",
-            "groupBy": "has_error",
-            "service": "authorizer-api",
-            "requestType": "time_series",
-            "stepInterval": "600",
-            **window(),
-        },
-    )
+    app = create_app()
+    base = {
+        "aggregation": "count",
+        "service": "authorizer-api",
+        "requestType": "time_series",
+        "stepInterval": "600",
+        **window(),
+    }
+    total = await call(app, "signoz_aggregate_traces", base)
+    failed = await call(app, "signoz_aggregate_traces", {**base, "error": True})
 
-    series = payload(result)["data"]["data"]["results"][0]["aggregations"][0]["series"]
-    errors = next(s for s in series if s["labels"][0]["value"] is True)["values"]
-    assert errors[0]["value"] < errors[-1]["value"]
+    def values(result: Any) -> list[float]:
+        series = payload(result)["data"]["data"]["results"][0]["aggregations"][0]["series"]
+        return [point["value"] for point in series[0]["values"]]
+
+    rate = [e / t for e, t in zip(values(failed), values(total), strict=True)]
+    assert rate[0] < rate[-1]
 
 
 async def test_default_latency_and_throughput() -> None:

@@ -45,7 +45,9 @@ ERROR_SEVERITY = "severity_number >= 17"  # ERROR e FATAL na escala do OpenTelem
 NANOS_PER_MS = 1_000_000
 
 _SIGNAL_QUERIES: dict[Signal, dict[str, str]] = {
-    "taxa_de_erro": {"aggregation": "count", "groupBy": "has_error"},
+    # Total e só os com erro, em duas consultas: agrupar por has_error não devolve a série dos
+    # spans sem erro (o SigNoz real só agrupa os que têm o campo verdadeiro).
+    "taxa_de_erro": {"aggregation": "count"},
     "latencia_p99": {"aggregation": "p99", "aggregateOn": "duration_nano"},
     "vazao": {"aggregation": "rate"},
 }
@@ -80,16 +82,11 @@ class SignozTelemetry:
             "stepInterval": str(step),
             **_window(start, end),
         }
-        envelope = _parse(
-            _TimeSeriesEnvelope, await self.call("signoz_aggregate_traces", arguments)
-        )
-        series = [
-            s
-            for result in envelope.results()
-            for aggregation in result.aggregations or []
-            for s in aggregation.series or []
-        ]
-        points = _error_rate(series) if signal == "taxa_de_erro" else _first(series)
+        series = await self._aggregate(arguments)
+        if signal == "taxa_de_erro":
+            points = _error_rate(series, await self._aggregate({**arguments, "error": True}))
+        else:
+            points = _first(series)
         label = f"{_SIGNAL_LABELS[signal]} de {service} entre {_hhmm(start)} e {_hhmm(end)}"
         return ToolResult(_series_summary(label, signal, points, step), self._service_url(service))
 
@@ -123,6 +120,17 @@ class SignozTelemetry:
         if only_errors:
             return await self._error_traces(service, start, end)
         return await self._slow_operations(service, start, end)
+
+    async def _aggregate(self, arguments: Mapping[str, Any]) -> "list[_Series]":
+        envelope = _parse(
+            _TimeSeriesEnvelope, await self.call("signoz_aggregate_traces", arguments)
+        )
+        return [
+            s
+            for result in envelope.results()
+            for aggregation in result.aggregations or []
+            for s in aggregation.series or []
+        ]
 
     async def call(self, tool: str, arguments: Mapping[str, Any]) -> Any:
         """Chama uma ferramenta de leitura e devolve o JSON da resposta.
@@ -292,20 +300,15 @@ def _first(series: list[_Series]) -> list[tuple[int, float]]:
     return sorted((p.timestamp, p.value) for p in series[0].values or [])
 
 
-def _error_rate(series: list[_Series]) -> list[tuple[int, float]]:
-    """Contagens por `has_error` viram a porcentagem de spans com erro em cada intervalo."""
+def _error_rate(total: list[_Series], failed: list[_Series]) -> list[tuple[int, float]]:
+    """Spans com erro ÷ total em cada intervalo; intervalo sem nenhum erro é 0%."""
     totals: Counter[int] = Counter()
     errors: Counter[int] = Counter()
-    for s in series:
-        failed = any(
-            label.key.name == "has_error" and str(label.value).lower() == "true"
-            for label in s.labels or []
-        )
-        for point in s.values or []:
-            totals[point.timestamp] += int(point.value)
-            if failed:
-                errors[point.timestamp] += int(point.value)
-    return [(ts, 100 * errors[ts] / total) for ts, total in sorted(totals.items()) if total]
+    for counter, series in ((totals, total), (errors, failed)):
+        for s in series:
+            for point in s.values or []:
+                counter[point.timestamp] += int(point.value)
+    return [(ts, 100 * errors[ts] / count) for ts, count in sorted(totals.items()) if count]
 
 
 def _series_summary(label: str, signal: Signal, points: list[tuple[int, float]], step: int) -> str:

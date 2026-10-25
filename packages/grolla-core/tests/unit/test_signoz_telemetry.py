@@ -32,9 +32,16 @@ def fixture(name: str) -> Any:
 CATALOG: list[dict[str, Any]] = fixture("tools_list")["tools"]
 
 
+def span_counts(arguments: dict[str, Any]) -> Any:
+    """Como o SigNoz real: o total sem filtro e, com error=true, só os spans com erro."""
+    return fixture(
+        "aggregate_traces_errors" if arguments.get("error") else "aggregate_traces_count"
+    )
+
+
 def default_answers() -> dict[str, Any]:
     return {
-        "signoz_aggregate_traces": fixture("aggregate_traces_error_rate"),
+        "signoz_aggregate_traces": span_counts,
         "signoz_search_logs": fixture("search_logs"),
         "signoz_search_traces": fixture("search_traces_errors"),
         "signoz_get_service_top_operations": fixture("top_operations"),
@@ -68,6 +75,8 @@ class FakeSignozMcp:
         if self.failing:
             return CallToolResult(content=[TextContent(text="upstream error")], is_error=True)
         answer = self.answers[params.name]
+        if callable(answer):
+            answer = answer(params.arguments or {})
         text = answer if isinstance(answer, str) else json.dumps(answer)
         return CallToolResult(content=[TextContent(text=text)])
 
@@ -130,21 +139,34 @@ async def test_every_argument_sent_exists_in_the_tool_schema(mcp: FakeSignozMcp)
 async def test_error_rate_is_a_series_of_percentages(mcp: FakeSignozMcp) -> None:
     result = await mcp.telemetry().query_metric("authorizer-api", "taxa_de_erro", START, END)
 
-    assert mcp.calls[0][1] == {
+    total = {
         "aggregation": "count",
-        "groupBy": "has_error",
         "service": "authorizer-api",
         "requestType": "time_series",
         "stepInterval": "600",
         "start": str(int(START.timestamp() * 1000)),
         "end": str(int(END.timestamp() * 1000)),
     }
+    assert [arguments for _, arguments in mcp.calls] == [total, {**total, "error": True}]
     assert result.summary == (
         "taxa de erro de authorizer-api entre 10:00 UTC e 11:00 UTC: 0,4% no início, 7,0% no "
         "fim, máximo 7,0% às 10:50 UTC. Série a cada 10 min: 0,4% · 0,5% · 0,4% · 3,3% · "
         "6,8% · 7,0%"
     )
     assert result.url == f"{BASE}/services/authorizer-api"
+
+
+async def test_error_rate_is_zero_when_no_span_failed(mcp: FakeSignozMcp) -> None:
+    def no_errors(arguments: dict[str, Any]) -> Any:
+        if arguments.get("error"):
+            return {"status": "success", "data": {"type": "time_series", "data": {"results": []}}}
+        return fixture("aggregate_traces_count")
+
+    mcp.answers["signoz_aggregate_traces"] = no_errors
+
+    result = await mcp.telemetry().query_metric("authorizer-api", "taxa_de_erro", START, END)
+
+    assert "0,0% no início, 0,0% no fim" in result.summary
 
 
 async def test_latency_is_reported_in_milliseconds(mcp: FakeSignozMcp) -> None:
