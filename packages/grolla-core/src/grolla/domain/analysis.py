@@ -202,6 +202,28 @@ INVESTIGATION_VERBS = frozenset(
 )
 
 
+# Radicais dos verbos acima, para pegar também o imperativo ("Verifique", "Cheque", "Avalie").
+_INVESTIGATION_STEMS = (
+    "investig",
+    "verifi",
+    "chec",
+    "chequ",
+    "analis",
+    "consult",
+    "confirm",
+    "avali",
+    "revis",
+    "examin",
+    "observ",
+    "acompanh",
+    "monitor",
+)
+
+
+def _is_investigation(word: str) -> bool:
+    return word in INVESTIGATION_VERBS or word.startswith(_INVESTIGATION_STEMS)
+
+
 def _first_word(text: str) -> str:
     """Primeira palavra, minúscula e sem acento: "Verificar a saúde" -> "verificar"."""
     words = text.split()
@@ -220,7 +242,7 @@ def check_plan(draft: VerificationDraft) -> None:
     if not draft.actions:
         raise NotConcreteError("causa raiz confirmada sem nenhuma ação")
     for action in draft.actions:
-        if _first_word(action.action) in INVESTIGATION_VERBS:
+        if _is_investigation(_first_word(action.action)):
             raise NotConcreteError(f"passo de investigação no plano: {action.action}")
 
 

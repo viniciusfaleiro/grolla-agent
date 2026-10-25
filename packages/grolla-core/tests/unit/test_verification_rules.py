@@ -63,6 +63,10 @@ def test_unconfirmed_draft_without_actions_passes() -> None:
         "Acompanhar a taxa de erro",
         "Monitorar: latência",
         "Monitorar, latência",
+        "Verifique a saúde do banco",  # imperativo também é investigação
+        "Cheque os logs",
+        "Avalie reverter o deploy",
+        "Investigue a fila",
     ],
 )
 def test_investigation_step_in_the_plan_is_not_concrete(text: str) -> None:
