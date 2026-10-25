@@ -105,7 +105,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `FOR UPDATE SKIP LOCKED`: workers em paralelo nunca pegam o mesmo pedido
   (`tests/integration/test_postgres_analysis.py`). `stuck` lista os em andamento desde antes do
   limite. `finish` grava, numa transação, a análise, os eventos, o card na outbox e o
-  `llm_usage`: ou tudo, ou nada.
+  `llm_usage`: ou tudo, ou nada. Só grava se a análise ainda está `em_andamento`; se já foi
+  encerrada (o reaper fechou como interrompida), não faz nada, e sai um card só por análise.
 - `data` dos eventos, `labels` e `raw` voltam do banco como JSON: horários viram ISO 8601 e ids
   viram texto.
 

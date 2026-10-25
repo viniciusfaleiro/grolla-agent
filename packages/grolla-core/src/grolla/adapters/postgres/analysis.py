@@ -74,17 +74,18 @@ class PostgresAnalysisQueue:
         at: datetime,
     ) -> None:
         async with self._engine.begin() as connection:
-            await connection.execute(
+            updated = await connection.execute(
                 sa.text(
                     "UPDATE analyses SET status = :status, started_at = :started_at,"
                     " finished_at = :finished_at, summary = :summary,"
                     " evaluations = CAST(:evaluations AS jsonb),"
                     " hypotheses = CAST(:hypotheses AS jsonb), plan = CAST(:plan AS jsonb),"
                     " partial_reason = :partial_reason"
-                    " WHERE incident_id = :incident_id"
+                    " WHERE incident_id = :incident_id AND status = :running"
                 ),
                 {
                     "incident_id": analysis.incident_id,
+                    "running": AnalysisStatus.RUNNING.value,
                     "status": analysis.status.value,
                     "started_at": analysis.started_at,
                     "finished_at": analysis.finished_at,
@@ -97,6 +98,9 @@ class PostgresAnalysisQueue:
                     ),
                 },
             )
+            if updated.rowcount == 0:
+                # Já encerrada (ex.: o reaper fechou como interrompida): um card só por análise.
+                return
             uow = PostgresUnitOfWork(connection)
             await uow.append(events)
             await uow.enqueue(notification, at)

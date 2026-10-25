@@ -307,6 +307,50 @@ async def test_finish_is_all_or_nothing(
     assert (cards.scalar_one(), usages.scalar_one()) == (0, 0)
 
 
+@pytest.mark.usefixtures("clean")
+async def test_finish_of_an_analysis_no_longer_running_does_nothing(
+    repository: PostgresIncidentRepository,
+    queue: PostgresAnalysisQueue,
+    database: PostgresDatabase,
+) -> None:
+    incident_id = await requested(repository)
+    await queue.claim(STARTED)
+    interrupted = replace(partial_of(incident_id), partial_reason=PartialReason.INTERRUPTED)
+    card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=interrupted)
+    await queue.finish(interrupted, [], card, [], FINISHED)
+    late = completed(incident_id)
+    event = IncidentEvent(incident_id, FINISHED, EventType.ANALYSIS_COMPLETED, {})
+    late_card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=late)
+
+    await queue.finish(late, [event], late_card, [USAGE], FINISHED)
+
+    assert await repository.analysis_of(incident_id) == interrupted
+    assert await repository.events_of(incident_id) == []
+    async with database.engine.connect() as connection:
+        cards = await connection.execute(
+            sa.text("SELECT count(*) FROM outbox WHERE incident_id = :id"), {"id": incident_id}
+        )
+        usages = await connection.execute(
+            sa.text("SELECT count(*) FROM llm_usage WHERE incident_id = :id"), {"id": incident_id}
+        )
+    assert (cards.scalar_one(), usages.scalar_one()) == (1, 0)
+
+
+@pytest.mark.usefixtures("clean")
+async def test_finish_of_a_pending_analysis_does_nothing(
+    repository: PostgresIncidentRepository, queue: PostgresAnalysisQueue
+) -> None:
+    incident_id = await requested(repository)
+    analysis = completed(incident_id)
+    card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=analysis)
+
+    await queue.finish(analysis, [], card, [USAGE], FINISHED)
+
+    stored = await repository.analysis_of(incident_id)
+    assert stored is not None
+    assert stored.status == AnalysisStatus.PENDING
+
+
 async def test_outbox_card_without_analysis_key_reads_as_no_analysis(
     repository: PostgresIncidentRepository, database: PostgresDatabase
 ) -> None:
