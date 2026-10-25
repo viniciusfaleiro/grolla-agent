@@ -1,7 +1,7 @@
 """Incidentes: alertas, severidade, agrupamento e as decisões puras sobre cada alerta recebido."""
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -20,7 +20,12 @@ class Severity(StrEnum):
 
 
 def worst(a: Severity, b: Severity) -> Severity:
-    raise NotImplementedError
+    return min(a, b)  # "P0" < "P1" < ...: a menor é a pior
+
+
+def labels_match(labels: Mapping[str, str], match: Mapping[str, str]) -> bool:
+    """Todos os pares de `match` estão em `labels`."""
+    return all(labels.get(key) == value for key, value in match.items())
 
 
 class IncidentState(StrEnum):
@@ -113,7 +118,10 @@ class SeverityPolicy:
 
     def classify(self, alert: Alert) -> tuple[Severity, int | None]:
         """Severidade da primeira regra que casa e o índice dela; sem regra, o padrão e None."""
-        raise NotImplementedError
+        for index, rule in enumerate(self.rules):
+            if labels_match(alert.labels, rule.match):
+                return rule.severity, index
+        return self.default, None
 
 
 @dataclass(frozen=True)
@@ -121,6 +129,16 @@ class Decision:
     incident: Incident | None  # None: nada a gravar
     events: tuple[IncidentEvent, ...]
     notifications: tuple[Notification, ...]
+
+
+GROUPING_REASON = "mesmo serviço"
+DEFAULT_SEVERITY_REASON = "severidade padrão"
+URGENT = frozenset({Severity.P0, Severity.P1})
+
+
+def state_for(severity: Severity) -> IncidentState:
+    """P0/P1 esperam o acionamento em Detectado; P2/P3 já ficam Informado."""
+    return IncidentState.DETECTED if severity in URGENT else IncidentState.INFORMED
 
 
 def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
@@ -133,10 +151,131 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
     page_url: Callable[[UUID], str],
     new_id: Callable[[], UUID],
 ) -> Decision:
-    raise NotImplementedError
+    """Alerta disparando: entra no incidente ativo mais recente do serviço ou abre um novo."""
+    severity, rule = policy.classify(alert)
+    alert_data = {
+        **_alert_data(alert),
+        "severity": severity.value,
+        "severity_rule": rule,
+        "severity_reason": DEFAULT_SEVERITY_REASON if rule is None else f"regra {rule + 1}",
+    }
+    active = [
+        c
+        for c in candidates
+        if alert.service in c.services and (c.firing or c.last_alert_at >= now - window)
+    ]
+    current = max(active, key=lambda c: c.last_alert_at, default=None)
+
+    if current is None:
+        incident = Incident(
+            id=new_id(),
+            title=alert.rule_name,
+            state=IncidentState.DETECTED,
+            severity=severity,
+            services=(alert.service,),
+            detected_at=now,
+            last_alert_at=now,
+            firing=frozenset({alert.fingerprint}),
+        )
+        events = [_event(incident, now, EventType.ALERT_RECEIVED, alert_data)]
+        kind: NotificationKind | None = NotificationKind.INCIDENT_OPENED
+    else:
+        raised = worst(current.severity, severity)
+        incident = replace(
+            current,
+            severity=raised,
+            services=tuple(dict.fromkeys((*current.services, alert.service))),
+            last_alert_at=now,
+            firing=current.firing | {alert.fingerprint},
+        )
+        events = [
+            _event(
+                incident, now, EventType.ALERT_GROUPED, {**alert_data, "reason": GROUPING_REASON}
+            )
+        ]
+        kind = None
+        if raised != current.severity:
+            events.append(
+                _event(
+                    incident,
+                    now,
+                    EventType.SEVERITY_CHANGED,
+                    {"from": current.severity.value, "to": raised.value},
+                )
+            )
+            kind = NotificationKind.SEVERITY_RAISED
+
+    target = state_for(incident.severity)
+    if target != incident.state:
+        events.append(
+            _event(
+                incident,
+                now,
+                EventType.STATE_CHANGED,
+                {"from": incident.state.value, "to": target.value},
+            )
+        )
+        incident = replace(incident, state=target)
+
+    notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
+    return _decision(incident, events, notifications, now)
 
 
 def decide_resolved(
     alert: Alert, incident: Incident, now: datetime, page_url: Callable[[UUID], str]
 ) -> Decision:
-    raise NotImplementedError
+    """Alerta resolvido: sai dos disparando; sem nenhum disparando, o incidente normalizou."""
+    updated = replace(incident, last_alert_at=now, firing=incident.firing - {alert.fingerprint})
+    events = [_event(updated, now, EventType.ALERT_RESOLVED, _alert_data(alert))]
+    notifications: tuple[Notification, ...] = ()
+    if incident.firing and not updated.firing:
+        events.append(_event(updated, now, EventType.INCIDENT_NORMALIZED, {}))
+        notifications = (
+            _notification(NotificationKind.INCIDENT_NORMALIZED, updated, alert, page_url),
+        )
+    return _decision(updated, events, notifications, now)
+
+
+def _alert_data(alert: Alert) -> dict[str, Any]:
+    return {
+        "fingerprint": alert.fingerprint,
+        "rule_name": alert.rule_name,
+        "service": alert.service,
+        "summary": alert.summary,
+        "starts_at": alert.starts_at.isoformat(),
+    }
+
+
+def _event(
+    incident: Incident, at: datetime, kind: EventType, data: Mapping[str, Any]
+) -> IncidentEvent:
+    return IncidentEvent(incident.id, at, kind, data)
+
+
+def _notification(
+    kind: NotificationKind, incident: Incident, alert: Alert, page_url: Callable[[UUID], str]
+) -> Notification:
+    return Notification(
+        kind=kind,
+        incident_id=incident.id,
+        title=incident.title,
+        severity=incident.severity,
+        services=incident.services,
+        summary=alert.summary,
+        evidence=alert.description,
+        source_url=alert.source_url,
+        page_url=page_url(incident.id),
+    )
+
+
+def _decision(
+    incident: Incident,
+    events: list[IncidentEvent],
+    notifications: tuple[Notification, ...],
+    now: datetime,
+) -> Decision:
+    queued = [
+        _event(incident, now, EventType.NOTIFICATION_QUEUED, {"kind": n.kind.value})
+        for n in notifications
+    ]
+    return Decision(incident, (*events, *queued), notifications)
