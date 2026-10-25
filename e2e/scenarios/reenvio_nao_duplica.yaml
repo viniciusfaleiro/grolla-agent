@@ -1,4 +1,5 @@
-# O mesmo alerta disparando chega três vezes: um incidente, um alerta recebido e um card só.
+# O mesmo alerta disparando chega três vezes: um incidente, um alerta recebido, uma análise e
+# os cards de um alerta novo só ("investigando" e análise).
 name: reenvio não duplica
 given:
   fakes:
@@ -43,7 +44,17 @@ then:
         SELECT count(*) FROM incident_events e JOIN incidents i ON i.id = e.incident_id
         WHERE 'reenvio-api' = ANY(i.services) AND e.type = 'alert_received'
       count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id
+        WHERE 'reenvio-api' = ANY(i.services)
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [reenvio-api, Análise pronta]
+      count: 1
+      timeout_seconds: 60
   - expect_fake_requests:
       path: /teams/webhook
       contains: [reenvio-api]
-      count: 1
+      count: 2

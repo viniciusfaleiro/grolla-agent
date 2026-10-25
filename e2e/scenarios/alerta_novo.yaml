@@ -1,5 +1,6 @@
-# Alerta novo do time vira incidente e um card no canal (warning → P2).
-name: alerta novo vira incidente e card
+# Alerta novo do time vira incidente (warning → P2): o canal recebe o card "investigando" e,
+# com o roteiro padrão do LLM fake, depois o card da análise concluída. O uso do LLM fica gravado.
+name: alerta novo vira incidente, investigando e análise
 given:
   fakes:
     routes:
@@ -33,7 +34,23 @@ then:
   - expect_db_count:
       sql: SELECT count(*) FROM incidents WHERE 'novo-api' = ANY(services) AND severity = 'P2'
       count: 1
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [novo-api, P2, Estou investigando]
+      then: [novo-api, Análise pronta, O que avaliei, Hipóteses, Plano proposto]
+      timeout_seconds: 60
   - expect_fake_requests:
       path: /teams/webhook
-      contains: [novo-api, P2]
+      contains: [novo-api]
+      count: 2
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id
+        WHERE 'novo-api' = ANY(i.services) AND a.status = 'concluida' AND a.partial_reason IS NULL
       count: 1
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM llm_usage u JOIN incidents i ON i.id = u.incident_id
+        WHERE 'novo-api' = ANY(i.services) AND u.stage = 'investigation'
+      at_least: 1
+      timeout_seconds: 5
