@@ -3,7 +3,6 @@
 ## Purpose
 
 Testar o sistema inteiro com os serviços externos substituídos por fakes controláveis: cenários automatizados e um console manual.
-
 ## Requirements
 ### Requirement: Stack completo sobe para testes integrados
 O projeto pai SHALL expor `make e2e`, que constrói as imagens de `grolla-api` e `grolla-worker`, sobe api, worker, postgres e `grolla-fakes` com o profile `e2e` do compose, roda os cenários e derruba o stack ao final, inclusive em caso de falha.
@@ -47,4 +46,27 @@ O `grolla-fakes` SHALL servir em `GET /_console` uma página para testar o agent
 #### Scenario: Teams falhando
 - **WHEN** o usuário põe o Teams fake para recusar e dispara um alerta
 - **THEN** nenhum card aparece como entregue até o Teams voltar a aceitar, e então o card aparece uma vez só
+
+### Requirement: Fakes da investigação
+O `grolla-fakes` SHALL fazer o papel, no e2e e no console, de três serviços:
+- a API de mensagens do LLM, com respostas roteirizadas por cenário, incluindo chamadas de ferramenta e o resultado final;
+- o servidor MCP de telemetria, com as ferramentas de leitura e respostas roteirizadas;
+- a API do histórico de mudanças, com os deploys roteirizados.
+
+Um roteiro padrão SHALL produzir uma análise plausível quando o cenário não define outro.
+
+#### Scenario: Análise ponta a ponta no e2e
+- **WHEN** um cenário dispara um alerta com o roteiro padrão dos fakes
+- **THEN** o Teams fake recebe o card "investigando" e depois o card de análise do mesmo incidente
+
+#### Scenario: LLM fora do ar no e2e
+- **WHEN** o roteiro do cenário faz a API do LLM responder erro
+- **THEN** o Teams fake recebe o card de análise parcial
+
+### Requirement: Console mostra a análise
+O console de testes SHALL mostrar o card de análise no canal, depois do "investigando". O console SHALL permitir escolher o roteiro do LLM fake: análise completa, LLM fora do ar ou análise lenta (tempo esgotado).
+
+#### Scenario: Escolher LLM fora do ar
+- **WHEN** o usuário escolhe "LLM fora do ar" e dispara um alerta
+- **THEN** o canal mostra o "investigando" e depois o card de análise parcial
 

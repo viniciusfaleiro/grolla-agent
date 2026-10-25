@@ -3,7 +3,6 @@
 ## Purpose
 
 Definir os processos deployáveis (api e worker), como sobem, aplicam migrações e expõem a própria saúde.
-
 ## Requirements
 ### Requirement: A api expõe health check
 O `grolla-api` SHALL responder `GET /health` com status 200 e `{"status": "ok"}` quando o banco estiver acessível, e com status 503 quando não estiver.
@@ -61,4 +60,11 @@ O `grolla-worker` SHALL rodar um job periódico, a cada 5 segundos, que entrega 
 #### Scenario: Card pendente
 - **WHEN** existe um card pendente na outbox e o worker está rodando
 - **THEN** o card é entregue em até 10 segundos
+
+### Requirement: Worker executa as análises pedidas
+O `grolla-worker` SHALL rodar um job periódico que pega os pedidos de análise pendentes, executa cada um com os limites configurados e encerra como parciais os que ficaram presos em execução. Duas rodadas SHALL NOT executar o mesmo pedido.
+
+#### Scenario: Pedido pendente
+- **WHEN** existe um pedido de análise pendente e o worker está rodando
+- **THEN** a análise começa em até 10 segundos
 
