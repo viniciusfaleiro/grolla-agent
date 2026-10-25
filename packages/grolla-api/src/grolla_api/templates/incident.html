@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ incident.title }}{% endblock %}
+{% block content %}
+<h1>{{ incident.title }}</h1>
+<dl>
+  <dt>Severidade</dt><dd class="sev">{{ incident.severity }}</dd>
+  <dt>Estado</dt><dd>{{ incident.state }}</dd>
+  <dt>Serviços</dt><dd>{{ incident.services | join(", ") }}</dd>
+  <dt>Detectado em</dt><dd>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</dd>
+</dl>
+
+<h2>Alertas</h2>
+{% if alerts %}
+<table>
+  <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
+  <tbody>
+  {% for alert in alerts %}
+    <tr>
+      <td>{{ alert.status }}</td>
+      <td>{{ alert.rule_name }}</td>
+      <td>{{ alert.summary }}</td>
+      <td>{{ alert.starts_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</td>
+      <td>{% if alert.source_url %}<a href="{{ alert.source_url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Nenhum alerta.</p>
+{% endif %}
+
+<h2>Timeline</h2>
+{% if events %}
+<ol>
+  {% for event in events %}
+  <li>
+    <strong>{{ event.at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</strong> ·
+    {{ event_labels.get(event.type, event.type) }}
+    <span class="muted">({{ event.author }})</span>
+    {% if event.data %}
+    <ul class="muted">
+      {% for key, value in event.data.items() %}<li>{{ key }}: {{ value }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Nenhum evento.</p>
+{% endif %}
+{% endblock %}

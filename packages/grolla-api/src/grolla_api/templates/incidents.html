@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Incidentes</h1>
+{% if incidents %}
+<table>
+  <thead>
+    <tr><th>Severidade</th><th>Título</th><th>Estado</th><th>Serviços</th><th>Detectado em</th></tr>
+  </thead>
+  <tbody>
+  {% for incident in incidents %}
+    <tr>
+      <td class="sev">{{ incident.severity }}</td>
+      <td><a href="/incidents/{{ incident.id }}">{{ incident.title }}</a></td>
+      <td>{{ incident.state }}</td>
+      <td>{{ incident.services | join(", ") }}</td>
+      <td>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Nenhum incidente registrado.</p>
+{% endif %}
+{% endblock %}

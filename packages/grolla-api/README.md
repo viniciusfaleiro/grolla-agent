@@ -17,8 +17,10 @@
 
 ## ✨ O que é
 
-O processo que precisa responder rápido, sempre: é por ele que os alertas chegam. Não faz
-trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
+O processo que precisa responder rápido, sempre: é por ele que os alertas chegam. A api é fina:
+autentica e traduz o webhook pelo port `AlertIngress`, chama o caso de uso `receive_alerts` e
+renderiza as páginas (Jinja2, sem JS) a partir do `IncidentRepository`. Não tem regra de
+negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
 `grolla-core`; no startup aplica as migrações pendentes e monta as dependências pelo `bootstrap`.
 
 ## 🚀 Features
@@ -26,6 +28,10 @@ trabalho pesado — investigação, timers e notificações ficam no `grolla-wor
 | Área | O que entrega | Endpoint |
 |---|---|---|
 | **Health check** | `200 {"status": "ok"}` com o banco acessível; `503` sem banco | `GET /health` |
+| **Saúde do worker** | `200` se o último heartbeat tem até 2 min, senão `503`; corpo `{"last_heartbeat": <iso ou null>}` | `GET /health/worker` |
+| **Webhook de alertas** | HTTP Basic: `401` sem credencial válida (sem efeito), `422` em payload inválido ou não-JSON, `202` depois de processar os alertas | `POST /webhooks/alerts` |
+| **Lista de incidentes** | HTML server-side: título, severidade, estado, serviços e detecção, mais recentes primeiro | `GET /incidents` |
+| **Página do incidente** | HTML: dados do incidente, alertas (status, regra, resumo, origem) e a timeline de eventos; `404` se não existe | `GET /incidents/{id}` |
 
 ## ⚡ Como rodar
 
@@ -44,6 +50,9 @@ docker build -f packages/grolla-api/Dockerfile -t grolla-api:local .
 | Variável | Obrigatória | Padrão |
 |---|---|---|
 | `GROLLA_DATABASE_URL` | sim | — |
+| `GROLLA_CONFIG_FILE` | sim | — |
+| `GROLLA_ALERTS_WEBHOOK_USER` | sim | — |
+| `GROLLA_ALERTS_WEBHOOK_PASSWORD` | sim | — |
 | `GROLLA_LOG_LEVEL` | não | `INFO` |
 
 ## 🧪 Testes
@@ -52,7 +61,8 @@ docker build -f packages/grolla-api/Dockerfile -t grolla-api:local .
 uv run pytest packages/grolla-api
 ```
 
-- `tests/unit/` — `create_app` recebe a checagem de banco como função, então o 200/503 é testado
+- `tests/unit/` — `create_app` recebe `Services` (checagem de banco, heartbeat e os ports), montado
+  com os fakes de `grolla.testing`: rotas de saúde, webhook e páginas testadas com `TestClient`,
   sem banco e sem rede; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — `/health` contra Postgres real (Testcontainers).
 
@@ -60,7 +70,8 @@ uv run pytest packages/grolla-api
 
 ```
 src/grolla_api/
-  app.py     create_app(): rotas HTTP
+  app.py     create_app(): rotas HTTP (saúde, webhook, páginas)
+  templates/ páginas Jinja2 (base, lista e incidente)
   main.py    entrypoint `grolla-api`: settings → migrações → uvicorn
 tests/       unit/ · integration/
 Dockerfile
