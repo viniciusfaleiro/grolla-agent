@@ -1,18 +1,22 @@
-"""Fakes em memória dos ports de incidentes: repositório, outbox, canal de chat e entrada."""
+"""Fakes em memória dos ports de incidentes: repositório, outbox, fila de análises, canal de
+chat e entrada.
+"""
 
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from grolla.application.analysis import AnalysisJob
 from grolla.application.incidents import (
     InvalidAlertPayloadError,
     NotificationFailedError,
     OutboxItem,
 )
-from grolla.domain.analysis import Analysis
+from grolla.application.investigation import LlmUsage
+from grolla.domain.analysis import Analysis, AnalysisStatus
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -49,6 +53,8 @@ class InMemoryIncidentRepository:
         self.seen: set[tuple[str, datetime, AlertStatus]] = set()
         self.links: list[tuple[UUID, Alert]] = []
         self.outbox: list[OutboxEntry] = []
+        self.analyses: dict[UUID, Analysis] = {}
+        self.usages: list[tuple[UUID, LlmUsage, datetime]] = []  # (incidente, uso, quando)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator["InMemoryUnitOfWork"]:
@@ -58,11 +64,21 @@ class InMemoryIncidentRepository:
             set(self.seen),
             list(self.links),
             list(self.outbox),
+            dict(self.analyses),
+            list(self.usages),
         )
         try:
             yield InMemoryUnitOfWork(self)
         except BaseException:
-            self.incidents, self.events, self.seen, self.links, self.outbox = snapshot
+            (
+                self.incidents,
+                self.events,
+                self.seen,
+                self.links,
+                self.outbox,
+                self.analyses,
+                self.usages,
+            ) = snapshot
             raise
 
     async def list_incidents(self, limit: int) -> list[Incident]:
@@ -76,7 +92,7 @@ class InMemoryIncidentRepository:
         return [alert for owner, alert in self.links if owner == incident_id]
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
-        raise NotImplementedError
+        return self.analyses.get(incident_id)
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         return [event for event in self.events if event.incident_id == incident_id]
@@ -124,7 +140,69 @@ class InMemoryUnitOfWork:
         outbox.append(OutboxEntry(next_id, notification, next_attempt_at=at))
 
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
-        raise NotImplementedError
+        """Um pedido por incidente: pedir de novo mantém o primeiro."""
+        self._repository.analyses.setdefault(
+            incident_id,
+            Analysis(
+                incident_id=incident_id,
+                status=AnalysisStatus.PENDING,
+                requested_at=at,
+                started_at=None,
+                finished_at=None,
+                summary="",
+                evaluations=(),
+                hypotheses=(),
+                plan=(),
+                partial_reason=None,
+            ),
+        )
+
+
+class InMemoryAnalysisQueue:
+    """Fila de análises sobre o estado de um `InMemoryIncidentRepository`."""
+
+    def __init__(self, repository: InMemoryIncidentRepository) -> None:
+        self._repository = repository
+
+    async def claim(self, now: datetime) -> AnalysisJob | None:
+        pending = [
+            a for a in self._repository.analyses.values() if a.status is AnalysisStatus.PENDING
+        ]
+        oldest = min(pending, key=lambda a: a.requested_at, default=None)
+        if oldest is None:
+            return None
+        self._repository.analyses[oldest.incident_id] = replace(
+            oldest, status=AnalysisStatus.RUNNING, started_at=now
+        )
+        return AnalysisJob(oldest.incident_id, oldest.requested_at, now)
+
+    async def stuck(self, started_before: datetime) -> list[AnalysisJob]:
+        jobs: list[AnalysisJob] = []
+        for a in self._repository.analyses.values():
+            if (
+                a.status is AnalysisStatus.RUNNING
+                and a.started_at
+                and a.started_at < started_before
+            ):
+                jobs.append(AnalysisJob(a.incident_id, a.requested_at, a.started_at))
+        return jobs
+
+    async def finish(
+        self,
+        analysis: Analysis,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        current = self._repository.analyses.get(analysis.incident_id)
+        if current is None or current.status is not AnalysisStatus.RUNNING:
+            return  # já encerrada (pelo reaper ou por outro worker): a análise chega uma vez
+        async with self._repository.transaction() as uow:
+            self._repository.analyses[analysis.incident_id] = analysis
+            await uow.append(events)
+            await uow.enqueue(notification, at)
+            self._repository.usages.extend((analysis.incident_id, u, at) for u in usages)
 
 
 class InMemoryNotificationOutbox:

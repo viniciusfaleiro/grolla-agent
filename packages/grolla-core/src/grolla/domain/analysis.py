@@ -1,7 +1,7 @@
 """Análise inicial de um incidente: o que foi avaliado, hipóteses e plano proposto."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -23,6 +23,16 @@ class PartialReason(StrEnum):
     BUDGET = "orcamento_esgotado"
     INVALID_RESULT = "resultado_invalido"
     INTERRUPTED = "interrompida"
+
+
+# Como o motivo aparece para o time: "análise parcial: tempo esgotado".
+PARTIAL_REASON_TEXT = {
+    PartialReason.LLM_FAILED: "falha do modelo de linguagem",
+    PartialReason.TIMEOUT: "tempo esgotado",
+    PartialReason.BUDGET: "orçamento de tokens esgotado",
+    PartialReason.INVALID_RESULT: "resultado inválido",
+    PartialReason.INTERRUPTED: "interrompida",
+}
 
 
 @dataclass(frozen=True)
@@ -76,11 +86,29 @@ def complete(
     pending: Analysis, draft: AnalysisDraft, evaluations: Sequence[Evaluation], now: datetime
 ) -> Analysis:
     """Análise concluída com o rascunho do modelo e as avaliações reais."""
-    raise NotImplementedError
+    return replace(
+        pending,
+        status=AnalysisStatus.COMPLETED,
+        finished_at=now,
+        summary=draft.summary,
+        evaluations=tuple(evaluations),
+        hypotheses=tuple(sorted(draft.hypotheses, key=lambda h: h.confidence, reverse=True)),
+        plan=draft.plan,
+        partial_reason=None,
+    )
 
 
 def partial(
     pending: Analysis, reason: PartialReason, evaluations: Sequence[Evaluation], now: datetime
 ) -> Analysis:
     """Análise encerrada sem rascunho válido: mantém o que foi avaliado e o motivo."""
-    raise NotImplementedError
+    return replace(
+        pending,
+        status=AnalysisStatus.PARTIAL,
+        finished_at=now,
+        summary=f"Análise parcial: {PARTIAL_REASON_TEXT[reason]}.",
+        evaluations=tuple(evaluations),
+        hypotheses=(),
+        plan=(),
+        partial_reason=reason,
+    )

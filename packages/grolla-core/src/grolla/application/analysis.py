@@ -37,7 +37,12 @@ class AnalysisQueue(Protocol):
         usages: Sequence[LlmUsage],
         at: datetime,
     ) -> None:
-        """Numa transação: grava a análise, os eventos, o card na outbox e o uso do modelo."""
+        """Numa transação: grava a análise, os eventos, o card na outbox e o uso do modelo.
+
+        Só grava se o pedido ainda está em andamento. Se já foi encerrado (por exemplo, pelo
+        `reap_stuck_analyses` enquanto o worker estava fora), não grava nada: a análise chega
+        uma vez só.
+        """
         ...
 
 
