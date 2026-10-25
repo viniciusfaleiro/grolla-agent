@@ -1,4 +1,4 @@
-"""Log de eventos, projeções de incidentes e análises, alertas e outbox (migrações 0002 e 0003)."""
+"""Log de eventos, projeções (incidentes, análises, validações), alertas e outbox (0002 a 0004)."""
 
 import json
 from collections.abc import AsyncGenerator, Mapping, Sequence
@@ -13,12 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.application.incidents import IncidentUnitOfWork, OutboxItem
 from grolla.domain.analysis import (
+    Action,
     Analysis,
     AnalysisStatus,
     Evaluation,
     Evidence,
     Hypothesis,
+    HypothesisVerdict,
     PartialReason,
+    Verdict,
     Verification,
 )
 from grolla.domain.incidents import (
@@ -92,10 +95,84 @@ def hypotheses_data(hypotheses: Sequence[Hypothesis]) -> list[dict[str, Any]]:
         {
             "title": h.title,
             "confidence": h.confidence,
-            "evidence": [{"text": e.text, "url": e.url} for e in h.evidence],
+            "evidence": _evidence_data(h.evidence),
         }
         for h in hypotheses
     ]
+
+
+def _evidence_data(evidence: Sequence[Evidence]) -> list[dict[str, Any]]:
+    return [{"text": e.text, "url": e.url} for e in evidence]
+
+
+def _evidence(data: Sequence[Mapping[str, Any]]) -> tuple[Evidence, ...]:
+    return tuple(Evidence(text=e["text"], url=e["url"]) for e in data)
+
+
+def verdicts_data(verdicts: Sequence[HypothesisVerdict]) -> list[dict[str, Any]]:
+    return [
+        {
+            "hypothesis": v.hypothesis,
+            "verdict": v.verdict.value,
+            "reasoning": v.reasoning,
+            "evidence": _evidence_data(v.evidence),
+        }
+        for v in verdicts
+    ]
+
+
+def actions_data(actions: Sequence[Action]) -> list[dict[str, Any]]:
+    return [
+        {"action": a.action, "target": a.target, "expected": a.expected, "link": a.link}
+        for a in actions
+    ]
+
+
+def _verification_data(verification: Verification) -> dict[str, Any]:
+    return {
+        "incident_id": str(verification.incident_id),
+        "status": verification.status.value,
+        "requested_at": verification.requested_at,
+        "started_at": verification.started_at,
+        "finished_at": verification.finished_at,
+        "verdicts": verdicts_data(verification.verdicts),
+        "root_cause": verification.root_cause,
+        "actions": actions_data(verification.actions),
+        "missing": verification.missing,
+        "evaluations": evaluations_data(verification.evaluations),
+        "partial_reason": None
+        if verification.partial_reason is None
+        else verification.partial_reason.value,
+    }
+
+
+def _verification(data: Mapping[str, Any]) -> Verification:
+    """Lê a validação do JSON da linha de `verifications` ou do card na outbox."""
+    reason = data["partial_reason"]
+    return Verification(
+        incident_id=UUID(data["incident_id"]),
+        status=AnalysisStatus(data["status"]),
+        requested_at=datetime.fromisoformat(data["requested_at"]),
+        started_at=_optional_datetime(data["started_at"]),
+        finished_at=_optional_datetime(data["finished_at"]),
+        verdicts=tuple(
+            HypothesisVerdict(
+                hypothesis=v["hypothesis"],
+                verdict=Verdict(v["verdict"]),
+                reasoning=v["reasoning"],
+                evidence=_evidence(v["evidence"]),
+            )
+            for v in data["verdicts"]
+        ),
+        root_cause=data["root_cause"],
+        actions=tuple(
+            Action(action=a["action"], target=a["target"], expected=a["expected"], link=a["link"])
+            for a in data["actions"]
+        ),
+        missing=data["missing"],
+        evaluations=_evaluations(data["evaluations"]),
+        partial_reason=None if reason is None else PartialReason(reason),
+    )
 
 
 def _evaluations(data: Sequence[Mapping[str, Any]]) -> tuple[Evaluation, ...]:
@@ -112,7 +189,7 @@ def _hypotheses(data: Sequence[Mapping[str, Any]]) -> tuple[Hypothesis, ...]:
         Hypothesis(
             title=h["title"],
             confidence=h["confidence"],
-            evidence=tuple(Evidence(text=e["text"], url=e["url"]) for e in h["evidence"]),
+            evidence=_evidence(h["evidence"]),
         )
         for h in data
     )
@@ -158,6 +235,7 @@ def _optional_datetime(value: str | None) -> datetime | None:
 
 def _notification_json(notification: Notification) -> str:
     analysis = notification.analysis
+    verification = notification.verification
     return _json(
         {
             "kind": notification.kind.value,
@@ -170,12 +248,14 @@ def _notification_json(notification: Notification) -> str:
             "source_url": notification.source_url,
             "page_url": notification.page_url,
             "analysis": None if analysis is None else _analysis_data(analysis),
+            "verification": None if verification is None else _verification_data(verification),
         }
     )
 
 
 def _notification(data: Mapping[str, Any]) -> Notification:
     analysis = data.get("analysis")  # cards gravados antes da 0003 não têm a chave
+    verification = data.get("verification")  # nem antes da 0004
     return Notification(
         kind=NotificationKind(data["kind"]),
         incident_id=UUID(data["incident_id"]),
@@ -187,6 +267,7 @@ def _notification(data: Mapping[str, Any]) -> Notification:
         source_url=data["source_url"],
         page_url=data["page_url"],
         analysis=None if analysis is None else _analysis(analysis),
+        verification=None if verification is None else _verification(verification),
     )
 
 
@@ -395,7 +476,16 @@ class PostgresIncidentRepository:
             return [_alert(row) for row in result]
 
     async def verification_of(self, incident_id: UUID) -> Verification | None:
-        raise NotImplementedError
+        async with self._engine.connect() as connection:
+            result = await connection.execute(
+                # Como JSON, igual a `analysis_of`: o mesmo formato do card na outbox.
+                sa.text(
+                    "SELECT to_jsonb(verifications) FROM verifications WHERE incident_id = :id"
+                ),
+                {"id": incident_id},
+            )
+            data = result.scalar_one_or_none()
+            return None if data is None else _verification(data)
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         async with self._engine.connect() as connection:
