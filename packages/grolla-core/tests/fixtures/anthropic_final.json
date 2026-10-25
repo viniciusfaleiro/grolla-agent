@@ -1,0 +1,22 @@
+{
+  "id": "msg_01Final",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5-5",
+  "content": [
+    {"type": "thinking", "thinking": "", "signature": "EqQBCkYIBxgCKkB"},
+    {
+      "type": "text",
+      "text": "{\"summary\": \"Erros subiram depois do deploy 1.4.2.\", \"hypotheses\": [{\"title\": \"Deploy 1.4.2 com regressão\", \"confidence\": 0.8, \"evidence\": [{\"text\": \"build 1.4.2 às 10:02\", \"url\": \"https://dev.azure.com/org/Core/_build/results?buildId=7\"}]}, {\"title\": \"Banco lento\", \"confidence\": 0.2, \"evidence\": [{\"text\": \"p99 do banco estável\", \"url\": null}]}], \"plan\": [\"Avaliar rollback do 1.4.2\"]}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 300,
+    "output_tokens": 220,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 1500,
+    "service_tier": "standard"
+  }
+}

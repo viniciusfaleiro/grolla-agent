@@ -1,15 +1,24 @@
+from pathlib import Path
+
 import pytest
-from grolla.bootstrap import WorkerSettings, build_worker
+from grolla.bootstrap import WorkerSettings, build_worker, load_team_config
 from grolla_worker.app import build_app
 from pydantic import SecretStr
 
 pytestmark = pytest.mark.integration
 
+E2E_CONFIG = Path(__file__).parents[4] / "e2e" / "config.yaml"
+
 
 async def test_worker_processes_a_deferred_heartbeat(database_url: str) -> None:
-    container = build_worker(
-        WorkerSettings(database_url=database_url, teams_webhook_url=SecretStr("http://chat"))
+    settings = WorkerSettings(
+        database_url=database_url,
+        config_file=E2E_CONFIG,
+        teams_webhook_url=SecretStr("http://chat"),
+        anthropic_api_key=SecretStr("chave"),
+        azure_devops_token=SecretStr("token"),
     )
+    container = build_worker(settings, load_team_config(E2E_CONFIG))
     app = build_app(container)
     try:
         async with app.open_async():

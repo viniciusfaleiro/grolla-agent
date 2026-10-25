@@ -1,4 +1,4 @@
-"""Log de eventos, projeção de incidentes, alertas e outbox sobre a migração 0002."""
+"""Log de eventos, projeções de incidentes e análises, alertas e outbox (migrações 0002 e 0003)."""
 
 import json
 from collections.abc import AsyncGenerator, Mapping, Sequence
@@ -12,6 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.application.incidents import IncidentUnitOfWork, OutboxItem
+from grolla.domain.analysis import (
+    Analysis,
+    AnalysisStatus,
+    Evaluation,
+    Evidence,
+    Hypothesis,
+    PartialReason,
+)
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -71,7 +79,84 @@ def _json(value: Mapping[str, Any]) -> str:
     return json.dumps(value, default=_json_default)
 
 
+def evaluations_data(evaluations: Sequence[Evaluation]) -> list[dict[str, Any]]:
+    return [
+        {"tool": e.tool, "subject": e.subject, "finding": e.finding, "url": e.url, "ok": e.ok}
+        for e in evaluations
+    ]
+
+
+def hypotheses_data(hypotheses: Sequence[Hypothesis]) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": h.title,
+            "confidence": h.confidence,
+            "evidence": [{"text": e.text, "url": e.url} for e in h.evidence],
+        }
+        for h in hypotheses
+    ]
+
+
+def _evaluations(data: Sequence[Mapping[str, Any]]) -> tuple[Evaluation, ...]:
+    return tuple(
+        Evaluation(
+            tool=e["tool"], subject=e["subject"], finding=e["finding"], url=e["url"], ok=e["ok"]
+        )
+        for e in data
+    )
+
+
+def _hypotheses(data: Sequence[Mapping[str, Any]]) -> tuple[Hypothesis, ...]:
+    return tuple(
+        Hypothesis(
+            title=h["title"],
+            confidence=h["confidence"],
+            evidence=tuple(Evidence(text=e["text"], url=e["url"]) for e in h["evidence"]),
+        )
+        for h in data
+    )
+
+
+def _analysis_data(analysis: Analysis) -> dict[str, Any]:
+    return {
+        "incident_id": str(analysis.incident_id),
+        "status": analysis.status.value,
+        "requested_at": analysis.requested_at,
+        "started_at": analysis.started_at,
+        "finished_at": analysis.finished_at,
+        "summary": analysis.summary,
+        "evaluations": evaluations_data(analysis.evaluations),
+        "hypotheses": hypotheses_data(analysis.hypotheses),
+        "plan": list(analysis.plan),
+        "partial_reason": None
+        if analysis.partial_reason is None
+        else analysis.partial_reason.value,
+    }
+
+
+def _analysis(data: Mapping[str, Any]) -> Analysis:
+    """Lê a análise do JSON da linha de `analyses` ou do card na outbox."""
+    reason = data["partial_reason"]
+    return Analysis(
+        incident_id=UUID(data["incident_id"]),
+        status=AnalysisStatus(data["status"]),
+        requested_at=datetime.fromisoformat(data["requested_at"]),
+        started_at=_optional_datetime(data["started_at"]),
+        finished_at=_optional_datetime(data["finished_at"]),
+        summary=data["summary"],
+        evaluations=_evaluations(data["evaluations"]),
+        hypotheses=_hypotheses(data["hypotheses"]),
+        plan=tuple(data["plan"]),
+        partial_reason=None if reason is None else PartialReason(reason),
+    )
+
+
+def _optional_datetime(value: str | None) -> datetime | None:
+    return None if value is None else datetime.fromisoformat(value)
+
+
 def _notification_json(notification: Notification) -> str:
+    analysis = notification.analysis
     return _json(
         {
             "kind": notification.kind.value,
@@ -83,11 +168,13 @@ def _notification_json(notification: Notification) -> str:
             "evidence": notification.evidence,
             "source_url": notification.source_url,
             "page_url": notification.page_url,
+            "analysis": None if analysis is None else _analysis_data(analysis),
         }
     )
 
 
 def _notification(data: Mapping[str, Any]) -> Notification:
+    analysis = data.get("analysis")  # cards gravados antes da 0003 não têm a chave
     return Notification(
         kind=NotificationKind(data["kind"]),
         incident_id=UUID(data["incident_id"]),
@@ -98,6 +185,7 @@ def _notification(data: Mapping[str, Any]) -> Notification:
         evidence=data["evidence"],
         source_url=data["source_url"],
         page_url=data["page_url"],
+        analysis=None if analysis is None else _analysis(analysis),
     )
 
 
@@ -232,6 +320,16 @@ class PostgresUnitOfWork:
             },
         )
 
+    async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
+        await self._connection.execute(
+            sa.text(
+                "INSERT INTO analyses (incident_id, status, requested_at)"
+                # Pedido repetido mantém o primeiro: um erro abortaria a transação do alerta.
+                " VALUES (:incident_id, :status, :at) ON CONFLICT (incident_id) DO NOTHING"
+            ),
+            {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
+        )
+
     async def enqueue(self, notification: Notification, at: datetime) -> None:
         await self._connection.execute(
             sa.text(
@@ -294,6 +392,16 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             return [_alert(row) for row in result]
+
+    async def analysis_of(self, incident_id: UUID) -> Analysis | None:
+        async with self._engine.connect() as connection:
+            result = await connection.execute(
+                # Como JSON: a linha chega no mesmo formato do card de análise na outbox.
+                sa.text("SELECT to_jsonb(analyses) FROM analyses WHERE incident_id = :id"),
+                {"id": incident_id},
+            )
+            data = result.scalar_one_or_none()
+            return None if data is None else _analysis(data)
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         async with self._engine.connect() as connection:

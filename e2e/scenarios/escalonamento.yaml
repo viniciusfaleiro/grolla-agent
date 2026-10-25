@@ -1,5 +1,5 @@
 # Um incidente P2 recebe um alerta critical (P1) do mesmo serviço: escala, volta para Detectado
-# e gera o card de severidade elevada.
+# e gera o card de severidade elevada (somado ao "investigando" e à análise da abertura).
 name: alerta mais grave escala o incidente
 given:
   fakes:
@@ -70,9 +70,14 @@ then:
       count: 1
   - expect_fake_requests:
       path: /teams/webhook
-      contains: [escala-api]
-      count: 2
+      contains: [escala-api, Análise pronta]
+      count: 1
+      timeout_seconds: 60
   - expect_fake_requests:
       path: /teams/webhook
-      contains: [escala-api, P1]
+      contains: [escala-api, Estou investigando]
       count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [escala-api]
+      count: 3

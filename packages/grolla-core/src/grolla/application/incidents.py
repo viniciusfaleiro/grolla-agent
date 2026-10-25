@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from grolla.application.clock import Clock
+from grolla.domain.analysis import Analysis
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -72,6 +73,10 @@ class IncidentUnitOfWork(Protocol):
         """Põe a notificação na outbox, pronta para entrega a partir de `at`."""
         ...
 
+    async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
+        """Grava o pedido de análise inicial do incidente, pendente desde `at`."""
+        ...
+
 
 class IncidentRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[IncidentUnitOfWork]: ...
@@ -83,6 +88,10 @@ class IncidentRepository(Protocol):
     async def get_incident(self, incident_id: UUID) -> Incident | None: ...
 
     async def alerts_of(self, incident_id: UUID) -> list[Alert]: ...
+
+    async def analysis_of(self, incident_id: UUID) -> Analysis | None:
+        """A análise do incidente em qualquer estado; None se nunca foi pedida."""
+        ...
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         """Em ordem cronológica."""
@@ -163,6 +172,8 @@ async def _receive(
     await uow.save(decision.incident)
     await uow.append(decision.events)
     await uow.link_alert(alert, decision.incident.id)
+    if decision.request_analysis:
+        await uow.request_analysis(decision.incident.id, now)
     for notification in decision.notifications:
         await uow.enqueue(notification, now)
 

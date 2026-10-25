@@ -1,5 +1,5 @@
 # O único alerta disparando do incidente chega como resolvido: o incidente normaliza e o canal
-# recebe o card de normalização (além do card de abertura).
+# recebe o card de normalização (além do "investigando" e da análise da abertura).
 name: último alerta resolvido normaliza o incidente
 given:
   fakes:
@@ -58,5 +58,10 @@ then:
       count: 1
   - expect_fake_requests:
       path: /teams/webhook
+      contains: [normaliza-api, Análise pronta]
+      count: 1
+      timeout_seconds: 60
+  - expect_fake_requests:
+      path: /teams/webhook
       contains: [normaliza-api]
-      count: 2
+      count: 3

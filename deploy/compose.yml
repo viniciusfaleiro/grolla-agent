@@ -58,6 +58,23 @@ services:
       GROLLA_DATABASE_URL: postgresql://grolla:${GROLLA_DB_PASSWORD}@db:5432/grolla
       GROLLA_LOG_LEVEL: ${GROLLA_LOG_LEVEL:-INFO}
       GROLLA_TEAMS_WEBHOOK_URL: ${GROLLA_TEAMS_WEBHOOK_URL:?defina no .env}
+      GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
+      GROLLA_ANTHROPIC_API_KEY: ${GROLLA_ANTHROPIC_API_KEY:?defina no .env}
+      GROLLA_AZURE_DEVOPS_TOKEN: ${GROLLA_AZURE_DEVOPS_TOKEN:?defina no .env}
+    volumes:
+      - ./${GROLLA_TEAM_CONFIG:-credenciadora.yaml}:/etc/grolla/grolla.yaml:ro
+
+  # Servidor MCP oficial do SigNoz: a telemetria da investigação. Só na rede interna do compose
+  # (sem porta publicada); a API key (papel Viewer) fica só aqui. O agente só chama ferramentas
+  # de leitura de uma lista fechada.
+  signoz-mcp:
+    image: signoz/signoz-mcp-server:v0.16.0
+    restart: unless-stopped
+    environment:
+      TRANSPORT_MODE: http
+      MCP_SERVER_PORT: "8000"
+      SIGNOZ_URL: ${GROLLA_SIGNOZ_URL:?defina no .env}
+      SIGNOZ_API_KEY: ${GROLLA_SIGNOZ_API_KEY:?defina no .env}
 
 volumes:
   grolla-pgdata:

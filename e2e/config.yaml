@@ -1,4 +1,4 @@
-# Configuração do time usada pela api no e2e (montada em /etc/grolla/grolla.yaml).
+# Configuração do time usada pela api e pelo worker no e2e (montada em /etc/grolla/grolla.yaml).
 team: credenciadora
 page_base_url: http://localhost:8000
 alert_filter: { team: credenciadora }
@@ -12,3 +12,22 @@ severity_rules:
     severity: P1
   - match: { severity: warning }
     severity: P2
+
+# Investigação: tudo aponta para o grolla-fakes. Timeout curto para o cenário de tempo esgotado
+# (o modo "lenta" do LLM fake espera mais que isso).
+investigation:
+  timeout_seconds: 15
+  max_tokens: 300000
+  lookback_minutes: 60
+  max_parallel: 3
+llm:
+  stages:
+    investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
+signoz:
+  mcp_url: http://fakes:9000/signoz/mcp
+  base_url: http://localhost:9000/signoz
+azure_devops:
+  base_url: http://fakes:9000/azure-devops/credenciadora
+  projects: [Core]
+  service_repo_map:
+    autorizador: { project: Core, repo: authorizer-api }

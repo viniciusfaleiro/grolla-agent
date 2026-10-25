@@ -34,16 +34,21 @@ class SentAlert(BaseModel):
     api_status: int
 
 
+DEFAULT_LLM_MODE = "completa"
+
+
 class FakesState:
     def __init__(self) -> None:
         self.scenario = Scenario()
         self.requests: list[RecordedRequest] = []
         self.console_alerts: list[SentAlert] = []
+        self.llm_mode = DEFAULT_LLM_MODE  # modo da Messages API fake (grolla_fakes.llm)
 
     def reset(self) -> None:
         self.scenario = Scenario()
         self.requests = []
         self.console_alerts = []
+        self.llm_mode = DEFAULT_LLM_MODE
 
     def set_route(self, route: ScriptedRoute) -> None:
         """Troca (ou acrescenta) a rota de mesmo método e caminho no roteiro."""

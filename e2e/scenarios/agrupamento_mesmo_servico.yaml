@@ -1,6 +1,7 @@
-# Dois alertas diferentes do mesmo serviço entram num incidente só; sem mudança de severidade,
-# só o primeiro gera card.
-name: dois alertas do mesmo serviço agrupam
+# Dois alertas diferentes do mesmo serviço entram num incidente só. O segundo chega depois da
+# análise do primeiro: sem mudança de severidade, não gera card nem reabre a análise (os 2 cards
+# são o "investigando" e a análise do primeiro alerta).
+name: dois alertas do mesmo serviço agrupam sem nova análise
 given:
   fakes:
     routes:
@@ -30,6 +31,12 @@ when:
             endsAt: "0001-01-01T00:00:00Z"
             generatorURL: https://signoz.interno/alerts/edit?ruleId=103
             fingerprint: e2e-agrupa-1
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id
+        WHERE 'agrupa-api' = ANY(i.services) AND a.status = 'concluida'
+      at_least: 1
+      timeout_seconds: 60
   - http:
       service: api
       method: POST
@@ -63,7 +70,17 @@ then:
         SELECT count(*) FROM alerts a JOIN incidents i ON i.id = a.incident_id
         WHERE 'agrupa-api' = ANY(i.services)
       count: 2
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id
+        WHERE 'agrupa-api' = ANY(i.services)
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [agrupa-api, Análise pronta]
+      count: 1
+      timeout_seconds: 60
   - expect_fake_requests:
       path: /teams/webhook
       contains: [agrupa-api]
-      count: 1
+      count: 2

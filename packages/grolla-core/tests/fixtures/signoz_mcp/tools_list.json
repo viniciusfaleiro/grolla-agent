@@ -1,0 +1,336 @@
+{
+  "_origem": "SigNoz/signoz-mcp-server@main internal/mcp-server/testdata/wire-catalog/tools-list.json (recorte: só as ferramentas que o adapter usa)",
+  "protocolVersion": "2025-11-25",
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Use this when the user wants custom aggregate statistics over spans (counts, rates, latency percentiles, grouped/top-N breakdowns, or time series) rather than individual span rows or a full trace hierarchy. For the built-in operation table for one traced service, ranked by p99, use signoz_get_service_top_operations. Use signoz_search_traces for raw spans or trace-ID discovery, and signoz_get_trace_details for one known trace ID. Before calling, read signoz://traces/query-builder-guide; discover unfamiliar workspace fields with signoz_get_field_keys. Defaults to the last 1 hour.",
+      "inputSchema": {
+        "properties": {
+          "aggregateOn": {
+            "description": "Field name to aggregate on (e.g., 'duration_nano'). Required for all aggregations except count and rate.",
+            "type": "string"
+          },
+          "aggregation": {
+            "description": "Aggregation function to apply. One of: count, count_distinct, avg, sum, min, max, p50, p75, p90, p95, p99, rate",
+            "type": "string"
+          },
+          "end": {
+            "description": "End time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "error": {
+            "description": "Shortcut filter for error spans (true or false). Equivalent to adding has_error = true/false to filter.",
+            "type": [
+              "boolean",
+              "string"
+            ]
+          },
+          "filter": {
+            "description": "Filter expression using SigNoz search syntax (see signoz://traces/query-builder-guide). search() is logs-only; traces use field predicates. Combine conditions with AND, OR, and parentheses for precedence. Unknown keys hard-error; keys present in multiple contexts default to resource context. Disambiguate with attribute.<key>, resource.<key>, or span.<key>. Discover valid keys with signoz_get_field_keys, then confirm values with signoz_get_field_values, before filtering. Examples: \"service.name = 'payment-svc' AND has_error = true\", \"http_method = 'POST' AND (has_error = true OR duration_nano > 1000000000)\". Combined with service/operation/error/duration params using AND.",
+            "type": "string"
+          },
+          "groupBy": {
+            "description": "Comma-separated list of field names to group results by (e.g., 'service.name' or 'service.name, name'). Leave empty for a single aggregate value.",
+            "type": "string"
+          },
+          "limit": {
+            "default": "100",
+            "description": "Maximum number of groups to return (default: 100, max: 10000; higher values are clamped). For time_series queries, groups are ranked across the entire time range, so a short-lived spike can fall outside the selected top groups.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "maxDuration": {
+            "description": "Maximum span duration in nanoseconds. Example: '2000000000' for 2s.",
+            "type": "string"
+          },
+          "minDuration": {
+            "description": "Minimum span duration in nanoseconds. Example: '500000000' for 500ms.",
+            "type": "string"
+          },
+          "operation": {
+            "description": "Shortcut filter for span/operation name. Equivalent to adding name = '<value>' to filter.",
+            "type": "string"
+          },
+          "orderBy": {
+            "description": "How to order results. Format: '<expression> <direction>', e.g. 'count() desc' or 'avg(duration_nano) asc'. Defaults to the aggregation expression descending.",
+            "type": "string"
+          },
+          "requestType": {
+            "default": "scalar",
+            "description": "Result shape. \"scalar\" (default) returns one value or a grouped/ranked table over the full time range; use it for totals, percentiles, and top lists. \"time_series\" returns time-bucketed values, with one series per group when grouped; use it for spikes, trends, changes over time, or questions about when something happened.",
+            "enum": [
+              "scalar",
+              "time_series"
+            ],
+            "type": "string"
+          },
+          "searchContext": {
+            "description": "Copy the user's entire original request verbatim, including any preflight or confirmation context; do not summarize, shorten, or omit clauses.",
+            "type": "string"
+          },
+          "service": {
+            "description": "Shortcut filter for service name. Equivalent to adding service.name = '<value>' to filter.",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "stepInterval": {
+            "description": "Time bucket size in seconds for time_series mode (optional). When omitted, the backend auto-selects an appropriate interval. Only set this if the user explicitly requests a specific granularity. Examples: '60' (1 min), '3600' (1 hour), '86400' (1 day).",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "timeRange": {
+            "default": "1h",
+            "description": "Relative time range. Format: <number><unit> where unit is 'm' (minutes), 'h' (hours), or 'd' (days). Examples: '30m', '1h', '2h', '6h', '24h', '3d', '7d'. Ignored when both start and end are provided. Defaults to '1h'.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "aggregation"
+        ],
+        "type": "object"
+      },
+      "name": "signoz_aggregate_traces"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Use this when the user wants the built-in operation table for one traced service in a time window. It ranks operation names by p99 latency and returns p50, p95, p99, call count, and error count. Use signoz_list_services to discover active traced service names. For custom aggregation, grouping, time series, cross-service comparison, or arbitrary trace filters, use signoz_aggregate_traces instead. The optional tags parameter is a JSON-encoded TagQueryParam array.",
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "description": "End time in unix milliseconds (optional, defaults to now).",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "searchContext": {
+            "description": "Copy the user's entire original request verbatim, including any preflight or confirmation context; do not summarize, shorten, or omit clauses.",
+            "type": "string"
+          },
+          "service": {
+            "description": "Exact traced service name, typically from signoz_list_services.",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start time in unix milliseconds (optional, defaults to 6 hours ago).",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "tags": {
+            "description": "JSON-encoded TagQueryParam array; omit for no tag filter. Example: [{\"key\":\"http.method\",\"tagType\":\"SpanAttribute\",\"operator\":\"In\",\"stringValues\":[\"GET\"]}]. Pass the array as a string, not as a JSON array value.",
+            "type": "string"
+          },
+          "timeRange": {
+            "default": "6h",
+            "description": "Relative time range. Format: <number><unit> where unit is 'm' (minutes), 'h' (hours), or 'd' (days). Examples: '30m', '1h', '2h', '6h', '24h', '3d', '7d'. Ignored when both start and end are provided. Defaults to last 6 hours if not provided.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "type": "object"
+      },
+      "name": "signoz_get_service_top_operations"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Use this when the user wants individual log records or messages matching text, service, severity, or field filters. It returns paginated rows, not counts, trends, or grouped breakdowns; use signoz_aggregate_logs for those, and signoz_execute_builder_query only for queries this tool cannot express. You do not need the guide when using only searchText, service, severity, time, or pagination. Read signoz://logs/query-builder-guide before filtering on unfamiliar fields. Defaults to the last 1 hour.",
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "description": "End time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "filter": {
+            "description": "Filter expression using SigNoz search syntax (see signoz://logs/query-builder-guide). Combine conditions with AND, OR, and parentheses. Unknown keys hard-error; keys present in multiple contexts default to resource context. Disambiguate with attribute.<key> or resource.<key>. Log keys are workspace-specific; logs have no spec-mandated resource attributes, so even service.name is only present when the log pipeline sets it. Discover keys with signoz_get_field_keys and values with signoz_get_field_values before filtering. For message text use body CONTAINS 'term'. Only when you don't know which field holds a term, use search('term') for every field or search('term', attribute); scopes (body, attribute, resource, log) are ORed. search() is slow and may be rejected over wide time ranges. Surrounding filters keep AND/NOT semantics. Examples: \"service.name = 'payment-svc' AND severity_text = 'ERROR'\", \"body CONTAINS 'timeout' AND severity_text = 'ERROR'\".",
+            "type": "string"
+          },
+          "limit": {
+            "default": "100",
+            "description": "Maximum number of logs to return (default: 100, max: 10000; higher values are clamped; paginate with offset)",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "offset": {
+            "default": "0",
+            "description": "Offset for pagination (default: 0)",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "searchContext": {
+            "description": "Copy the user's entire original request verbatim, including any preflight or confirmation context; do not summarize, shorten, or omit clauses.",
+            "type": "string"
+          },
+          "searchScope": {
+            "description": "Where searchText matches: body (default) for message text; attribute or resource for their keys and values; all for every field. Scopes other than body are slower, and SigNoz may reject them over wide time ranges. Use them only when you don't know which key holds the text; when you do, put a predicate such as attribute.<key> CONTAINS 'text' in filter instead.",
+            "enum": [
+              "body",
+              "attribute",
+              "resource",
+              "all"
+            ],
+            "type": "string"
+          },
+          "searchText": {
+            "description": "Literal text to find, escaped automatically. searchScope chooses where it matches; the default is the log body. Combines with filter using AND.",
+            "type": "string"
+          },
+          "service": {
+            "description": "Optional service name to filter by (adds service.name = '<value>'). Fails with `key service.name not found` when this workspace's logs lack that attribute; discover keys with signoz_get_field_keys(signal=\"logs\", fieldContext=\"resource\") and filter on an available key instead.",
+            "type": "string"
+          },
+          "severity": {
+            "description": "Filter on severity_text. Common values include DEBUG, INFO, WARN, ERROR, and FATAL, but they are not an exhaustive enum. Discover values with signoz_get_field_values(signal=\"logs\", name=\"severity_text\", fieldContext=\"log\").",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "timeRange": {
+            "default": "1h",
+            "description": "Relative time range. Format: <number><unit> where unit is 'm' (minutes), 'h' (hours), or 'd' (days). Examples: '30m', '1h', '2h', '6h', '24h', '3d', '7d'. Ignored when both start and end are provided. Defaults to '1h'.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "signoz_search_logs"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Use this when the user wants individual raw span rows matching service, operation, error, duration, or field filters, or needs to discover trace IDs. It returns paginated spans, not aggregate trends/groups or a full trace hierarchy; use signoz_aggregate_traces for statistics and signoz_get_trace_details for one known trace ID. Rows carry a default set of span fields; name other fields in selectFields. A field missing from a row was not selected, so do not read it as absent from the span. Read signoz://traces/query-builder-guide before using unfamiliar workspace fields. Defaults to the last 1 hour.",
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "description": "End time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "error": {
+            "description": "Filter by error status (true or false).",
+            "type": [
+              "boolean",
+              "string"
+            ]
+          },
+          "filter": {
+            "description": "Filter expression using SigNoz search syntax (see signoz://traces/query-builder-guide). search() is logs-only; traces use field predicates. Combine conditions with AND, OR, and parentheses for precedence. Unknown keys hard-error; keys present in multiple contexts default to resource context. Disambiguate with attribute.<key>, resource.<key>, or span.<key>. Discover valid keys with signoz_get_field_keys, then confirm values with signoz_get_field_values, before filtering. Examples: \"service.name = 'payment-svc' AND has_error = true\", \"http_method = 'POST' AND (has_error = true OR duration_nano > 1000000000)\". Combined with shortcut params using AND.",
+            "type": "string"
+          },
+          "limit": {
+            "default": "100",
+            "description": "Maximum number of span rows to return (default: 100, max: 10000; higher values are clamped; paginate with offset).",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "maxDuration": {
+            "description": "Maximum span duration in nanoseconds. Example: '2000000000' for 2s.",
+            "type": "string"
+          },
+          "minDuration": {
+            "description": "Minimum span duration in nanoseconds. Example: '500000000' for 500ms.",
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "description": "Number of span rows to skip for pagination (default: 0).",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "operation": {
+            "description": "Operation/span name to filter by.",
+            "type": "string"
+          },
+          "searchContext": {
+            "description": "Copy the user's entire original request verbatim, including any preflight or confirmation context; do not summarize, shorten, or omit clauses.",
+            "type": "string"
+          },
+          "selectFields": {
+            "description": "Extra fields to return on each row, added to the default set: timestamp, trace_id, span_id, parent_span_id, name, service.name, kind_string, duration_nano, has_error, status_code_string, status_message, response_status_code, http_method. Pass an array of names or a comma-separated string, at most 50. Names can be span columns (db_name), resource attributes (k8s.pod.name), or span attributes (http.route); a resource., attribute., or span. prefix picks the context. Each field comes back as its own row key. Discover names with signoz_get_field_keys (signal=\"traces\"). Example: [\"http.route\", \"db.statement\"].",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "string"
+            ]
+          },
+          "service": {
+            "description": "Optional service name to filter by.",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start time in unix milliseconds (optional). When both start and end are provided, they override timeRange.",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "timeRange": {
+            "default": "1h",
+            "description": "Relative time range. Format: <number><unit> where unit is 'm' (minutes), 'h' (hours), or 'd' (days). Examples: '30m', '1h', '2h', '6h', '24h', '3d', '7d'. Ignored when both start and end are provided. Defaults to '1h'.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "signoz_search_traces"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "5febef5a-833d-4e14-b9c0-14cb638f91e6",
+  "name": "authorizer-api",
+  "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6",
+  "project": {
+    "id": "7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10",
+    "name": "Core",
+    "url": "https://dev.azure.com/minha-org/_apis/projects/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10",
+    "state": "wellFormed",
+    "revision": 411,
+    "visibility": "private",
+    "lastUpdateTime": "2026-09-30T14:02:11.317Z"
+  },
+  "defaultBranch": "refs/heads/main",
+  "size": 18734562,
+  "remoteUrl": "https://minha-org@dev.azure.com/minha-org/Core/_git/authorizer-api",
+  "sshUrl": "git@ssh.dev.azure.com:v3/minha-org/Core/authorizer-api",
+  "webUrl": "https://dev.azure.com/minha-org/Core/_git/authorizer-api",
+  "isDisabled": false,
+  "isInMaintenance": false
+}

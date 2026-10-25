@@ -9,6 +9,57 @@
   <dt>Detectado em</dt><dd>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</dd>
 </dl>
 
+<h2>Análise</h2>
+{% if analysis is none %}
+<p class="muted">Nenhuma análise pedida.</p>
+{% else %}
+<p class="analysis-status"><strong>{{ analysis_labels[analysis.status] }}</strong>
+{% if analysis.partial_reason %} · {{ partial_reasons[analysis.partial_reason] }}{% endif %}</p>
+{% if analysis.summary %}<p>{{ analysis.summary }}</p>{% endif %}
+
+{% if analysis.evaluations %}
+<h3>O que avaliei</h3>
+<table>
+  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
+  <tbody>
+  {% for evaluation in analysis.evaluations %}
+    <tr>
+      <td><code>{{ evaluation.tool }}</code></td>
+      <td>{{ evaluation.subject }}</td>
+      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
+      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if analysis.hypotheses %}
+<h3>Hipóteses</h3>
+<ol>
+  {% for hypothesis in analysis.hypotheses %}
+  <li>
+    <strong>{{ hypothesis.title }}</strong> · {{ (hypothesis.confidence * 100) | round | int }}%
+    {% if hypothesis.evidence %}
+    <ul>
+      {% for evidence in hypothesis.evidence %}
+      <li>{{ evidence.text }}{% if evidence.url %} · <a href="{{ evidence.url }}">abrir</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+
+{% if analysis.plan %}
+<h3>Plano proposto</h3>
+<ol>
+  {% for step in analysis.plan %}<li>{{ step }}</li>{% endfor %}
+</ol>
+{% endif %}
+{% endif %}
+
 <h2>Alertas</h2>
 {% if alerts %}
 <table>

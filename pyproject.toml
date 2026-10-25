@@ -61,7 +61,7 @@ ignore = [
 
 # ---- Tipos ----
 [tool.pyright]
-include = ["packages", "e2e", "scripts", "conftest.py"]
+include = ["packages", "e2e", "evals", "scripts", "conftest.py"]
 exclude = ["**/__pycache__", "**/.venv"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
@@ -70,7 +70,7 @@ venv = ".venv"
 
 # ---- Testes ----
 [tool.pytest.ini_options]
-testpaths = ["packages", "e2e/fakes/tests", "scripts/tests"]
+testpaths = ["packages", "e2e/fakes/tests", "evals/tests", "scripts/tests"]
 addopts = ["--import-mode=importlib", "--strict-markers", "--allow-unix-socket"]
 pythonpath = [".", "packages/grolla-core/tests"]
 asyncio_mode = "auto"

@@ -1,14 +1,19 @@
 from dataclasses import dataclass
 
+from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
+from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.postgres import (
+    PostgresAnalysisQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
     PostgresNotificationOutbox,
     migrate,
 )
 from grolla.adapters.signoz import SignozAlertIngress
+from grolla.adapters.signoz.telemetry import SignozTelemetry
 from grolla.adapters.system_clock import SystemClock
 from grolla.adapters.teams import TeamsChatNotifier
+from grolla.application.analysis import AnalysisPolicy, AnalysisQueue
 from grolla.application.clock import Clock
 from grolla.application.incidents import (
     AlertIngress,
@@ -17,7 +22,13 @@ from grolla.application.incidents import (
     IntakePolicy,
     NotificationOutbox,
 )
-from grolla.bootstrap.settings import ApiSettings, WorkerSettings, load_settings
+from grolla.application.investigation import (
+    STAGE_INVESTIGATION,
+    ChangeHistory,
+    LanguageModel,
+    Telemetry,
+)
+from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import TeamConfig, load_team_config
 
 
@@ -39,10 +50,17 @@ class WorkerContainer:
     """Dependências do grolla-worker."""
 
     settings: WorkerSettings
+    config: TeamConfig
     clock: Clock
     database: PostgresDatabase
     outbox: NotificationOutbox
     notifier: ChatNotifier
+    repository: IncidentRepository
+    analysis_queue: AnalysisQueue
+    model: LanguageModel
+    telemetry: Telemetry
+    changes: ChangeHistory
+    analysis: AnalysisPolicy
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -64,16 +82,43 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
     )
 
 
-def build_worker(settings: WorkerSettings) -> WorkerContainer:
+def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContainer:
     """Aplica as migrações pendentes e liga os ports do worker aos adapters."""
+    if config.llm is None or config.signoz is None or config.azure_devops is None:
+        raise ConfigError(
+            f"{settings.config_file}: o worker precisa das seções llm, signoz e azure_devops"
+        )
+    stage = config.llm.stages.get(STAGE_INVESTIGATION)
+    if stage is None:
+        raise ConfigError(f"{settings.config_file}: falta llm.stages.{STAGE_INVESTIGATION}")
+    changes = config.azure_devops
     migrate(settings.database_url)
     database = PostgresDatabase(settings.database_url)
     return WorkerContainer(
         settings=settings,
+        config=config,
         clock=SystemClock(),
         database=database,
         outbox=PostgresNotificationOutbox(database),
         notifier=TeamsChatNotifier(settings.teams_webhook_url.get_secret_value()),
+        repository=PostgresIncidentRepository(database),
+        analysis_queue=PostgresAnalysisQueue(database),
+        model=ClaudeLanguageModel(
+            settings.anthropic_api_key.get_secret_value(),
+            ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort),
+            base_url=settings.anthropic_base_url,
+        ),
+        telemetry=SignozTelemetry(config.signoz.mcp_url, config.signoz.base_url),
+        changes=AzureDevOpsChangeHistory(
+            changes.base_url,
+            settings.azure_devops_token.get_secret_value(),
+            changes.projects,
+            {
+                service: RepositoryRef(ref.project, ref.repo)
+                for service, ref in changes.service_repo_map.items()
+            },
+        ),
+        analysis=config.analysis_policy(),
     )
 
 
@@ -84,5 +129,6 @@ def prepare_api() -> ApiContainer:
 
 
 def prepare_worker() -> WorkerContainer:
-    """Lê o ambiente, valida e monta o worker; levanta ConfigError."""
-    return build_worker(load_settings(WorkerSettings))
+    """Lê ambiente e YAML, valida tudo e monta o worker; levanta ConfigError."""
+    settings = load_settings(WorkerSettings)
+    return build_worker(settings, load_team_config(settings.config_file))

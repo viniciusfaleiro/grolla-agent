@@ -1,0 +1,288 @@
+{
+  "status": "success",
+  "data": {
+    "type": "raw",
+    "meta": {
+      "rowsScanned": 120000,
+      "bytesScanned": 5400000,
+      "durationMs": 87
+    },
+    "data": {
+      "results": [
+        {
+          "queryName": "A",
+          "nextCursor": "",
+          "rows": [
+            {
+              "timestamp": "2026-10-25T10:58:00Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000000",
+                "span_id": "0000000000000000",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000000"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:57:40Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000001",
+                "span_id": "0000000000000001",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000001"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:57:20Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000002",
+                "span_id": "0000000000000002",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000002"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:57:00Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000003",
+                "span_id": "0000000000000003",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000003"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:56:40Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000004",
+                "span_id": "0000000000000004",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000004"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:56:20Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000005",
+                "span_id": "0000000000000005",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000005"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:56:00Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000006",
+                "span_id": "0000000000000006",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000006"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:40Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000007",
+                "span_id": "0000000000000007",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000007"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:20Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000008",
+                "span_id": "0000000000000008",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000008"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:00Z",
+              "data": {
+                "trace_id": "a0000000000000000000000000000009",
+                "span_id": "0000000000000009",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a0000000000000000000000000000009"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:40Z",
+              "data": {
+                "trace_id": "a000000000000000000000000000000a",
+                "span_id": "000000000000000a",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a000000000000000000000000000000a"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:20Z",
+              "data": {
+                "trace_id": "a000000000000000000000000000000b",
+                "span_id": "000000000000000b",
+                "parent_span_id": "",
+                "name": "POST /authorize",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 5003000000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "context deadline exceeded: acquire db connection",
+                "response_status_code": "500",
+                "http_method": "POST",
+                "webUrl": "https://signoz.interno/trace/a000000000000000000000000000000b"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:45:00Z",
+              "data": {
+                "trace_id": "b0000000000000000000000000000000",
+                "span_id": "0000000000000000",
+                "parent_span_id": "",
+                "name": "GET /health",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 1200000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "",
+                "response_status_code": "503",
+                "http_method": "GET"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:44:40Z",
+              "data": {
+                "trace_id": "b0000000000000000000000000000001",
+                "span_id": "0000000000000001",
+                "parent_span_id": "",
+                "name": "GET /health",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 1200000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "",
+                "response_status_code": "503",
+                "http_method": "GET"
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:44:20Z",
+              "data": {
+                "trace_id": "b0000000000000000000000000000002",
+                "span_id": "0000000000000002",
+                "parent_span_id": "",
+                "name": "GET /health",
+                "service.name": "authorizer-api",
+                "kind_string": "Server",
+                "duration_nano": 1200000,
+                "has_error": true,
+                "status_code_string": "Error",
+                "status_message": "",
+                "response_status_code": "503",
+                "http_method": "GET"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -7,6 +7,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from grolla.domain.analysis import Analysis
+
 UNKNOWN_SERVICE = "desconhecido"
 
 
@@ -75,6 +77,9 @@ class EventType(StrEnum):
     NOTIFICATION_QUEUED = "notification_queued"
     NOTIFICATION_DELIVERED = "notification_delivered"
     NOTIFICATION_FAILED = "notification_failed"
+    ANALYSIS_REQUESTED = "analysis_requested"
+    ANALYSIS_COMPLETED = "analysis_completed"
+    ANALYSIS_PARTIAL = "analysis_partial"
 
 
 @dataclass(frozen=True)
@@ -87,7 +92,8 @@ class IncidentEvent:
 
 
 class NotificationKind(StrEnum):
-    INCIDENT_OPENED = "incident_opened"
+    INCIDENT_OPENED = "incident_opened"  # card "investigando"
+    ANALYSIS_READY = "analysis_ready"
     SEVERITY_RAISED = "severity_raised"
     INCIDENT_NORMALIZED = "incident_normalized"
 
@@ -103,6 +109,7 @@ class Notification:
     evidence: str  # descrição do alerta que motivou
     source_url: str | None
     page_url: str
+    analysis: Analysis | None = None  # só em ANALYSIS_READY
 
 
 @dataclass(frozen=True)
@@ -129,6 +136,7 @@ class Decision:
     incident: Incident | None  # None: nada a gravar
     events: tuple[IncidentEvent, ...]
     notifications: tuple[Notification, ...]
+    request_analysis: bool = False  # True só quando o alerta abre um incidente
 
 
 GROUPING_REASON = "mesmo serviço"
@@ -217,8 +225,12 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
         )
         incident = replace(incident, state=target)
 
+    if current is None:
+        events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
     notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
-    return _decision(incident, events, notifications, now)
+    return replace(
+        _decision(incident, events, notifications, now), request_analysis=current is None
+    )
 
 
 def decide_resolved(

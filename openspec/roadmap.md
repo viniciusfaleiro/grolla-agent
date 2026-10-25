@@ -56,7 +56,10 @@ Manager e backup automatizado (o deploy é manual; o `deploy/README.md` traz o b
   labels de time e serviço.
 - **Aceite:** alertas reais do time piloto viram incidentes no Teams, sem duplicados.
 
-## S3 · O agente investiga cada alerta
+## S3 · O agente investiga cada alerta ✅
+
+Entregue na change `agente-investiga-cada-alerta`. O aceite com alertas reais da Credenciadora é
+feito junto com o S2, no primeiro deploy.
 
 - **Valor:** o canal recebe mais do que o alerta do SigNoz. Em segundos, "estou investigando";
   em até 5 minutos, a análise: **o que o agente avaliou**, **hipóteses** ranqueadas com

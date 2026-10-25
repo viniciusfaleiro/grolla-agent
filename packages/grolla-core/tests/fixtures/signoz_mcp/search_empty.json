@@ -1,0 +1,20 @@
+{
+  "status": "success",
+  "data": {
+    "type": "raw",
+    "meta": {
+      "rowsScanned": 120000,
+      "bytesScanned": 5400000,
+      "durationMs": 87
+    },
+    "data": {
+      "results": [
+        {
+          "queryName": "A",
+          "nextCursor": "",
+          "rows": null
+        }
+      ]
+    }
+  }
+}

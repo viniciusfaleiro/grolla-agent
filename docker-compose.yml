@@ -56,6 +56,13 @@ services:
       GROLLA_DATABASE_URL: postgresql://grolla:grolla@db:5432/grolla
       # O Teams do e2e é a rota /teams/webhook do grolla-fakes.
       GROLLA_TEAMS_WEBHOOK_URL: http://fakes:9000/teams/webhook
+      GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
+      # LLM, MCP do SigNoz e Azure DevOps também são o grolla-fakes (ver e2e/config.yaml).
+      GROLLA_ANTHROPIC_API_KEY: chave-do-e2e
+      GROLLA_ANTHROPIC_BASE_URL: http://fakes:9000/anthropic
+      GROLLA_AZURE_DEVOPS_TOKEN: token-do-e2e
+    volumes:
+      - ./e2e/config.yaml:/etc/grolla/grolla.yaml:ro
 
   fakes:
     build:

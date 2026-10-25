@@ -17,6 +17,7 @@ from grolla.application.incidents import (
     InvalidAlertPayloadError,
     receive_alerts,
 )
+from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.incidents import EventType
 
 HealthCheck = Callable[[], Awaitable[bool]]
@@ -35,6 +36,16 @@ EVENT_LABELS = {
     EventType.NOTIFICATION_QUEUED: "Notificação enfileirada",
     EventType.NOTIFICATION_DELIVERED: "Notificação entregue",
     EventType.NOTIFICATION_FAILED: "Notificação falhou",
+    EventType.ANALYSIS_REQUESTED: "Análise pedida",
+    EventType.ANALYSIS_COMPLETED: "Análise concluída",
+    EventType.ANALYSIS_PARTIAL: "Análise parcial",
+}
+
+ANALYSIS_STATUS_LABELS = {
+    AnalysisStatus.PENDING: "análise em andamento",
+    AnalysisStatus.RUNNING: "análise em andamento",
+    AnalysisStatus.COMPLETED: "análise concluída",
+    AnalysisStatus.PARTIAL: "análise parcial",
 }
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -100,7 +111,10 @@ def create_app(services: Services) -> FastAPI:
             "incident": found,
             "alerts": await services.repository.alerts_of(found.id),
             "events": await services.repository.events_of(found.id),
+            "analysis": await services.repository.analysis_of(found.id),
             "event_labels": EVENT_LABELS,
+            "analysis_labels": ANALYSIS_STATUS_LABELS,
+            "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
         }
         return templates.TemplateResponse(request, "incident.html", context)
 
