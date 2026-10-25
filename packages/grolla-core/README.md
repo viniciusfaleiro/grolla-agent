@@ -39,7 +39,8 @@ os deployables só montam o processo.
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
-| **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL) | `grolla.adapters.teams.TeamsChatNotifier` |
+| **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL). O incidente novo é o card "Estou investigando", que lista o que vai ser checado. O card de análise traz o resumo e as seções "O que avaliei", "Hipóteses" (com confiança e evidência) e "Plano proposto", além dos botões "Abrir incidente" e "Ver no SigNoz". A análise parcial ("Análise parcial") diz o motivo logo abaixo do título | `grolla.adapters.teams.TeamsChatNotifier` |
+| **Modelo de linguagem (Anthropic)** | `LanguageModel`: laço de ferramentas manual sobre o `Toolbox` (tool_use em paralelo), resultado final por structured outputs (`output_config.format` com o schema do rascunho), thinking adaptativo, `effort` e modelo do YAML e `cache_control` de 1 h no system e nas tools. Faz `budget.spend` a cada resposta, com o modelo que respondeu. Usa 2 retentativas e timeout de 60 s por requisição. Erro da API ou recusa viram `LanguageModelError`; JSON fora do schema ou resposta truncada viram `InvalidAnalysisError` | `grolla.adapters.anthropic.ClaudeLanguageModel` |
 | **Configuração** | Variáveis `GROLLA_*` validadas por processo (`ApiSettings`, `WorkerSettings`); erro nomeia a variável | `grolla.bootstrap.load_settings` |
 | **Configuração do time** | YAML com filtro de labels, labels de serviço, janela e regras de severidade; erro aponta o campo | `grolla.bootstrap.load_team_config` |
 | **Composição** | Migra e monta as dependências de cada processo | `grolla.bootstrap.prepare_api` · `prepare_worker` |
@@ -120,7 +121,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py
   application/     clock.py · incidents.py
-  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) · signoz/ · teams/
+  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) · signoz/ · teams/ · anthropic/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/

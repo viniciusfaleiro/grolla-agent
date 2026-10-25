@@ -30,7 +30,8 @@ Teams, Spike.sh, MCPs).
 |---|---|---|
 | **Roteiro** | Carrega as rotas e respostas do cenário | `POST /_control/scenario` |
 | **Gravação** | Lista as requisições recebidas, em ordem | `GET /_control/requests` |
-| **Reset** | Limpa roteiro e gravações entre cenários | `POST /_control/reset` |
+| **Reset** | Limpa roteiro e gravações entre cenários e volta o LLM para `completa` | `POST /_control/reset` |
+| **Modo do LLM** | Troca o comportamento da Messages API fake: `completa` (padrão), `fora_do_ar` ou `lenta`; responde 204 | `POST /_control/llm` `{"mode": "fora_do_ar"}` |
 | **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker como um canal do Teams e põe o Teams aceitando (202) ou falhando (500) | `GET /_console` |
 | **Superfície fake** | Qualquer outro método/caminho: grava e responde pelo roteiro | `/{qualquer caminho}` |
 
@@ -44,6 +45,7 @@ Teams, Spike.sh, MCPs).
 |---|---|---|
 | **Teams** | O worker posta os cards em `POST /teams/webhook`; o cenário declara a rota com 202 e confere os cards com `expect_fake_requests` | S2 |
 | **SigNoz** | Não passa pelo fake: o próprio runner chama `POST /webhooks/alerts` da api com payloads no formato do SigNoz | S2 |
+| **Anthropic** | Messages API em `POST /anthropic/v1/messages` (o worker usa `GROLLA_ANTHROPIC_BASE_URL=http://fakes:9000/anthropic`). Cada chamada fica gravada. No modo `completa`, a primeira resposta pede `query_metric`, `recent_deploys` e `search_logs` (tool_use), com argumentos tirados do `input_schema` recebido e o serviço tirado da linha "Serviços:" do brief. Quando chegam os tool_results, devolve o JSON da análise citando trechos deles. `fora_do_ar` responde 529 overloaded com `retry-after-ms: 10`, para o SDK desistir em milissegundos. `lenta` espera 60 s, além do timeout de 15 s do e2e | S3 |
 
 ## ⚡ Como rodar
 
@@ -79,6 +81,7 @@ src/grolla_fakes/
   app.py       create_app(): API de controle + superfície fake
   state.py     roteiro, requisições gravadas e alertas do console
   console.py   rotas do console de testes
+  llm.py       Messages API fake e o controle do modo
   console.html página do console (HTML + JS, sem build)
   main.py      entrypoint `grolla-fakes`
 tests/
