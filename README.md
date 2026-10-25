@@ -1,0 +1,225 @@
+<div align="center">
+
+<img src="docs/assets/grolla.svg" alt="Grolla, o mascote do agent-grolla" width="160">
+
+# agent-grolla
+
+**Agente de SRE para adquirência e cartões: detecta, investiga, aciona o on-call e conduz o incidente até o post mortem — chegando antes do humano, com as evidências organizadas.**
+
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/uv-workspace-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-api-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+
+[![Architecture](https://img.shields.io/badge/arquitetura-hexagonal-blueviolet)](#-arquitetura)
+[![Boundaries](https://img.shields.io/badge/fronteiras-import--linter-informational)](#-gates-de-qualidade--o-harness)
+[![Types](https://img.shields.io/badge/tipos-pyright%20strict-1f6feb)](#-gates-de-qualidade--o-harness)
+[![Tests](https://img.shields.io/badge/testes-pytest%20%2B%20Testcontainers%20%2B%20e2e-25A162?logo=pytest&logoColor=white)](#-testes-integrados-e2e)
+[![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
+[![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+[![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
+[![Status](https://img.shields.io/badge/status-S1%20funda%C3%A7%C3%A3o-yellow)](#-roadmap)
+
+</div>
+
+---
+
+## ✨ O que é
+
+O `agent-grolla` acompanha o ambiente de adquirência e cartões 24x7. Ele recebe os alertas do
+sistema de observabilidade, decide a severidade, aciona o on-call quando é P0/P1, investiga a
+causa com um LLM, conduz o incidente num **war room web** e, no fim, escreve o rascunho do post
+mortem para revisão humana.
+
+O nome é uma homenagem: o projeto é a tentativa de ter um agente que faz o que fazia **um dos
+melhores profissionais de SRE** com quem o autor já trabalhou — o Grolla. Chegar primeiro,
+separar sinal de ruído, levantar hipóteses com evidência e manter o registro de tudo o que
+aconteceu durante a crise.
+
+Duas decisões atravessam o projeto inteiro:
+
+- **Somente leitura.** O agente sugere ações; quem executa e quem encerra o incidente é uma pessoa.
+- **O núcleo decide, o LLM investiga.** Estado, severidade e acionamento são determinísticos;
+  o LLM só devolve hipóteses, que entram como eventos.
+
+A **[spec de produto](docs/initial-spec.md)** é a fonte de verdade do *o quê*; as specs vivas
+por capacidade ficam em [`openspec/`](openspec/).
+
+## 🚀 Features
+
+| Área | O que entrega | Ponto de entrada |
+|---|---|---|
+| **Health check** | Api saudável só com o banco acessível (200 / 503) | `GET /health` |
+| **Heartbeat do worker** | Prova de vida gravada no banco a cada 15 s | job periódico `heartbeat` |
+| **Migrações** | Schema versionado por Alembic, aplicado no startup sob advisory lock | `grolla.adapters.postgres.migrate` |
+| **Harness** | Todos os gates num comando só | `make check` |
+| **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |
+
+> Slice 1 entrega a fundação. Alertas, severidade, acionamento, investigação, war room e post
+> mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
+
+## 🏛 Arquitetura
+
+**Hexagonal (ports & adapters)**, imposta pelo **import-linter**: dependências só apontam para
+dentro, e cada fornecedor externo fica isolado num adapter próprio, porque as ferramentas
+(Teams, AWS, SigNoz, Spike.sh…) podem mudar.
+
+```mermaid
+flowchart LR
+  api["grolla-api<br/>webhooks + web"] --> boot
+  worker["grolla-worker<br/>jobs + timers"] --> boot
+  boot["bootstrap<br/>liga port → adapter"] --> adapters
+  boot --> app
+  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · system_clock · …"] --> app
+  app["application<br/>casos de uso + ports"] --> dom["domain<br/>regras puras"]
+  adapters --> dom
+```
+
+| Camada / pacote | Responsabilidade | Pode depender de |
+|---|---|---|
+| `grolla.domain` | Regras de negócio puras — **sem framework, sem infraestrutura, sem nome de fornecedor** | — |
+| `grolla.application` | Casos de uso + ports (`Protocol`) com nome de capacidade | `domain` |
+| `grolla.adapters.<fornecedor>` | Implementação de um port; **independentes entre si** | `application`, `domain` |
+| `grolla.bootstrap` | Composition root — único lugar que liga port → adapter | todos |
+| `grolla-api` / `grolla-worker` | Deployables; cada um com imagem própria | `grolla-core` |
+| `grolla-fakes` | Fakes dos serviços externos, só no e2e | — |
+
+**Ports por capacidade, nunca por fornecedor:** `AlertIngress`, `AlertSource`, `Telemetry`,
+`ChangeHistory`, `CloudInventory`, `Pager`, `ChatNotifier`, `LanguageModel`, `EventLog`,
+`IncidentRepository`, `Scheduler`, `DocumentRenderer` e `Clock`. Cada um nasce no slice que o
+usa, com suíte de contrato, fake e adapter real. Hoje existe o `Clock`.
+
+## 🧰 Stack
+
+- **Python 3.12** em **uv workspace** (um lock para tudo).
+- **FastAPI** + uvicorn na api; **procrastinate** (fila no próprio Postgres) no worker.
+- **PostgreSQL 16** via **SQLAlchemy Core** + **psycopg 3**, migrações **Alembic**.
+- **pydantic** / **pydantic-settings** para contratos e configuração (`GROLLA_*`).
+- **Docker Compose**: uma imagem por deployable; deploy previsto numa EC2, uma instância por time.
+
+## ⚡ Como rodar
+
+**Pré-requisitos:** [uv](https://docs.astral.sh/uv/), Docker, [openspec](https://github.com/Fission-AI/OpenSpec)
+e [gitleaks](https://github.com/gitleaks/gitleaks) (sem o binário, o gate usa a imagem Docker).
+
+```bash
+# 1. Dependências + git hooks (uma vez por clone)
+make setup
+
+# 2. Todos os gates (o Testcontainers sobe o próprio Postgres)
+make check
+
+# 3. Stack completo com os fakes + cenários e2e
+make e2e
+```
+
+Para desenvolver contra um banco local:
+
+```bash
+docker compose up -d db    # Postgres em localhost:5433 (grolla/grolla)
+export GROLLA_DATABASE_URL=postgresql://grolla:grolla@localhost:5433/grolla
+uv run grolla-api          # http://localhost:8000/health
+uv run grolla-worker       # grava um heartbeat a cada 15 s
+```
+
+| Variável | Obrigatória | Padrão | Uso |
+|---|---|---|---|
+| `GROLLA_DATABASE_URL` | sim | — | URL libpq do Postgres (`postgresql://…`) |
+| `GROLLA_LOG_LEVEL` | não | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
+
+Sem uma variável obrigatória, o processo não sobe e a mensagem diz qual falta.
+
+## 🗂 Layout
+
+```
+packages/
+  grolla-core/     domain · application · adapters · bootstrap · testing   # biblioteca
+  grolla-api/      deployable HTTP (FastAPI)
+  grolla-worker/   deployable de jobs (procrastinate)
+e2e/
+  fakes/           grolla-fakes: substitutos controláveis dos serviços externos
+  scenarios/       cenários YAML (given / when / then)
+  test_scenarios.py  runner: um teste por cenário
+evals/             evals do LLM (a partir do slice de investigação)
+docs/              initial-spec.md (spec de produto) · assets/
+openspec/          changes, specs vivas e config do fluxo spec-driven
+scripts/           gates próprios (vocabulário, pisos de cobertura) e e2e.sh
+hooks/             git hooks versionados
+```
+
+## 🛡 Gates de qualidade — o harness
+
+Tudo abaixo roda em **`make check`** e precisa estar verde, nos pacotes, em `e2e/` e em `scripts/`:
+
+- **ruff format** — a formatação é a fonte de verdade (`make fmt` corrige).
+- **ruff check** — zero warnings, incluindo as regras de segurança do bandit (`S`).
+- **pyright strict** — tipos em todo o código, testes incluídos.
+- **import-linter** — camadas, núcleo sem libs de infraestrutura, adapters independentes,
+  deployables sem dependência mútua.
+- **Vocabulário** — nome de fornecedor em `domain`/`application` quebra o build.
+- **pytest** — unitários **sem rede** (pytest-socket) + integração com **Testcontainers**;
+  warnings viram erro.
+- **Cobertura com branch** — pisos de **90% linha / 80% branch** em `grolla.domain` e
+  **80% / 70%** em `grolla.application`.
+- **pip-audit** — CVEs conhecidas nas dependências travadas no `uv.lock`.
+- **gitleaks** — segredos no repositório.
+- **openspec validate --strict** — changes e specs bem formadas.
+
+Os hooks reforçam localmente: `pre-commit` roda format + lint, `pre-push` roda `make check`.
+
+## 🧪 Testes integrados (e2e)
+
+`make e2e` constrói as imagens, sobe **api + worker + db + grolla-fakes** (profile `e2e` do
+compose), roda os cenários e derruba tudo — mesmo se algo falhar.
+
+Nenhum serviço externo real é chamado: o `grolla-fakes` faz o papel de SigNoz, Anthropic,
+Teams, Spike.sh e MCPs. O runner reinicia os fakes, carrega o roteiro do cenário, executa as
+ações e confere os efeitos (respostas, linhas no banco, requisições recebidas pelos fakes).
+
+```yaml
+# e2e/scenarios/fumaca.yaml
+name: fumaça do stack
+given:
+  fakes: {}
+when: []
+then:
+  - expect_status: { service: api, path: /health, status: 200 }
+  - wait_for_db_row: { sql: SELECT count(*) FROM heartbeats, at_least: 1, timeout_seconds: 60 }
+```
+
+Cenário novo é só um YAML novo em `e2e/scenarios/`.
+
+## 🧭 Spec-driven development
+
+Mudança de comportamento passa pelo **[OpenSpec](openspec/)** — é obrigatório, e
+`openspec/specs/` nunca é editado à mão:
+
+1. `/opsx:propose "<ideia>"` → cria a change com `proposal.md`, `specs/`, `design.md`, `tasks.md`.
+2. `/opsx:apply` → implementa as tarefas.
+3. `/opsx:archive` → arquiva a change e promove os deltas para `openspec/specs/`.
+
+Toda change fecha revisando os READMEs, com `make e2e` e `make check` verdes.
+
+## 🤝 Como contribuir
+
+1. **Branch** a partir da `master` — nunca commite direto nela.
+2. **Ative os hooks** uma vez por clone: `make setup`.
+3. **Simplicidade primeiro** — a solução mais simples que cumpre a spec; sem abstração especulativa.
+4. **Respeite as fronteiras** — fornecedor só dentro de `grolla.adapters.<fornecedor>`.
+5. **Mantenha os gates verdes** — nunca desligue regra, suprima aviso ou baixe piso para passar.
+6. **Atualize os READMEs** dos componentes que você tocou.
+7. **Commits** — uma linha imperativa curta, em português; `make check` antes do push.
+
+## 🗺 Roadmap
+
+Construído em **slices verticais**, cada um uma change do openspec:
+
+- **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes 🚧
+- **Próximos slices** · em definição a partir da [spec de produto](docs/initial-spec.md):
+  alertas e incidentes, severidade e acionamento, notificações, investigação com LLM, war room,
+  console e post mortem.
+
+## 📄 Licença
+
+Ainda sem arquivo de licença — todos os direitos reservados ao autor até que um seja adicionado.

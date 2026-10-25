@@ -1,0 +1,14 @@
+# Prova que o stack inteiro sobe: api saudável com banco e worker processando a fila.
+name: fumaça do stack
+given:
+  fakes: {}
+when: []
+then:
+  - expect_status:
+      service: api
+      path: /health
+      status: 200
+  - wait_for_db_row:
+      sql: SELECT count(*) FROM heartbeats
+      at_least: 1
+      timeout_seconds: 60

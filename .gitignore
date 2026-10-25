@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Ferramentas
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.json
+htmlcov/
+.cache/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs / local
+*.log
+
+# Segredos locais lidos pelo docker compose
+.env

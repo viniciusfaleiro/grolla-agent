@@ -1,0 +1,135 @@
+[project]
+name = "agent-grolla"
+# Fonte única da versão do produto. Bump do último dígito a cada feature entregue (ver CLAUDE.md).
+version = "0.0.1"
+description = "Agente de SRE que detecta, investiga e conduz incidentes até o post mortem."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "grolla-api",
+    "grolla-core",
+    "grolla-fakes",
+    "grolla-worker",
+    "httpx2",
+    "import-linter",
+    "pip-audit",
+    "pyright[nodejs]",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-socket",
+    "pyyaml",
+    "ruff",
+    "testcontainers[postgres]",
+    "types-pyyaml",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*", "e2e/fakes"]
+
+[tool.uv.sources]
+grolla-api = { workspace = true }
+grolla-core = { workspace = true }
+grolla-fakes = { workspace = true }
+grolla-worker = { workspace = true }
+
+# ---- Formatação e lint ----
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["**/migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "SIM", "PTH",
+    "RUF", "S", "ASYNC", "PT", "PL", "TRY", "ERA", "RET", "ARG", "PIE",
+]
+ignore = [
+    "TRY003", # mensagens de erro com contexto são mais úteis que uma classe por mensagem
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "PLR2004"]
+"e2e/**" = ["S101", "PLR2004"]
+"scripts/**" = ["T201"]
+"conftest.py" = ["S101"]
+
+# ---- Tipos ----
+[tool.pyright]
+include = ["packages", "e2e", "scripts", "conftest.py"]
+exclude = ["**/__pycache__", "**/.venv"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+# ---- Testes ----
+[tool.pytest.ini_options]
+testpaths = ["packages", "e2e/fakes/tests", "scripts/tests"]
+addopts = ["--import-mode=importlib", "--strict-markers", "--allow-unix-socket"]
+pythonpath = [".", "packages/grolla-core/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = ["integration: precisa de Docker (testcontainers); rede liberada"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["grolla", "grolla_api", "grolla_worker", "grolla_fakes"]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
+
+# ---- Pisos de cobertura por camada (scripts/coverage_floors.py) ----
+[tool.grolla.coverage-floors]
+"grolla.domain" = { line = 90, branch = 80 }
+"grolla.application" = { line = 80, branch = 70 }
+
+# ---- Vocabulário proibido no núcleo (scripts/check_vocabulary.py) ----
+[tool.grolla.vocabulary]
+paths = ["packages/grolla-core/src/grolla/domain", "packages/grolla-core/src/grolla/application"]
+forbidden = [
+    "signoz", "teams", "spike", "azure", "ado", "aws", "boto",
+    "anthropic", "claude", "postgres", "postgresql",
+]
+
+# ---- Arquitetura (import-linter) ----
+[tool.importlinter]
+root_packages = ["grolla", "grolla_api", "grolla_worker", "grolla_fakes"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Camadas hexagonais do core"
+type = "layers"
+layers = ["grolla.bootstrap", "grolla.adapters", "grolla.application", "grolla.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Núcleo livre de infraestrutura"
+type = "forbidden"
+source_modules = ["grolla.domain", "grolla.application"]
+forbidden_modules = [
+    "fastapi", "starlette", "sqlalchemy", "psycopg", "alembic", "procrastinate",
+    "httpx", "boto3", "mcp", "anthropic", "pydantic_settings", "uvicorn",
+]
+
+[[tool.importlinter.contracts]]
+name = "Adapters independentes entre si"
+type = "independence"
+modules = ["grolla.adapters.*"]
+
+[[tool.importlinter.contracts]]
+name = "Core não conhece deployables nem fakes"
+type = "forbidden"
+source_modules = ["grolla"]
+forbidden_modules = ["grolla_api", "grolla_worker", "grolla_fakes"]
+
+[[tool.importlinter.contracts]]
+name = "Deployables e fakes não dependem entre si"
+type = "independence"
+modules = ["grolla_api", "grolla_worker", "grolla_fakes"]

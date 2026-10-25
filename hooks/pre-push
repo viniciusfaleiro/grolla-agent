@@ -1,0 +1,12 @@
+#!/bin/sh
+# Gate completo antes de o código sair da máquina: todos os gates do make check.
+set -e
+
+echo "[pre-push] rodando make check ..."
+if ! make --no-print-directory check; then
+  echo ""
+  echo "[pre-push] FALHOU. O build não está verde — push abortado."
+  exit 1
+fi
+
+echo "[pre-push] OK"

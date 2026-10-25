@@ -1,0 +1,64 @@
+schema: spec-driven
+
+context: |
+  Produto: agent-grolla, agente de SRE para o ambiente de adquirência e cartões.
+  Detecta anomalias a partir de alertas, investiga a causa com um LLM, aciona o
+  on-call, conduz o incidente num war room web e gera o rascunho do post mortem.
+  Somente leitura: o agente sugere ações, nunca executa. Quem encerra é um humano.
+  Spec de produto em docs/initial-spec.md.
+
+  Stack: Python 3.12, uv workspace, FastAPI, PostgreSQL 16 (SQLAlchemy Core +
+  Alembic), procrastinate (fila no Postgres), Anthropic SDK + cliente MCP,
+  HTMX + SSE no frontend, Docker Compose numa EC2. Uma instância por time.
+
+  Estrutura (uv workspace): projeto pai com docker-compose, Makefile, openspec,
+  hooks e e2e; packages/grolla-core (biblioteca: domain, application, adapters de
+  saída), packages/grolla-api (deployable: webhook + web), packages/grolla-worker
+  (deployable: jobs, timers, investigação, notificador). Postgres e MCPs de
+  terceiros são imagens prontas no compose.
+
+  Arquitetura hexagonal imposta por import-linter. Ports têm nome de capacidade,
+  nunca de fornecedor: AlertIngress, AlertSource, Telemetry, ChangeHistory,
+  CloudInventory, Pager, ChatNotifier, LanguageModel, EventLog,
+  IncidentRepository, Scheduler, DocumentRenderer, Clock. Fornecedores (SigNoz,
+  Teams, Spike.sh, Azure DevOps, AWS, Anthropic, Postgres) existem só em
+  subpacotes de grolla.adapters.*, independentes entre si; o bootstrap é o único
+  lugar que liga provider → adapter. domain e application não importam libs de
+  infraestrutura nem citam fornecedores (checagem de vocabulário). As
+  ferramentas da investigação do LLM são neutras (query_metric, search_logs,
+  find_traces, recent_deploys, read_file), implementadas sobre os ports.
+
+  Núcleo determinístico decide estado, severidade e acionamento; o LLM só
+  investiga e devolve hipóteses como eventos. Todo estado vive num log de
+  eventos imutável no Postgres; projeções são atualizadas na mesma transação.
+  Efeitos externos (Teams, Spike) saem por outbox.
+
+  Gates (make check): ruff format, ruff check (zero warnings, inclui bandit),
+  pyright strict, import-linter, checagem de vocabulário, pytest (unitários com
+  pytest-socket, sem rede), integração com testcontainers, cobertura com branch
+  (domain 90/80, application 80/70), testes de contrato por port, pip-audit,
+  gitleaks, openspec validate --strict. make e2e sobe o stack com grolla-fakes e
+  roda os cenários YAML. Convenção de commit: uma linha imperativa curta, em
+  português. Código e identificadores em inglês.
+
+  Princípio que atravessa tudo: simplicidade. A solução mais simples que
+  cumpre a spec vence. Nada de abstração especulativa, configuração sem uso,
+  camadas extras ou generalização "para o futuro". A estrutura hexagonal existe
+  para isolar fornecedores; fora disso, código direto.
+
+rules:
+  proposal:
+    - Sempre incluir uma seção "Non-goals".
+    - Escopo mínimo que entrega valor; o que puder esperar vai para Non-goals.
+    - Referenciar as seções e decisões de docs/initial-spec.md quando aplicável.
+    - Nomear ports por capacidade; fornecedor só aparece como adapter.
+  design:
+    - Dizer quais ports a change cria ou altera e qual adapter implementa cada um.
+    - Para cada decisão, registrar a alternativa mais simples considerada e, se descartada, por quê.
+    - Port novo só quando há um fornecedor externo a isolar; lógica interna não ganha interface.
+  tasks:
+    - Todo port novo vem com suíte de contrato, fake em memória e adapter real passando nela.
+    - Todo comportamento visível ponta a ponta ganha ao menos um cenário e2e.
+    - A antepenúltima tarefa de toda change é revisar e atualizar o README de cada componente afetado e o README do pai (Features, Roadmap e badge de status), no padrão do README do eng-performance.
+    - A penúltima tarefa de toda change é rodar `make e2e` e garantir todos os cenários verdes.
+    - A última tarefa de toda change é rodar `make fmt && make check` e garantir tudo verde.

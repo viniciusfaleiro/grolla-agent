@@ -1,0 +1,13 @@
+#!/bin/sh
+# Gate rápido: formatação + lint. Mantém os commits limpos sem rodar tudo.
+set -e
+
+echo "[pre-commit] ruff format --check + ruff check ..."
+if ! make --no-print-directory format-check lint; then
+  echo ""
+  echo "[pre-commit] FALHOU. Corrija com: make fmt"
+  echo "             e resolva os avisos do lint antes de commitar de novo."
+  exit 1
+fi
+
+echo "[pre-commit] OK"

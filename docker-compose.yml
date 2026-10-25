@@ -1,0 +1,68 @@
+# Ambiente local e de testes integrados.
+#   docker compose up -d db             # só o Postgres, para desenvolvimento e testes do pacote
+#   make e2e                            # sobe api, worker, db e fakes (profile e2e) e roda os cenários
+# A porta do Postgres no host é 5433 para não colidir com outros projetos locais na 5432.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: grolla
+      POSTGRES_USER: grolla
+      POSTGRES_PASSWORD: grolla
+    ports:
+      - "5433:5432"
+    volumes:
+      - grolla-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grolla -d grolla"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/grolla-api/Dockerfile
+    image: grolla-api:local
+    profiles: ["e2e"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GROLLA_DATABASE_URL: postgresql://grolla:grolla@db:5432/grolla
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  worker:
+    build:
+      context: .
+      dockerfile: packages/grolla-worker/Dockerfile
+    image: grolla-worker:local
+    profiles: ["e2e"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GROLLA_DATABASE_URL: postgresql://grolla:grolla@db:5432/grolla
+
+  fakes:
+    build:
+      context: .
+      dockerfile: e2e/fakes/Dockerfile
+    image: grolla-fakes:local
+    profiles: ["e2e"]
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/_control/requests')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  grolla-pgdata:

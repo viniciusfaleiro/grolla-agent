@@ -1,0 +1,20 @@
+[project]
+name = "grolla-fakes"
+# Só roda nos testes e2e; nunca entra numa imagem de produção.
+version = "0.0.0"
+description = "Substitutos controláveis dos serviços externos para os testes e2e do agent-grolla."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+]
+
+[project.scripts]
+grolla-fakes = "grolla_fakes.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/grolla_fakes"]

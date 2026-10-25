@@ -1,0 +1,17 @@
+# Regras padrão do gitleaks, sem varrer o que é gerado ou baixado localmente.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Artefatos locais, não versionados"
+paths = [
+  '''(^|/)\.venv/''',
+  '''(^|/)\.git/''',
+  '''(^|/)\.cache/''',
+  '''(^|/)\.ruff_cache/''',
+  '''(^|/)\.pytest_cache/''',
+  '''(^|/)htmlcov/''',
+  '''(^|/)\.idea/''',
+  '''coverage\.json$''',
+  '''\.coverage$''',
+]
