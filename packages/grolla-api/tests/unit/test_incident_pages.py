@@ -207,7 +207,7 @@ def test_partial_analysis_shows_the_reason_in_portuguese(
     page = client.get(f"/incidents/{incident.id}").text
 
     assert "análise parcial" in page
-    assert "o tempo da análise esgotou" in page
+    assert "tempo esgotado" in page
     assert "tempo_esgotado" not in page
     assert "O que avaliei" in page
     assert "Hipóteses" not in page

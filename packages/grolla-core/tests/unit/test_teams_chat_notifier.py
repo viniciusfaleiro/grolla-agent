@@ -235,6 +235,23 @@ def test_completed_analysis_card_shows_evaluations_hypotheses_and_plan() -> None
     )
 
 
+def test_long_analysis_is_summarized_in_the_card() -> None:
+    many = Hypothesis("Hipótese\ncom quebra " + "x" * 400, 0.5, (Evidence("e", None),) * 5)
+    long = replace(analysis(), hypotheses=(many,) * 6, plan=tuple(f"passo {n}" for n in range(9)))
+
+    lines = texts(analysis_card(long))
+
+    section = {title: lines[i + 1] for i, title in enumerate(lines[:-1])}
+    hypotheses = section["Hipóteses"].split("\n")
+    assert len(hypotheses) == 4
+    assert hypotheses[-1] == "- … mais 3 na página do incidente"
+    assert "\n" not in hypotheses[0].removeprefix("- ")
+    assert len(hypotheses[0]) < 400
+    assert hypotheses[0].count("; ") == 1  # no máximo 2 evidências por hipótese
+    assert section["Plano proposto"].split("\n")[-1] == "- … mais 4 na página do incidente"
+    assert len(json.dumps(analysis_card(long))) < 8_000
+
+
 def test_analysis_card_links_the_incident_and_the_telemetry() -> None:
     card = analysis_card(analysis())
 

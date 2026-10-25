@@ -199,18 +199,31 @@ function renderAlerts(alerts) {
   }
 }
 
+// Links em markdown ([texto](http...)) viram <a>; o resto fica como texto, sem HTML.
+function appendInline(parent, line) {
+  const link = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  let last = 0;
+  for (const m of line.matchAll(link)) {
+    parent.append(document.createTextNode(line.slice(last, m.index)));
+    const a = el("a", null, m[1]); a.href = m[2]; a.target = "_blank"; a.rel = "noopener";
+    parent.append(a);
+    last = m.index + m[0].length;
+  }
+  parent.append(document.createTextNode(line.slice(last)));
+}
+
 // Texto do TextBlock: as quebras de linha ficam, e linhas "- item" seguidas viram lista.
 function renderText(div, text) {
   let list = null;
   String(text ?? "").split("\n").forEach((line, index) => {
     if (line.startsWith("- ")) {
       if (!list) { list = el("ul"); div.append(list); }
-      list.append(el("li", null, line.slice(2)));
+      const li = el("li"); appendInline(li, line.slice(2)); list.append(li);
       return;
     }
     if (index > 0 && !list) div.append(document.createTextNode("\n"));
     list = null;
-    div.append(document.createTextNode(line));
+    appendInline(div, line);
   });
 }
 

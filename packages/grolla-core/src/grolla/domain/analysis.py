@@ -85,14 +85,26 @@ class Analysis:
 def complete(
     pending: Analysis, draft: AnalysisDraft, evaluations: Sequence[Evaluation], now: datetime
 ) -> Analysis:
-    """Análise concluída com o rascunho do modelo e as avaliações reais."""
+    """Análise concluída com o rascunho do modelo e as avaliações reais.
+
+    O modelo escreve as evidências, mas um link só é mantido se veio de uma avaliação: link
+    que nenhuma ferramenta devolveu pode ter sido inventado.
+    """
+    known = {e.url for e in evaluations if e.url}
+    hypotheses = (
+        replace(
+            h,
+            evidence=tuple(replace(e, url=e.url if e.url in known else None) for e in h.evidence),
+        )
+        for h in draft.hypotheses
+    )
     return replace(
         pending,
         status=AnalysisStatus.COMPLETED,
         finished_at=now,
         summary=draft.summary,
         evaluations=tuple(evaluations),
-        hypotheses=tuple(sorted(draft.hypotheses, key=lambda h: h.confidence, reverse=True)),
+        hypotheses=tuple(sorted(hypotheses, key=lambda h: h.confidence, reverse=True)),
         plan=draft.plan,
         partial_reason=None,
     )

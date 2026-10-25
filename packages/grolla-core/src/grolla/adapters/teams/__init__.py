@@ -117,14 +117,35 @@ def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[
             _text(f"Motivo: {PARTIAL_REASON_TEXT[analysis.partial_reason]}"),
             *_identity(notification),
         ]
-    body.append(
-        _section("O que avaliei", [_evaluation(e) for e in analysis.evaluations] or [_NOTHING])
-    )
+    evaluations = [_evaluation(e) for e in analysis.evaluations]
+    body.append(_section("O que avaliei", _limit(evaluations, MAX_EVALUATIONS) or [_NOTHING]))
     if analysis.hypotheses:
-        body.append(_section("Hipóteses", [_hypothesis(h) for h in analysis.hypotheses]))
+        hypotheses = [_hypothesis(h) for h in analysis.hypotheses]
+        body.append(_section("Hipóteses", _limit(hypotheses, MAX_HYPOTHESES)))
     if analysis.plan:
-        body.append(_section("Plano proposto", [f"- {step}" for step in analysis.plan]))
+        steps = [f"- {_clip(step)}" for step in analysis.plan]
+        body.append(_section("Plano proposto", _limit(steps, MAX_PLAN_STEPS)))
     return body
+
+
+# O Workflow do Teams recusa mensagens grandes; o card resume e a página do incidente tem tudo.
+MAX_EVALUATIONS = 8
+MAX_HYPOTHESES = 3
+MAX_PLAN_STEPS = 5
+MAX_LINE = 280
+MAX_EVIDENCE = 2
+
+
+def _limit(lines: list[str], most: int) -> list[str]:
+    if len(lines) <= most:
+        return lines
+    return [*lines[:most], f"- … mais {len(lines) - most} na página do incidente"]
+
+
+def _clip(text: str) -> str:
+    """Uma linha só e curta: quebra de linha no meio desmontaria a lista do card."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= MAX_LINE else flat[: MAX_LINE - 1] + "…"
 
 
 def _headline(text: str, notification: Notification, color: str) -> dict[str, Any]:
@@ -166,15 +187,16 @@ def _section(title: str, lines: list[str]) -> dict[str, Any]:
 
 
 def _evaluation(evaluation: Evaluation) -> str:
-    line = f"- {evaluation.subject}: {evaluation.finding}"
+    line = f"- {evaluation.subject}: {_clip(evaluation.finding)}"
     return f"{line} ([abrir]({evaluation.url}))" if evaluation.url else line
 
 
 def _hypothesis(hypothesis: Hypothesis) -> str:
-    line = f"- {hypothesis.title} (confiança {hypothesis.confidence:.0%})"
-    evidence = "; ".join(_evidence(e) for e in hypothesis.evidence)
+    line = f"- {_clip(hypothesis.title)} (confiança {hypothesis.confidence:.0%})"
+    evidence = "; ".join(_evidence(e) for e in hypothesis.evidence[:MAX_EVIDENCE])
     return f"{line}: {evidence}" if evidence else line
 
 
 def _evidence(evidence: Evidence) -> str:
-    return f"[{evidence.text}]({evidence.url})" if evidence.url else evidence.text
+    text = _clip(evidence.text)
+    return f"[{text}]({evidence.url})" if evidence.url else text

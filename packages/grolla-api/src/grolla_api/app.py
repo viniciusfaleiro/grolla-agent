@@ -17,7 +17,7 @@ from grolla.application.incidents import (
     InvalidAlertPayloadError,
     receive_alerts,
 )
-from grolla.domain.analysis import AnalysisStatus, PartialReason
+from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.incidents import EventType
 
 HealthCheck = Callable[[], Awaitable[bool]]
@@ -46,14 +46,6 @@ ANALYSIS_STATUS_LABELS = {
     AnalysisStatus.RUNNING: "análise em andamento",
     AnalysisStatus.COMPLETED: "análise concluída",
     AnalysisStatus.PARTIAL: "análise parcial",
-}
-
-PARTIAL_REASON_LABELS = {
-    PartialReason.LLM_FAILED: "o LLM falhou",
-    PartialReason.TIMEOUT: "o tempo da análise esgotou",
-    PartialReason.BUDGET: "o orçamento de tokens esgotou",
-    PartialReason.INVALID_RESULT: "o resultado do LLM veio inválido",
-    PartialReason.INTERRUPTED: "a análise foi interrompida",
 }
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -122,7 +114,7 @@ def create_app(services: Services) -> FastAPI:
             "analysis": await services.repository.analysis_of(found.id),
             "event_labels": EVENT_LABELS,
             "analysis_labels": ANALYSIS_STATUS_LABELS,
-            "partial_reasons": PARTIAL_REASON_LABELS,
+            "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
         }
         return templates.TemplateResponse(request, "incident.html", context)
 

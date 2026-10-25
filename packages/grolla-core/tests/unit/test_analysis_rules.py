@@ -41,6 +41,19 @@ def test_complete_keeps_the_draft_with_hypotheses_by_confidence() -> None:
     assert analysis.partial_reason is None
 
 
+def test_complete_drops_evidence_links_no_tool_returned() -> None:
+    known = make_evaluations()[0].url
+    evidence = (Evidence("taxa de erro subiu", known), Evidence("painel", "https://inventado/x"))
+    draft = AnalysisDraft("resumo", (Hypothesis("Deploy ruim", 0.8, evidence),), ("Reverter",))
+
+    analysis = complete(running(), draft, make_evaluations(), DONE)
+
+    assert analysis.hypotheses[0].evidence == (
+        Evidence("taxa de erro subiu", known),
+        Evidence("painel", None),
+    )
+
+
 def test_partial_keeps_the_evaluations_and_says_the_reason() -> None:
     analysis = partial(running(), PartialReason.TIMEOUT, make_evaluations(), DONE)
 
