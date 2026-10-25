@@ -68,3 +68,10 @@ def test_missing_file_names_the_variable(tmp_path: Path) -> None:
 def test_broken_yaml_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="YAML inválido"):
         load_team_config(write(tmp_path, "team: [\n"))
+
+
+@pytest.mark.parametrize("path", ["deploy/credenciadora.yaml", "e2e/config.yaml"])
+def test_versioned_configs_are_valid(path: str) -> None:
+    root = Path(__file__).parents[4]
+
+    assert load_team_config(root / path).team == "credenciadora"

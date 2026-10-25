@@ -1,0 +1,24 @@
+# Configuração da instância da Credenciadora. Sem segredos aqui: eles ficam no .env.
+team: credenciadora
+# URL pela qual o time abre as páginas dos incidentes (rede interna).
+page_base_url: http://grolla-credenciadora.interno:8000
+
+# Só alertas com TODOS estes labels entram. Ajuste quando os labels reais forem conhecidos.
+alert_filter:
+  team: credenciadora
+
+# O serviço do alerta vem do primeiro destes labels presente; sem nenhum, "desconhecido".
+service_labels: [service_name, service.name]
+
+# Alerta do mesmo serviço com atividade nos últimos N minutos entra no mesmo incidente.
+grouping_window_minutes: 15
+
+# A primeira regra que casa (todos os labels do match) define a severidade.
+default_severity: P3
+severity_rules:
+  - match: { alertname: "Queda de aprovação" }
+    severity: P0
+  - match: { severity: critical }
+    severity: P1
+  - match: { severity: warning }
+    severity: P2
