@@ -2,8 +2,8 @@
 
 Atende as duas fases da investigação, reconhecidas pelo schema em `output_config.format`: com a
 propriedade `verdicts`, é a validação; senão, a análise inicial. O modo de cada fase vem de
-`POST /_control/llm {"mode": ..., "verification_mode": ...}`. Os dois campos são opcionais, o
-padrão é `completa`, e o `/_control/reset` volta ao padrão.
+`POST /_control/llm {"mode": ..., "verification_mode": ...}`. Os dois campos são opcionais e
+um não mexe no outro; o padrão é `completa`, e o `/_control/reset` volta os dois ao padrão.
 
 - `completa`: sem resultados de ferramenta na conversa, pede ferramentas (tool_use): na análise
   inicial `query_metric`, `recent_deploys` e `search_logs`; na validação `query_metric` e
@@ -13,7 +13,8 @@ padrão é `completa`, e o `/_control/reset` volta ao padrão.
 - `inconclusiva` (só na validação): o mesmo roteiro, mas todas as hipóteses inconclusivas, sem
   causa raiz, sem plano e com o que faltou;
 - `fora_do_ar`: 529 overloaded, como a API sobrecarregada;
-- `lenta`: espera além do timeout do e2e antes de responder (a fase termina parcial).
+- `lenta`: espera além do timeout do e2e antes de responder (a fase termina parcial); na
+  análise inicial, a resposta tardia não traz hipóteses.
 
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
@@ -50,8 +51,8 @@ class LlmMode(StrEnum):
 
 
 class LlmControl(BaseModel):
-    mode: LlmMode = LlmMode.COMPLETE
-    verification_mode: LlmMode = LlmMode.COMPLETE
+    mode: LlmMode | None = None  # campo ausente: a fase fica como está
+    verification_mode: LlmMode | None = None
 
 
 def llm_router(state: FakesState) -> APIRouter:
@@ -59,8 +60,10 @@ def llm_router(state: FakesState) -> APIRouter:
 
     @router.post("/_control/llm", status_code=204)
     async def set_mode(control: LlmControl) -> None:  # pyright: ignore[reportUnusedFunction]
-        state.llm_mode = control.mode
-        state.llm_verification_mode = control.verification_mode
+        if control.mode is not None:
+            state.llm_mode = control.mode
+        if control.verification_mode is not None:
+            state.llm_verification_mode = control.verification_mode
 
     @router.post(MESSAGES_PATH)
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
@@ -80,6 +83,8 @@ def llm_router(state: FakesState) -> APIRouter:
             )
         if mode is LlmMode.SLOW:
             await asyncio.sleep(SLOW_SECONDS)
+            if not verifying:  # se ainda houver quem espere, a análise sai sem hipóteses
+                return JSONResponse(_final(body, {**_draft({}), "hypotheses": []}))
         if verifying:
             return JSONResponse(verification_reply(body, mode is LlmMode.INCONCLUSIVE))
         return JSONResponse(reply(body))
@@ -100,7 +105,11 @@ def reply(body: dict[str, Any]) -> dict[str, Any]:
     results = _tool_results(body["messages"])
     if not results:
         return _message(body, _tool_calls(body, FIRST_TOOLS), "tool_use")
-    return _message(body, [{"type": "text", "text": json.dumps(_draft(results))}], "end_turn")
+    return _final(body, _draft(results))
+
+
+def _final(body: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    return _message(body, [{"type": "text", "text": json.dumps(result)}], "end_turn")
 
 
 def verification_reply(body: dict[str, Any], inconclusive: bool) -> dict[str, Any]:
@@ -116,7 +125,7 @@ def verification_reply(body: dict[str, Any], inconclusive: bool) -> dict[str, An
         if inconclusive
         else _confirmed(hypotheses, results, service)
     )
-    return _message(body, [{"type": "text", "text": json.dumps(result)}], "end_turn")
+    return _final(body, result)
 
 
 def _message(body: dict[str, Any], content: list[dict[str, Any]], stop: str) -> dict[str, Any]:

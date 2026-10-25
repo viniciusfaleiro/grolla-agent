@@ -129,9 +129,11 @@ def test_slow_mode_waits_before_answering(monkeypatch: pytest.MonkeyPatch) -> No
     client.post("/_control/llm", json={"mode": "lenta"})
     start = time.monotonic()
 
-    first_turn(client)
+    body = first_turn(client)
 
     assert time.monotonic() - start >= 0.2
+    assert body["stop_reason"] == "end_turn"
+    assert json.loads(body["content"][0]["text"])["hypotheses"] == []
 
 
 def test_unknown_mode_is_rejected() -> None:
@@ -243,6 +245,18 @@ def test_verification_mode_does_not_change_the_initial_analysis() -> None:
     brief = {"role": "user", "content": VERIFICATION_BRIEF}
     response = client.post(PATH, json=verification_request([brief]))
     assert response.status_code == 529
+
+
+def test_each_field_of_the_control_leaves_the_other_phase_alone() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar"})
+    client.post("/_control/llm", json={"verification_mode": "inconclusiva"})
+
+    response = client.post(PATH, json=request([{"role": "user", "content": BRIEF}]))
+    _, final = verification_turns(client)
+
+    assert response.status_code == 529
+    assert json.loads(final["content"][0]["text"])["root_cause"] is None
 
 
 def test_initial_mode_does_not_change_the_verification() -> None:
