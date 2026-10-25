@@ -26,11 +26,11 @@
 
 ## 3. grolla-integracoes
 
-- [ ] 3.1 `adapters/aws`: `AwsCloudInventory` (tags, estado de RDS/EC2/ELB, CloudTrail, CloudWatch), boto3 em thread e lista fechada; Stubber e suíte de contrato.
-- [ ] 3.2 Correções no SigNoz e no Azure DevOps: logs WARN+ com top 5 agrupado, séries de 1 min com o minuto da mudança e deploys com a mensagem do commit.
-- [ ] 3.3 `verify` no adapter da Anthropic (schema do `VerificationDraft`, etapa `verification`) e modo de validação no LLM fake.
-- [ ] 3.4 Card "Causa raiz" no Teams, e o card inicial avisando "validando as hipóteses".
-- [ ] 3.5 Jobs `run_verifications` e `reap_stuck_verifications` no worker; READMEs; `make check` verde.
+- [x] 3.1 `adapters/aws`: `AwsCloudInventory` (tags, estado de RDS/EC2/ELB, CloudTrail, CloudWatch), boto3 em thread e lista fechada; Stubber e suíte de contrato.
+- [x] 3.2 Correções no SigNoz e no Azure DevOps: logs WARN+ com top 5 agrupado, séries de 1 min com o minuto da mudança e deploys com a mensagem do commit.
+- [x] 3.3 `verify` no adapter da Anthropic (schema do `VerificationDraft`, etapa `verification`) e modo de validação no LLM fake.
+- [x] 3.4 Card "Causa raiz" no Teams, e o card inicial avisando "validando as hipóteses".
+- [x] 3.5 Jobs `run_verifications` e `reap_stuck_verifications` no worker; READMEs; `make check` verde.
 
 ## 4. grolla-web
 
@@ -47,8 +47,8 @@
 
 ## 6. Integração (agente pai)
 
-- [ ] 6.1 Juntar os branches dos agentes e resolver conflitos.
-- [ ] 6.2 Fazer o code review do conjunto entregue e os ajustes que couberem.
+- [x] 6.1 Juntar os branches dos agentes e resolver conflitos.
+- [x] 6.2 Fazer o code review do conjunto entregue e os ajustes que couberem.
 - [x] 6.3 `deploy/`: seções `cloud` e de limites, as variáveis `AWS_*` e a política IAM mínima.
 - [ ] 6.4 Laboratório:
   - criar o IAM somente leitura;
@@ -57,6 +57,6 @@
 
   A causa raiz precisa sair certa nos dois, com o plano de ação (rollback e religar o RDS).
 - [x] 6.5 Registrar no `design.md` os desvios de contrato.
-- [ ] 6.6 Revisar e atualizar os READMEs do pai e de cada componente.
-- [ ] 6.7 Rodar `make e2e` e garantir todos os cenários verdes.
+- [x] 6.6 Revisar e atualizar os READMEs do pai e de cada componente.
+- [x] 6.7 Rodar `make e2e` e garantir todos os cenários verdes.
 - [ ] 6.8 Rodar `make fmt && make check` e garantir tudo verde.

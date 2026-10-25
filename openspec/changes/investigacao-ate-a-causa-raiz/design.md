@@ -189,6 +189,11 @@ Registrados pelo agente pai na integração. O código é a referência.
 6. **Pedido da validação no `finish`.** O `finish` da análise cria a validação pendente só quando a análise tem hipóteses e só se de fato gravou. O pedido repetido mantém o primeiro.
 7. **LLM fake.** O controle é `POST /_control/llm {"mode"?, "verification_mode"?}`. O fake reconhece a fase de validação pelo schema com `verdicts`.
 8. **Uma correção no adapter do LLM.** Quando o plano recebe `NotConcreteError`, o adapter da Anthropic manda uma mensagem de correção e tenta de novo. Se falhar outra vez, levanta `InvalidAnalysisError`.
+9. **Logs no formato `31x [ERROR] …`.** O separador é o "x" ASCII, porque o ruff (RUF001) recusa "×" no código.
+10. **`LanguageModelContract` ganhou os testes de `verify`,** com as fixtures `verifying_model`, `failing_verifier` e `invalid_verifier`.
+11. **`resource_map` aceita ARNs.** Um identificador solto fica na primeira região: `i-…` vira EC2, e os demais aparecem sem estado.
+12. **CloudTrail consultado pelo nome curto do recurso.** O `lookup_events` usa `ResourceName` com o identificador (`grolla-lab-db`), não o ARN. Foi conferido no laboratório real.
+13. **Mensagem do commit no Azure DevOps.** Vem de `triggerInfo["ci.message"]`, que só existe em build de CI. Em build manual, o adapter busca o `comment` na API de commits.
 
 ## Risks / Trade-offs
 
