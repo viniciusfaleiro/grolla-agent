@@ -28,7 +28,11 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
 `grolla-worker`, `grolla-fakes` e cenário de fumaça. Change arquivada:
 `changes/archive/2026-10-25-fundacao-harness`.
 
-## S2 · Alertas viram incidentes
+## S2 · Alertas viram incidentes ✅
+
+Entregue na change `alertas-viram-incidentes` (aceite com alertas reais pendente). Ficaram para
+depois: poller de 60 s, agrupamento por dependência (precisa do `Telemetry`, S4), Secrets
+Manager e backup automatizado (o deploy é manual; o `deploy/README.md` traz o backup por cron).
 
 - **Valor:** um card no Teams por problema, não por alerta — deduplicado, agrupado e com
   severidade — e uma página por incidente com a timeline. Para P2/P3 a funcionalidade da spec
@@ -134,5 +138,4 @@ criados pelo chat.
 
 ## Em aberto
 
-- Time piloto da primeira instância (define as regras de severidade, o canal do Teams e o mapa
-  serviço → repositório).
+- Labels reais dos alertas da Credenciadora (filtro e serviço são configuráveis no YAML).

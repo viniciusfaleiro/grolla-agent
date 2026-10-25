@@ -281,6 +281,24 @@ Ambiente: `GROLLA_DATABASE_URL`, `GROLLA_CONFIG_FILE`, `GROLLA_LOG_LEVEL`; na ap
 | `grolla-web` | webhook, páginas e `/health/worker` no `grolla-api` |
 | `grolla-e2e` | ação `expect_fake_requests` e cenários |
 
+## Desvios de contrato combinados na implementação
+
+Registrados pelo agente pai na integração. O código é a referência.
+
+1. **Labels configuráveis.** O YAML ganhou `service_labels` (padrão `service_name`, `service.name`); o serviço vem do primeiro presente. `SignozAlertIngress(username, password, service_labels)`.
+2. **`enqueue(notification, at)`.** A outbox recebe o horário do `Clock`, em vez de `now()` do banco, para seguir o relógio injetado.
+3. **Exceções com sufixo `Error`** (`InvalidAlertPayloadError`, `NotificationFailedError`) e argumentos nomeados em `decide_firing` depois de `alert`, por causa do lint.
+4. **`NotificationOutbox.due` preserva a ordem por incidente entre rodadas.** Um card esperando retentativa segura os cards mais novos do mesmo incidente.
+5. **Eventos de entrega.** `notification_delivered` e `notification_failed` levam `{"kind", "attempts"}`, e a desistência leva também `"error"`.
+6. **A resolução de um alerta conta como atividade:** atualiza `last_alert_at`.
+7. **Filtro de labels antes de gravar.** Alerta de outro time não deixa rastro, nem na tabela `alerts`.
+8. **Concorrência (code review do agente pai).**
+   - O problema: webhooks simultâneos do mesmo serviço abriam incidentes duplicados, e resoluções simultâneas perdiam a atualização de `firing`.
+   - A correção: `active_incidents` segura `pg_advisory_xact_lock` por serviço e `FOR UPDATE` nos candidatos, e `incident_firing` usa `FOR UPDATE`.
+   - Os testes de integração reproduzem o problema sem a correção.
+9. **Rodada de entrega exclusiva.** O job tem `lock` além do `queueing_lock`: `queueing_lock` só limita a fila, e `lock` impede duas rodadas rodando ao mesmo tempo.
+10. **Settings por processo.** `ApiSettings` e `WorkerSettings` sobre `Settings`, e `build_api` / `build_worker` para os testes de integração. O worker não lê o YAML.
+
 ## Risks / Trade-offs
 
 - [Formato exato do webhook do SigNoz diferente do esperado] → o adapter é testado com fixture de payload real; o agente de integrações pega um payload real do SigNoz da Credenciadora antes de fechar.

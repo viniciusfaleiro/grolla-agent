@@ -40,8 +40,9 @@ os deployables só montam o processo.
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL) | `grolla.adapters.teams.TeamsChatNotifier` |
-| **Configuração** | Variáveis `GROLLA_*` validadas; erro nomeia a variável | `grolla.bootstrap.load_settings` |
-| **Composição** | Migra e monta as dependências de um processo | `grolla.bootstrap.prepare` |
+| **Configuração** | Variáveis `GROLLA_*` validadas por processo (`ApiSettings`, `WorkerSettings`); erro nomeia a variável | `grolla.bootstrap.load_settings` |
+| **Configuração do time** | YAML com filtro de labels, labels de serviço, janela e regras de severidade; erro aponta o campo | `grolla.bootstrap.load_team_config` |
+| **Composição** | Migra e monta as dependências de cada processo | `grolla.bootstrap.prepare_api` · `prepare_worker` |
 
 ## 🏛 Arquitetura
 
@@ -80,6 +81,10 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   projeção e o card na outbox são gravados juntos ou nada é gravado.
 - `register_alert` é um `INSERT … ON CONFLICT DO NOTHING RETURNING id`: devolve `False` para um
   reenvio, mesmo com dois processos.
+- `active_incidents` segura um advisory lock por serviço e `FOR UPDATE` nos candidatos, e
+  `incident_firing` trava o incidente: webhooks simultâneos do mesmo serviço não abrem dois
+  incidentes, e resoluções simultâneas não perdem a atualização de `firing`
+  (`tests/integration/test_postgres_concurrency.py`).
 - `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
   esperando retentativa segura os seguintes do mesmo incidente, para a ordem por incidente;
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou

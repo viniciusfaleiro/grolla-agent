@@ -37,6 +37,13 @@ Teams, Spike.sh, MCPs).
 {"routes": [{"method": "POST", "path": "/pager", "status": 202, "body": {"ok": true}}]}
 ```
 
+### Protocolos de fornecedor
+
+| Fornecedor | Como aparece no e2e | Desde |
+|---|---|---|
+| **Teams** | O worker posta os cards em `POST /teams/webhook`; o cenário declara a rota com 202 e confere os cards com `expect_fake_requests` | S2 |
+| **SigNoz** | Não passa pelo fake: o próprio runner chama `POST /webhooks/alerts` da api com payloads no formato do SigNoz | S2 |
+
 ## ⚡ Como rodar
 
 Normalmente sobe pelo `make e2e` (serviço `fakes`, porta 9000). Sozinho:
