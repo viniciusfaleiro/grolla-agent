@@ -61,6 +61,10 @@ services:
       GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
       GROLLA_ANTHROPIC_API_KEY: ${GROLLA_ANTHROPIC_API_KEY:?defina no .env}
       GROLLA_AZURE_DEVOPS_TOKEN: ${GROLLA_AZURE_DEVOPS_TOKEN:?defina no .env}
+      # Vazias: o SDK usa a role da EC2 (instance profile).
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     volumes:
       - ./${GROLLA_TEAM_CONFIG:-credenciadora.yaml}:/etc/grolla/grolla.yaml:ro
 

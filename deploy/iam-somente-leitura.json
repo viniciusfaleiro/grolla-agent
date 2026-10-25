@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GrollaInvestigacaoSomenteLeitura",
+      "Effect": "Allow",
+      "Action": [
+        "tag:GetResources",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:ListTagsForResource",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "cloudtrail:LookupEvents",
+        "cloudwatch:DescribeAlarms"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

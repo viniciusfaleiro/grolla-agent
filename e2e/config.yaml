@@ -20,6 +20,8 @@ investigation:
   max_tokens: 300000
   lookback_minutes: 60
   max_parallel: 3
+  verification_timeout_seconds: 15
+  verification_max_tokens: 150000
 llm:
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
