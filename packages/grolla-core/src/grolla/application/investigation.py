@@ -17,6 +17,7 @@ from grolla.domain.incidents import Alert, Incident
 STAGE_INVESTIGATION = "investigation"
 STAGE_VERIFICATION = "verification"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
+NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
 
@@ -68,14 +69,20 @@ class ChangeHistory(Protocol):
 
 
 class CloudInventory(Protocol):
-    """Recursos de nuvem do serviço, mudanças recentes neles e alarmes, só leitura."""
+    """Recursos de nuvem do serviço, mudanças recentes neles e alarmes, só leitura.
+
+    Os três levantam ToolUnavailableError quando a nuvem falha (credencial, permissão, rede).
+    Serviço sem recursos não é erro: o resumo diz NO_CLOUD_RESOURCES.
+    """
 
     async def resources(self, service: str) -> ToolResult:
         """Recursos do serviço (tag `service=<nome>` ou mapa) e o estado de cada um."""
         ...
 
     async def changes(self, service: str, since: datetime) -> ToolResult:
-        """Eventos de auditoria que mudaram os recursos do serviço desde `since`."""
+        """Eventos de auditoria que mudaram os recursos do serviço desde `since`, do mais
+        recente para o mais antigo, sem as leituras puras.
+        """
         ...
 
     async def alarms(self, service: str) -> ToolResult:

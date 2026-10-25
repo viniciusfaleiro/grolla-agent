@@ -1,4 +1,6 @@
-"""Suíte de contrato de AnalysisQueue e do pedido de análise (`request_analysis`, `analysis_of`).
+"""Suítes de contrato de AnalysisQueue: a análise inicial (`AnalysisQueueContract`, com o
+pedido `request_analysis` e o `analysis_of`) e a validação (`VerificationQueueContract`, com o
+pedido feito pelo `finish` e o `verification_of`). As duas usam as mesmas fixtures.
 
 As fixtures `repository`, `queue` e `outbox` precisam enxergar o mesmo armazenamento. No banco
 real compartilhado, outros testes deixam pedidos pendentes: por isso cada teste esvazia a fila
@@ -15,7 +17,13 @@ from grolla.application.analysis import AnalysisJob, AnalysisQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.domain.analysis import AnalysisStatus, PartialReason
 from grolla.domain.incidents import EventType, IncidentEvent, NotificationKind
-from grolla.testing.builders import T0, make_analysis, make_incident, make_notification
+from grolla.testing.builders import (
+    T0,
+    make_analysis,
+    make_incident,
+    make_notification,
+    make_verification,
+)
 from grolla.testing.investigation import fake_usage
 
 
@@ -214,3 +222,181 @@ class AnalysisQueueContract:
             await request_then_fail()
 
         assert await repository.analysis_of(incident.id) is None
+
+
+async def verification_requested(
+    repository: IncidentRepository, queue: AnalysisQueue, at: datetime = T0
+) -> UUID:
+    """Incidente novo cuja análise inicial terminou com hipóteses em `at`: validação pendente."""
+    incident_id = await requested(repository, at)
+    await drain(queue, at)
+    analysis = make_analysis(incident_id, requested_at=at, started_at=at, finished_at=at)
+    card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=analysis)
+    await queue.finish(analysis, [], card, [], at)
+    return incident_id
+
+
+async def drain_verifications(queue: AnalysisQueue, now: datetime) -> list[AnalysisJob]:
+    """Reivindica todas as validações pendentes, na ordem em que a fila entrega."""
+    jobs: list[AnalysisJob] = []
+    while (job := await queue.claim_verification(now)) is not None:
+        jobs.append(job)
+    return jobs
+
+
+class VerificationQueueContract:
+    @pytest.fixture
+    def repository(self) -> IncidentRepository:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def queue(self, repository: IncidentRepository) -> AnalysisQueue:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def outbox(self, repository: IncidentRepository) -> NotificationOutbox:
+        raise NotImplementedError
+
+    async def test_finish_with_hypotheses_requests_the_verification(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        at = T0 + timedelta(minutes=2)
+
+        incident_id = await verification_requested(repository, queue, at)
+
+        assert await repository.verification_of(incident_id) == make_verification(
+            incident_id, status=AnalysisStatus.PENDING, requested_at=at
+        )
+
+    async def test_finish_without_hypotheses_requests_no_verification(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident_id = await requested(repository)
+        await drain(queue, T0)
+        analysis = make_analysis(incident_id, status=AnalysisStatus.PARTIAL, requested_at=T0)
+        card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=analysis)
+
+        await queue.finish(analysis, [], card, [], T0)
+
+        assert await repository.verification_of(incident_id) is None
+
+    async def test_finish_that_writes_nothing_requests_no_verification(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident = make_incident()
+        async with repository.transaction() as uow:
+            await uow.save(incident)
+        analysis = make_analysis(incident.id)
+        card = make_notification(incident.id, NotificationKind.ANALYSIS_READY, analysis=analysis)
+
+        await queue.finish(analysis, [], card, [], T0)
+
+        assert await repository.verification_of(incident.id) is None
+
+    async def test_claim_verification_marks_it_running_once(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident_id = await verification_requested(repository, queue)
+        now = T0 + timedelta(seconds=5)
+
+        jobs = [j for j in await drain_verifications(queue, now) if j.incident_id == incident_id]
+
+        assert jobs == [AnalysisJob(incident_id, requested_at=T0, started_at=now)]
+        verification = await repository.verification_of(incident_id)
+        assert verification is not None
+        assert verification.status is AnalysisStatus.RUNNING
+        assert verification.started_at == now
+        assert incident_id not in ids(await drain_verifications(queue, now))
+
+    async def test_oldest_verification_is_claimed_first(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        newer = await verification_requested(repository, queue, T0 + timedelta(seconds=1))
+        older = await verification_requested(repository, queue, T0)
+
+        claimed = [i for i in ids(await drain_verifications(queue, T0)) if i in {newer, older}]
+
+        assert claimed == [older, newer]
+
+    async def test_stuck_verifications_are_the_running_since_before_the_limit(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident_id = await verification_requested(repository, queue)
+        await drain_verifications(queue, T0)
+
+        assert incident_id in ids(await queue.stuck_verifications(T0 + timedelta(minutes=1)))
+        assert incident_id not in ids(await queue.stuck_verifications(T0))
+        assert incident_id not in ids(await queue.stuck(T0 + timedelta(hours=1)))
+
+    async def test_finish_verification_writes_it_with_events_and_card(
+        self,
+        repository: IncidentRepository,
+        queue: AnalysisQueue,
+        outbox: NotificationOutbox,
+    ) -> None:
+        incident_id = await verification_requested(repository, queue)
+        await drain_verifications(queue, T0)
+        done = T0 + timedelta(minutes=3)
+        verification = make_verification(
+            incident_id, requested_at=T0, started_at=T0, finished_at=done
+        )
+        events = [IncidentEvent(incident_id, done, EventType.VERIFICATION_COMPLETED, {"acoes": 2})]
+        card = make_notification(
+            incident_id, NotificationKind.ROOT_CAUSE, verification=verification
+        )
+
+        await queue.finish_verification(verification, events, card, [fake_usage()], done)
+
+        assert await repository.verification_of(incident_id) == verification
+        assert await repository.events_of(incident_id) == events
+        due = [
+            i for i in await outbox.due(done, 10_000) if i.notification.incident_id == incident_id
+        ]
+        assert [item.notification for item in due][-1:] == [card]
+        assert incident_id not in ids(await queue.stuck_verifications(done + timedelta(hours=1)))
+
+    async def test_finish_of_an_already_finished_verification_writes_nothing(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident_id = await verification_requested(repository, queue)
+        await drain_verifications(queue, T0)
+        reaped = make_verification(
+            incident_id,
+            status=AnalysisStatus.PARTIAL,
+            requested_at=T0,
+            partial_reason=PartialReason.INTERRUPTED,
+        )
+        late = make_verification(incident_id, requested_at=T0)
+        event = IncidentEvent(incident_id, T0, EventType.VERIFICATION_COMPLETED, {})
+        card = make_notification(incident_id, NotificationKind.ROOT_CAUSE, verification=late)
+        at = T0 + timedelta(minutes=8)
+
+        await queue.finish_verification(reaped, [], card, [], at)
+        await queue.finish_verification(late, [event], card, [fake_usage()], at)
+
+        assert await repository.verification_of(incident_id) == reaped
+        assert await repository.events_of(incident_id) == []
+
+    async def test_finish_of_a_verification_never_claimed_writes_nothing(
+        self, repository: IncidentRepository, queue: AnalysisQueue
+    ) -> None:
+        incident_id = await verification_requested(repository, queue)
+        verification = make_verification(incident_id)
+        card = make_notification(
+            incident_id, NotificationKind.ROOT_CAUSE, verification=verification
+        )
+
+        await queue.finish_verification(verification, [], card, [], T0)
+
+        pending = await repository.verification_of(incident_id)
+        assert pending is not None
+        assert pending.status is AnalysisStatus.PENDING
+
+    async def test_verification_never_requested_is_none(
+        self, repository: IncidentRepository
+    ) -> None:
+        incident = make_incident()
+        async with repository.transaction() as uow:
+            await uow.save(incident)
+
+        assert await repository.verification_of(incident.id) is None

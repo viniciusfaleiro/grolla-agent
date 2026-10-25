@@ -1,5 +1,6 @@
 """Análise inicial de um incidente: o que foi avaliado, hipóteses e plano proposto."""
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -182,9 +183,49 @@ class NotConcreteError(ValueError):
     """O plano traz passo de investigação, ou ações sem causa confirmada."""
 
 
+# Verbos de passo de investigação: no plano da validação só entram ações diretas.
+INVESTIGATION_VERBS = frozenset(
+    {
+        "investigar",
+        "verificar",
+        "checar",
+        "analisar",
+        "consultar",
+        "confirmar",
+        "avaliar",
+        "revisar",
+        "examinar",
+        "observar",
+        "acompanhar",
+        "monitorar",
+    }
+)
+
+
+def _first_word(text: str) -> str:
+    """Primeira palavra, minúscula e sem acento: "Verificar a saúde" -> "verificar"."""
+    words = text.split()
+    if not words:
+        return ""
+    decomposed = unicodedata.normalize("NFKD", words[0].casefold())
+    return "".join(c for c in decomposed if c.isalnum())
+
+
 def check_plan(draft: VerificationDraft) -> None:
     """Plano só com ações concretas e só quando há causa confirmada; levanta NotConcreteError."""
-    raise NotImplementedError
+    if draft.root_cause is None:
+        if draft.actions:
+            raise NotConcreteError("ações sem causa raiz confirmada")
+        return
+    if not draft.actions:
+        raise NotConcreteError("causa raiz confirmada sem nenhuma ação")
+    for action in draft.actions:
+        if _first_word(action.action) in INVESTIGATION_VERBS:
+            raise NotConcreteError(f"passo de investigação no plano: {action.action}")
+
+
+def _known_link(url: str | None, known: set[str]) -> str | None:
+    return url if url in known else None
 
 
 def verified(
@@ -193,12 +234,45 @@ def verified(
     evaluations: Sequence[Evaluation],
     now: datetime,
 ) -> Verification:
-    """Validação concluída; links de evidência e de ação só se vieram de uma avaliação."""
-    raise NotImplementedError
+    """Validação concluída; links de evidência e de ação só se vieram de uma avaliação.
+
+    Levanta NotConcreteError se o plano não passa no `check_plan`.
+    """
+    check_plan(draft)
+    known = {e.url for e in evaluations if e.url}
+    verdicts = tuple(
+        replace(
+            v,
+            evidence=tuple(replace(e, url=_known_link(e.url, known)) for e in v.evidence),
+        )
+        for v in draft.verdicts
+    )
+    actions = tuple(replace(a, link=_known_link(a.link, known)) for a in draft.actions)
+    return replace(
+        pending,
+        status=AnalysisStatus.COMPLETED,
+        finished_at=now,
+        verdicts=verdicts,
+        root_cause=draft.root_cause,
+        actions=actions,
+        missing=draft.missing,
+        evaluations=tuple(evaluations),
+        partial_reason=None,
+    )
 
 
 def verification_partial(
     pending: Verification, reason: PartialReason, evaluations: Sequence[Evaluation], now: datetime
 ) -> Verification:
     """Validação encerrada sem rascunho válido: mantém o que foi avaliado e o motivo."""
-    raise NotImplementedError
+    return replace(
+        pending,
+        status=AnalysisStatus.PARTIAL,
+        finished_at=now,
+        verdicts=(),
+        root_cause=None,
+        actions=(),
+        missing=f"Validação parcial: {PARTIAL_REASON_TEXT[reason]}.",
+        evaluations=tuple(evaluations),
+        partial_reason=reason,
+    )

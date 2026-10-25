@@ -1,13 +1,18 @@
-"""Fakes dos ports da investigação: telemetria, histórico de mudanças e modelo de linguagem."""
+"""Fakes dos ports da investigação: telemetria, histórico de mudanças, nuvem e modelo de
+linguagem.
+"""
 
 import asyncio
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
 from grolla.application.investigation import (
+    NO_CLOUD_RESOURCES,
     NO_REPOSITORY,
     STAGE_INVESTIGATION,
+    STAGE_VERIFICATION,
     InvestigationBrief,
     LlmUsage,
     Signal,
@@ -17,7 +22,7 @@ from grolla.application.investigation import (
     ToolUnavailableError,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
-from grolla.testing.builders import make_draft
+from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
 
@@ -87,12 +92,62 @@ class FakeChangeHistory:
         return ToolResult(self.deploys[service], f"https://pipelines.interno/{service}")
 
 
+CLOUD_TOOLS = ("resources", "changes", "alarms")
+
+
+class FakeCloudInventory:
+    """Nuvem roteirizada: `resources`, `changes` e `alarms` mapeiam serviço → resumo.
+
+    Serviço sem recursos no mapa responde NO_CLOUD_RESOURCES; sem mudanças ou alarmes no mapa,
+    responde que não há. As consultas em `failing` (nomes de `CLOUD_TOOLS`) levantam
+    ToolUnavailableError. Cada chamada fica em `calls` como (consulta, serviço).
+    """
+
+    def __init__(
+        self,
+        resources: Mapping[str, str] | None = None,
+        changes: Mapping[str, str] | None = None,
+        alarms: Mapping[str, str] | None = None,
+        failing: Iterable[str] = (),
+    ) -> None:
+        self.answers = {
+            "resources": dict(resources or {}),
+            "changes": dict(changes or {}),
+            "alarms": dict(alarms or {}),
+        }
+        self.failing = set(failing)
+        self.calls: list[tuple[str, str]] = []
+        self.since: list[datetime] = []
+
+    async def resources(self, service: str) -> ToolResult:
+        return self._answer("resources", service, NO_CLOUD_RESOURCES)
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        self.since.append(since)
+        return self._answer("changes", service, f"nenhuma mudança nos recursos de {service}")
+
+    async def alarms(self, service: str) -> ToolResult:
+        return self._answer("alarms", service, f"não há alarmes ativos para {service}")
+
+    def _answer(self, tool: str, service: str, default: str) -> ToolResult:
+        self.calls.append((tool, service))
+        if tool in self.failing:
+            raise ToolUnavailableError(f"{tool} da nuvem fora do ar no fake")
+        summary = self.answers[tool].get(service)
+        if summary is None:
+            return ToolResult(default, None)
+        return ToolResult(summary, f"https://console.nuvem.interno/{service}")
+
+
 FAKE_MODEL = "modelo-fake"
 
 
-def fake_usage(tokens: int = 1_000) -> LlmUsage:
+def fake_usage(tokens: int = 1_000, stage: str = STAGE_INVESTIGATION) -> LlmUsage:
     """Uso de uma resposta do modelo: `tokens` de entrada e um décimo disso de saída."""
-    return LlmUsage(STAGE_INVESTIGATION, FAKE_MODEL, tokens, tokens // 10, 0, 0)
+    return LlmUsage(stage, FAKE_MODEL, tokens, tokens // 10, 0, 0)
+
+
+ToolCalls = Sequence[tuple[str, Mapping[str, Any]]]
 
 
 class ScriptedLanguageModel:
@@ -102,24 +157,46 @@ class ScriptedLanguageModel:
     toolbox (gastando `usage` no orçamento a cada turno, inclusive o final) e então levanta
     `error`, se houver, ou devolve `draft`. Os briefs recebidos ficam em `briefs` e as
     respostas das ferramentas em `tool_answers`.
+
+    Em `verify`, o mesmo roteiro com `verification_calls`, `verification_error`,
+    `verification_delay` e `verification` (o rascunho devolvido), gastando o uso com a etapa
+    `verification`. As análises recebidas ficam em `verified_analyses`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
         self,
         draft: AnalysisDraft | None = None,
         *,
-        calls: Sequence[tuple[str, Mapping[str, Any]]] = (),
+        calls: ToolCalls = (),
         error: Exception | None = None,
         delay: float = 0.0,
         usage: LlmUsage | None = None,
+        verification: VerificationDraft | None = None,
+        verification_calls: ToolCalls = (),
+        verification_error: Exception | None = None,
+        verification_delay: float = 0.0,
     ) -> None:
         self.draft = draft or make_draft()
         self.calls = list(calls)
         self.error = error
         self.delay = delay
         self.usage = usage or fake_usage()
+        self.verification = verification or make_verification_draft()
+        self.verification_calls = list(verification_calls)
+        self.verification_error = verification_error
+        self.verification_delay = verification_delay
         self.briefs: list[InvestigationBrief] = []
+        self.verified_analyses: list[Analysis] = []
         self.tool_answers: list[str] = []
+
+    async def investigate(
+        self, brief: InvestigationBrief, toolbox: Toolbox, budget: TokenBudget
+    ) -> AnalysisDraft:
+        self.briefs.append(brief)
+        await self._play(self.delay, self.calls, self.usage, toolbox, budget)
+        if self.error is not None:
+            raise self.error
+        return self.draft
 
     async def verify(
         self,
@@ -128,18 +205,20 @@ class ScriptedLanguageModel:
         toolbox: Toolbox,
         budget: TokenBudget,
     ) -> VerificationDraft:
-        raise NotImplementedError
-
-    async def investigate(
-        self, brief: InvestigationBrief, toolbox: Toolbox, budget: TokenBudget
-    ) -> AnalysisDraft:
         self.briefs.append(brief)
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        for name, arguments in self.calls:
-            budget.spend(self.usage)
+        self.verified_analyses.append(analysis)
+        usage = replace(self.usage, stage=STAGE_VERIFICATION)
+        await self._play(self.verification_delay, self.verification_calls, usage, toolbox, budget)
+        if self.verification_error is not None:
+            raise self.verification_error
+        return self.verification
+
+    async def _play(
+        self, delay: float, calls: ToolCalls, usage: LlmUsage, toolbox: Toolbox, budget: TokenBudget
+    ) -> None:
+        if delay:
+            await asyncio.sleep(delay)
+        for name, arguments in calls:
+            budget.spend(usage)
             self.tool_answers.append(await toolbox.call(name, arguments))
-        budget.spend(self.usage)
-        if self.error is not None:
-            raise self.error
-        return self.draft
+        budget.spend(usage)

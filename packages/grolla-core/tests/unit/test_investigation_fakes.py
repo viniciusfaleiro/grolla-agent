@@ -1,14 +1,16 @@
 """Os fakes da investigação e da fila de análises passam nas suítes de contrato."""
 
 import pytest
-from contracts.analysis_queue_contract import AnalysisQueueContract
+from contracts.analysis_queue_contract import AnalysisQueueContract, VerificationQueueContract
 from contracts.change_history_contract import ChangeHistoryContract
+from contracts.cloud_inventory_contract import CloudInventoryContract
 from contracts.language_model_contract import LanguageModelContract
 from contracts.telemetry_contract import TelemetryContract
 from grolla.application.analysis import AnalysisQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
     ChangeHistory,
+    CloudInventory,
     InvalidAnalysisError,
     LanguageModel,
     LanguageModelError,
@@ -20,7 +22,9 @@ from grolla.testing.incidents import (
     InMemoryNotificationOutbox,
 )
 from grolla.testing.investigation import (
+    CLOUD_TOOLS,
     FakeChangeHistory,
+    FakeCloudInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
 )
@@ -51,6 +55,19 @@ class TestFakeChangeHistoryContract(ChangeHistoryContract):
         return FakeChangeHistory(unavailable=True)
 
 
+class TestFakeCloudInventoryContract(CloudInventoryContract):
+    @pytest.fixture
+    def cloud(self, service: str) -> CloudInventory:
+        return FakeCloudInventory(
+            resources={service: "1 recurso: banco pedidos-db (stopped)"},
+            changes={service: "21:42 parada do banco pedidos-db por ana"},
+        )
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return FakeCloudInventory(failing=CLOUD_TOOLS)
+
+
 class TestScriptedLanguageModelContract(LanguageModelContract):
     @pytest.fixture
     def model(self) -> LanguageModel:
@@ -66,6 +83,22 @@ class TestScriptedLanguageModelContract(LanguageModelContract):
 
 
 class TestInMemoryAnalysisQueueContract(AnalysisQueueContract):
+    @pytest.fixture
+    def repository(self) -> IncidentRepository:
+        return InMemoryIncidentRepository()
+
+    @pytest.fixture
+    def queue(self, repository: IncidentRepository) -> AnalysisQueue:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryAnalysisQueue(repository)
+
+    @pytest.fixture
+    def outbox(self, repository: IncidentRepository) -> NotificationOutbox:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryNotificationOutbox(repository)
+
+
+class TestInMemoryVerificationQueueContract(VerificationQueueContract):
     @pytest.fixture
     def repository(self) -> IncidentRepository:
         return InMemoryIncidentRepository()
