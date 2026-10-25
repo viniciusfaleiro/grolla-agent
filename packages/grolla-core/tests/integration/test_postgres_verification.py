@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.analysis_queue_contract import VerificationQueueContract
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresDatabase,
@@ -20,6 +21,8 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.analysis import AnalysisQueue
+from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import LlmUsage
 from grolla.domain.analysis import (
     Action,
@@ -74,6 +77,20 @@ async def clean(database: PostgresDatabase) -> None:
     async with database.engine.begin() as connection:
         await connection.execute(sa.text("DELETE FROM analyses"))
         await connection.execute(sa.text("DELETE FROM verifications"))
+
+
+class TestPostgresVerificationQueueContract(VerificationQueueContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def queue(self, database: PostgresDatabase) -> AnalysisQueue:
+        return PostgresAnalysisQueue(database)
+
+    @pytest.fixture
+    def outbox(self, database: PostgresDatabase) -> NotificationOutbox:
+        return PostgresNotificationOutbox(database)
 
 
 @pytest.fixture
