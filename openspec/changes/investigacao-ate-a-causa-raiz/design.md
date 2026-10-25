@@ -6,11 +6,13 @@ O S3 investiga só pelo SigNoz (telemetria) e pelo Azure DevOps (deploys). O lab
 - Os pontos de 5 minutos e a falta da mensagem do commit impediram separar o deploy de revert da queda do banco.
 - Sem nuvem, o agente não confirma uma parada de infraestrutura.
 
-O usuário pediu a AWS agora. A conta do laboratório é a 851725637288 (us-east-1). Change de agente único: o agente pai implementa, porque o escopo é pequeno e as áreas se tocam pouco.
+O usuário pediu a AWS agora e quer que o agente chegue à causa raiz: análise inicial com hipóteses e primeiro aviso, depois a validação de cada hipótese em detalhe e por fim um plano de ação concreto. A conta do laboratório é a 851725637288 (us-east-1). Change multiagente: a validação toca domínio, persistência, integrações (card), web (página) e e2e.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
+- Toda análise inicial com hipóteses vira uma validação, que termina com causa raiz confirmada e plano de ação concreto, ou com "causa não confirmada" e o que faltou.
 
 - Repetido o cenário "banco fora", a análise diz que o banco caiu, mostra o recurso parado e quem o parou, e não sugere rollback de deploy.
 - No cenário "bug no deploy", a análise continua apontando o deploy e o rollback.
@@ -64,7 +66,98 @@ class AwsCloudInventory:
     ) -> None: ...
 ```
 
+### Validação — domínio, application e schema
+
+```python
+# grolla.domain.analysis (acréscimos)
+class Verdict(StrEnum):
+    CONFIRMED = "confirmada"
+    REJECTED = "rejeitada"
+    INCONCLUSIVE = "inconclusiva"
+
+
+@dataclass(frozen=True)
+class HypothesisVerdict:
+    hypothesis: str  # título da hipótese da análise inicial
+    verdict: Verdict
+    reasoning: str
+    evidence: tuple[Evidence, ...]
+
+
+@dataclass(frozen=True)
+class Action:
+    action: str  # imperativo e concreto: "Fazer rollback do pedidos-api para o build 20261025.1"
+    target: str  # componente ou recurso: "pedidos-api", "RDS grolla-lab-db"
+    expected: str  # efeito esperado
+    link: str | None  # pipeline, console etc., só se veio de uma avaliação
+
+
+@dataclass(frozen=True)
+class VerificationDraft:  # o que o modelo devolve, validado
+    verdicts: tuple[HypothesisVerdict, ...]
+    root_cause: str | None  # None: causa não confirmada
+    actions: tuple[Action, ...]  # vazio quando root_cause é None
+    missing: str  # o que faltou para confirmar ("" quando confirmada)
+
+
+@dataclass(frozen=True)
+class Verification:
+    incident_id: UUID
+    status: AnalysisStatus  # mesmos estados da análise
+    requested_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    verdicts: tuple[HypothesisVerdict, ...]
+    root_cause: str | None
+    actions: tuple[Action, ...]
+    missing: str
+    evaluations: tuple[Evaluation, ...]
+    partial_reason: PartialReason | None
+
+
+def verified(pending, draft, evaluations, now) -> Verification: ...
+def verification_partial(pending, reason, evaluations, now) -> Verification: ...
+
+
+# grolla.domain.incidents: EventType ganha VERIFICATION_REQUESTED/COMPLETED/PARTIAL e
+#   NotificationKind ganha ROOT_CAUSE; Notification ganha `verification: Verification | None`.
+
+
+# grolla.application.investigation
+class LanguageModel(Protocol):
+    async def investigate(self, brief, toolbox, budget) -> AnalysisDraft: ...
+    async def verify(
+        self, brief: InvestigationBrief, analysis: Analysis, toolbox: Toolbox, budget: TokenBudget
+    ) -> VerificationDraft: ...
+
+
+VERIFICATION_PROMPT: str  # neutro; regras de veredito e de plano concreto
+STAGE_VERIFICATION = "verification"
+
+# grolla.application.analysis
+#   AnalysisQueue.finish(...) passa a pedir a validação na mesma transação quando a análise
+#   tem hipóteses; ganha claim_verification, stuck_verifications, finish_verification.
+#   run_next_verification(...) e reap_stuck_verifications(...), como os da análise inicial.
+#   AnalysisPolicy ganha verification_timeout e verification_max_tokens.
+#   IncidentRepository.verification_of(incident_id) -> Verification | None
+```
+
+- **Schema, migração `0004`:** tabela `verifications`, com a mesma forma da `analyses`:
+  - `incident_id pk`;
+  - estado e horários: `status`, `requested_at`, `started_at`, `finished_at`;
+  - resultado: `verdicts jsonb`, `root_cause`, `actions jsonb`, `missing`, `evaluations jsonb`, `partial_reason`.
+- **Worker:** jobs `run_verifications` e `reap_stuck_verifications` na fila `analysis`.
+
 ## Decisions
+
+0. **A validação é uma segunda passada do LLM com estado próprio, e não um laço único mais longo.**
+   - *Mais simples considerada:* pedir as duas coisas na mesma análise. Descartada porque o humano precisa da primeira resposta rápido, em segundos ou poucos minutos. A validação aprofunda depois, com outro orçamento, e um timeout na validação não pode apagar a análise inicial.
+   - Tabela própria em vez de colunas em `analyses`, para a fila de cada fase ficar simples e independente.
+0.1 **Plano concreto imposto pelo schema e pela validação.**
+   - Cada ação tem `action`, `target` e `expected`.
+   - Uma ação cujo verbo é de investigação (investigar, verificar, checar, analisar, consultar, confirmar, avaliar) é recusada como resultado inválido, o que força uma segunda tentativa dentro do orçamento. Sem causa confirmada, `actions` precisa vir vazio.
+   - *Mais simples considerada:* só instruir no prompt. Descartada porque o laboratório mostrou o modelo devolvendo "verificar a saúde do banco" como plano.
+   - Como no S3, o link de uma ação só fica se veio de uma avaliação real.
 
 1. **Recursos pela tag `service=<nome>`**, pela Resource Groups Tagging API, mais o mapa opcional. É o mesmo princípio do repositório pelo nome do serviço. *Mais simples considerada:* só o mapa no YAML. Descartada porque exige manter uma lista grande; a tag já é prática comum de FinOps.
 2. **Estado por tipo de recurso**, com uma chamada de describe por tipo encontrado: `rds:DescribeDBInstances`, `ec2:DescribeInstances` e `elbv2:DescribeLoadBalancers`. Outros tipos aparecem só com o ARN. *Mais simples considerada e escolhida:* só os três tipos mais comuns nos incidentes da Credenciadora.
@@ -90,6 +183,17 @@ class AwsCloudInventory:
 - [CloudTrail tem atraso de alguns minutos] → o resumo avisa que "eventos de auditoria podem levar até 5 min para aparecer". A análise pode rodar antes do evento chegar.
 - [Tag ausente nos recursos reais] → o mapa opcional cobre os casos sem tag. A ferramenta responde "nenhum recurso encontrado" sem erro.
 - [Mais tokens por análise] → os resumos são compactos, e o teto por análise continua o mesmo.
+
+## Divisão de trabalho
+
+| Papel | Entrega |
+|---|---|
+| agente pai | Commit de contrato, `bootstrap` (cloud e limites da validação), `boto3`, `deploy/` e laboratório (IAM e tags) |
+| `grolla-dominio` | Vereditos, `verified`/`verification_partial`, validação do plano concreto, os dois casos de uso, o prompt da validação, as ferramentas de nuvem no `Toolbox`, `NoCloudInventory`, fakes e suítes de contrato |
+| `grolla-persistencia` | Migração 0004, fila da validação, pedido da validação no `finish` da análise e `verification_of` |
+| `grolla-integracoes` | `adapters/aws`, as correções de logs, séries e deploys, `verify` no adapter da Anthropic, card da causa raiz, jobs do worker e modo de validação no LLM fake |
+| `grolla-web` | Seção da validação na página e no console |
+| `grolla-e2e` | Cenários: validação confirma e gera o card da causa raiz; validação parcial; inicial sem hipóteses não pede validação |
 
 ## Migration Plan
 
