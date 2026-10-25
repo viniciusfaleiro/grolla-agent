@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
+from grolla.adapters.aws import AwsCloudInventory
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
@@ -24,8 +25,11 @@ from grolla.application.incidents import (
 )
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
+    STAGE_VERIFICATION,
     ChangeHistory,
+    CloudInventory,
     LanguageModel,
+    NoCloudInventory,
     Telemetry,
 )
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
@@ -60,6 +64,7 @@ class WorkerContainer:
     model: LanguageModel
     telemetry: Telemetry
     changes: ChangeHistory
+    cloud: CloudInventory
     analysis: AnalysisPolicy
 
 
@@ -88,6 +93,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         raise ConfigError(
             f"{settings.config_file}: o worker precisa das seções llm, signoz e azure_devops"
         )
+    verification = config.llm.stages.get(STAGE_VERIFICATION)
     stage = config.llm.stages.get(STAGE_INVESTIGATION)
     if stage is None:
         raise ConfigError(f"{settings.config_file}: falta llm.stages.{STAGE_INVESTIGATION}")
@@ -107,6 +113,13 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             settings.anthropic_api_key.get_secret_value(),
             ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort),
             base_url=settings.anthropic_base_url,
+            verification=None
+            if verification is None
+            else ModelSettings(
+                model=verification.model,
+                max_tokens=verification.max_tokens,
+                effort=verification.effort,
+            ),
         ),
         telemetry=SignozTelemetry(config.signoz.mcp_url, config.signoz.base_url),
         changes=AzureDevOpsChangeHistory(
@@ -118,6 +131,9 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
                 for service, ref in changes.service_repo_map.items()
             },
         ),
+        cloud=NoCloudInventory()
+        if config.cloud is None
+        else AwsCloudInventory(config.cloud.regions, config.cloud.resource_map),
         analysis=config.analysis_policy(),
     )
 

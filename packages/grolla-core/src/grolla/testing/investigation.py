@@ -16,7 +16,7 @@ from grolla.application.investigation import (
     ToolResult,
     ToolUnavailableError,
 )
-from grolla.domain.analysis import AnalysisDraft
+from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.testing.builders import make_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -120,6 +120,15 @@ class ScriptedLanguageModel:
         self.usage = usage or fake_usage()
         self.briefs: list[InvestigationBrief] = []
         self.tool_answers: list[str] = []
+
+    async def verify(
+        self,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> VerificationDraft:
+        raise NotImplementedError
 
     async def investigate(
         self, brief: InvestigationBrief, toolbox: Toolbox, budget: TokenBudget

@@ -2,12 +2,12 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `boto3` no `grolla-core`; `uv lock`.
-- [ ] 0.2 Modelos da validação e das ações em `grolla.domain.analysis`; eventos, `ROOT_CAUSE` e `Notification.verification` em `grolla.domain.incidents`.
-- [ ] 0.3 Ports e assinaturas na application: `CloudInventory` e `NoCloudInventory`; `Toolbox` com `cloud`; `LanguageModel.verify`; os métodos da validação na `AnalysisQueue` e o `verification_of`; `run_next_verification` e `reap_stuck_verifications`. Corpos com `NotImplementedError`.
-- [ ] 0.4 Stubs `AwsCloudInventory`, `verify` no adapter da Anthropic e a fila da validação no Postgres; migração `0004`.
-- [ ] 0.5 `TeamConfig.cloud`, os limites da validação, a etapa `verification` e o `prepare_worker`.
-- [ ] 0.6 `make check` verde com os stubs; commit de contrato.
+- [x] 0.1 `boto3` no `grolla-core`; `uv lock`.
+- [x] 0.2 Modelos da validação e das ações em `grolla.domain.analysis`; eventos, `ROOT_CAUSE` e `Notification.verification` em `grolla.domain.incidents`.
+- [x] 0.3 Ports e assinaturas na application: `CloudInventory` e `NoCloudInventory`; `Toolbox` com `cloud`; `LanguageModel.verify`; os métodos da validação na `AnalysisQueue` e o `verification_of`; `run_next_verification` e `reap_stuck_verifications`. Corpos com `NotImplementedError`.
+- [x] 0.4 Stubs `AwsCloudInventory`, `verify` no adapter da Anthropic e a fila da validação no Postgres; migração `0004`.
+- [x] 0.5 `TeamConfig.cloud`, os limites da validação, a etapa `verification` e o `prepare_worker`.
+- [x] 0.6 `make check` verde com os stubs; commit de contrato.
 
 ## 1. grolla-dominio
 

@@ -31,7 +31,7 @@ from grolla.application.investigation import (
     Toolbox,
     brief_text,
 )
-from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis
+from grolla.domain.analysis import Analysis, AnalysisDraft, Evidence, Hypothesis, VerificationDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -116,11 +116,22 @@ class ClaudeLanguageModel:
         settings: ModelSettings,
         base_url: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
+        verification: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
+        self._verification = verification or settings  # etapa `verification` herda a da análise
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
+
+    async def verify(
+        self,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> VerificationDraft:
+        raise NotImplementedError
 
     async def investigate(
         self, brief: InvestigationBrief, toolbox: Toolbox, budget: TokenBudget

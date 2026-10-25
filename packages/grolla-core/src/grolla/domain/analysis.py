@@ -124,3 +124,81 @@ def partial(
         plan=(),
         partial_reason=reason,
     )
+
+
+# ---- Validação: segunda fase, que confirma ou rejeita cada hipótese até a causa raiz ----
+
+
+class Verdict(StrEnum):
+    CONFIRMED = "confirmada"
+    REJECTED = "rejeitada"
+    INCONCLUSIVE = "inconclusiva"
+
+
+@dataclass(frozen=True)
+class HypothesisVerdict:
+    hypothesis: str  # título da hipótese da análise inicial
+    verdict: Verdict
+    reasoning: str
+    evidence: tuple[Evidence, ...]
+
+
+@dataclass(frozen=True)
+class Action:
+    """Ação concreta para o humano validar e executar; o agente não executa nada."""
+
+    action: str  # imperativo: "Fazer rollback do pedidos-api para o build 20261025.1"
+    target: str  # componente ou recurso: "pedidos-api", "RDS grolla-lab-db"
+    expected: str  # efeito esperado
+    link: str | None  # só se veio de uma avaliação
+
+
+@dataclass(frozen=True)
+class VerificationDraft:
+    """O que o modelo devolve na validação, já validado."""
+
+    verdicts: tuple[HypothesisVerdict, ...]
+    root_cause: str | None  # None: causa não confirmada
+    actions: tuple[Action, ...]  # vazio quando root_cause é None
+    missing: str  # o que faltou para confirmar ("" quando confirmada)
+
+
+@dataclass(frozen=True)
+class Verification:
+    incident_id: UUID
+    status: AnalysisStatus  # mesmos estados da análise
+    requested_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    verdicts: tuple[HypothesisVerdict, ...]
+    root_cause: str | None
+    actions: tuple[Action, ...]
+    missing: str
+    evaluations: tuple[Evaluation, ...]
+    partial_reason: PartialReason | None
+
+
+class NotConcreteError(ValueError):
+    """O plano traz passo de investigação, ou ações sem causa confirmada."""
+
+
+def check_plan(draft: VerificationDraft) -> None:
+    """Plano só com ações concretas e só quando há causa confirmada; levanta NotConcreteError."""
+    raise NotImplementedError
+
+
+def verified(
+    pending: Verification,
+    draft: VerificationDraft,
+    evaluations: Sequence[Evaluation],
+    now: datetime,
+) -> Verification:
+    """Validação concluída; links de evidência e de ação só se vieram de uma avaliação."""
+    raise NotImplementedError
+
+
+def verification_partial(
+    pending: Verification, reason: PartialReason, evaluations: Sequence[Evaluation], now: datetime
+) -> Verification:
+    """Validação encerrada sem rascunho válido: mantém o que foi avaliado e o motivo."""
+    raise NotImplementedError

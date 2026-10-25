@@ -19,7 +19,7 @@ from grolla.adapters.postgres.incidents import (
 )
 from grolla.application.analysis import AnalysisJob
 from grolla.application.investigation import LlmUsage
-from grolla.domain.analysis import Analysis, AnalysisStatus
+from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
 from grolla.domain.incidents import IncidentEvent, Notification
 
 
@@ -126,3 +126,19 @@ class PostgresAnalysisQueue:
                         for usage in usages
                     ],
                 )
+
+    async def claim_verification(self, now: datetime) -> AnalysisJob | None:
+        raise NotImplementedError
+
+    async def stuck_verifications(self, started_before: datetime) -> list[AnalysisJob]:
+        raise NotImplementedError
+
+    async def finish_verification(
+        self,
+        verification: Verification,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        raise NotImplementedError

@@ -12,6 +12,7 @@ from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import (
     BudgetExceededError,
     ChangeHistory,
+    CloudInventory,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModel,
@@ -25,6 +26,7 @@ from grolla.domain.analysis import (
     Analysis,
     AnalysisStatus,
     PartialReason,
+    Verification,
     complete,
     partial,
 )
@@ -65,8 +67,28 @@ class AnalysisQueue(Protocol):
 
         Só grava se o pedido ainda está em andamento. Se já foi encerrado (por exemplo, pelo
         `reap_stuck_analyses` enquanto o worker estava fora), não grava nada: a análise chega
-        uma vez só.
+        uma vez só. Quando a análise tem hipóteses, pede a validação na mesma transação
+        (pendente desde `at`, com o evento `verification_requested` entre os `events`).
         """
+        ...
+
+    async def claim_verification(self, now: datetime) -> AnalysisJob | None:
+        """Pega a validação pendente mais antiga e a marca em andamento; None se não há."""
+        ...
+
+    async def stuck_verifications(self, started_before: datetime) -> list[AnalysisJob]:
+        """Validações em andamento desde antes de `started_before`."""
+        ...
+
+    async def finish_verification(
+        self,
+        verification: Verification,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        """Como `finish`, para a validação: grava tudo numa transação, só se em andamento."""
         ...
 
 
@@ -77,6 +99,8 @@ class AnalysisPolicy:
     lookback: timedelta  # janela das ferramentas
     page_url: Callable[[UUID], str]
     telemetry_url: str | None  # botão "ver na origem" do card de análise
+    verification_timeout: timedelta = timedelta(minutes=5)
+    verification_max_tokens: int = 150_000
 
 
 REAP_GRACE = timedelta(minutes=2)  # folga além do timeout antes de dar a análise por perdida
@@ -92,6 +116,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     changes: ChangeHistory,
     clock: Clock,
     policy: AnalysisPolicy,
+    cloud: CloudInventory | None = None,
 ) -> bool:
     """Executa o próximo pedido de análise; False se não havia pedido.
 
@@ -104,7 +129,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     brief = InvestigationBrief(
         incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
     )
-    toolbox = Toolbox(telemetry, changes, clock, policy.lookback)
+    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
     budget = TokenBudget(policy.max_tokens)
     deadline = asyncio.timeout(policy.timeout.total_seconds())
     pending = _running(job)
@@ -210,3 +235,25 @@ def _main_evidence(analysis: Analysis) -> str:
     if analysis.hypotheses:
         return analysis.hypotheses[0].title
     return NO_HYPOTHESIS
+
+
+async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os ports da investigação
+    *,
+    queue: AnalysisQueue,
+    repository: IncidentRepository,
+    model: LanguageModel,
+    telemetry: Telemetry,
+    changes: ChangeHistory,
+    clock: Clock,
+    policy: AnalysisPolicy,
+    cloud: CloudInventory | None = None,
+) -> bool:
+    """Executa a próxima validação pedida; False se não havia. Toda falha vira parcial."""
+    raise NotImplementedError
+
+
+async def reap_stuck_verifications(
+    queue: AnalysisQueue, repository: IncidentRepository, clock: Clock, policy: AnalysisPolicy
+) -> int:
+    """Encerra como parciais (interrompidas) as validações presas; devolve quantas."""
+    raise NotImplementedError

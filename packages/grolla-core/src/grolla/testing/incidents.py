@@ -16,7 +16,7 @@ from grolla.application.incidents import (
     OutboxItem,
 )
 from grolla.application.investigation import LlmUsage
-from grolla.domain.analysis import Analysis, AnalysisStatus
+from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -90,6 +90,9 @@ class InMemoryIncidentRepository:
 
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         return [alert for owner, alert in self.links if owner == incident_id]
+
+    async def verification_of(self, incident_id: UUID) -> Verification | None:
+        raise NotImplementedError
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         return self.analyses.get(incident_id)
@@ -203,6 +206,22 @@ class InMemoryAnalysisQueue:
             await uow.append(events)
             await uow.enqueue(notification, at)
             self._repository.usages.extend((analysis.incident_id, u, at) for u in usages)
+
+    async def claim_verification(self, now: datetime) -> AnalysisJob | None:
+        raise NotImplementedError
+
+    async def stuck_verifications(self, started_before: datetime) -> list[AnalysisJob]:
+        raise NotImplementedError
+
+    async def finish_verification(
+        self,
+        verification: Verification,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        raise NotImplementedError
 
 
 class InMemoryNotificationOutbox:

@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from grolla.application.clock import Clock
-from grolla.domain.analysis import AnalysisDraft, Evaluation
+from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.incidents import Alert, Incident
 
 STAGE_INVESTIGATION = "investigation"
+STAGE_VERIFICATION = "verification"
+NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
 
@@ -63,6 +65,35 @@ class ChangeHistory(Protocol):
         Serviço sem repositório conhecido não é erro: o resumo diz NO_REPOSITORY.
         """
         ...
+
+
+class CloudInventory(Protocol):
+    """Recursos de nuvem do serviço, mudanças recentes neles e alarmes, só leitura."""
+
+    async def resources(self, service: str) -> ToolResult:
+        """Recursos do serviço (tag `service=<nome>` ou mapa) e o estado de cada um."""
+        ...
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        """Eventos de auditoria que mudaram os recursos do serviço desde `since`."""
+        ...
+
+    async def alarms(self, service: str) -> ToolResult:
+        """Alarmes da nuvem em estado de alarme ligados aos recursos do serviço."""
+        ...
+
+
+class NoCloudInventory:
+    """Instância sem a seção `cloud`: as ferramentas de nuvem respondem NO_CLOUD, sem erro."""
+
+    async def resources(self, service: str) -> ToolResult:  # noqa: ARG002 — mesmo port
+        return ToolResult(NO_CLOUD, None)
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+    async def alarms(self, service: str) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
 
 
 @dataclass(frozen=True)
@@ -137,10 +168,16 @@ class Toolbox:
     """Liga as ferramentas neutras aos ports e registra cada chamada como avaliação."""
 
     def __init__(
-        self, telemetry: Telemetry, changes: ChangeHistory, clock: Clock, lookback: timedelta
+        self,
+        telemetry: Telemetry,
+        changes: ChangeHistory,
+        clock: Clock,
+        lookback: timedelta,
+        cloud: CloudInventory | None = None,
     ) -> None:
         self._telemetry = telemetry
         self._changes = changes
+        self._cloud = cloud or NoCloudInventory()
         self._clock = clock
         self._lookback = lookback
         self._evaluations: list[Evaluation] = []
@@ -277,6 +314,18 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def verify(
+        self,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> VerificationDraft:
+        """Valida cada hipótese da análise inicial até a causa raiz, com as mesmas ferramentas;
+        levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
 
 SYSTEM_PROMPT = """\
 Você é o agente de SRE de plantão de um ambiente de adquirência e cartões. Um alerta acabou de \
@@ -314,6 +363,14 @@ atrapalha mais do que ajuda.
 
 Escreva em português, de forma direta, para engenheiros de plantão.
 """
+
+
+VERIFICATION_PROMPT = ""  # roteiro da validação, em português (grolla-dominio escreve)
+
+
+def verification_text(brief: InvestigationBrief, analysis: Analysis) -> str:
+    """Mensagem da validação: o incidente, a análise inicial (hipóteses e avaliações) e a janela."""
+    raise NotImplementedError
 
 
 def brief_text(brief: InvestigationBrief) -> str:

@@ -7,6 +7,7 @@ import pytest
 from grolla.adapters.postgres import PostgresDatabase
 from grolla.application.clock import Clock
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
+from grolla.application.investigation import NoCloudInventory
 from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
@@ -59,6 +60,7 @@ async def container() -> AsyncIterator[WorkerContainer]:
         model=ScriptedLanguageModel(),
         telemetry=FakeTelemetry(),
         changes=FakeChangeHistory(),
+        cloud=NoCloudInventory(),
         analysis=config.analysis_policy(),
     )
     await database.dispose()

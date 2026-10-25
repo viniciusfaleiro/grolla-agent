@@ -19,6 +19,7 @@ from grolla.domain.analysis import (
     Evidence,
     Hypothesis,
     PartialReason,
+    Verification,
 )
 from grolla.domain.incidents import (
     Alert,
@@ -392,6 +393,9 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             return [_alert(row) for row in result]
+
+    async def verification_of(self, incident_id: UUID) -> Verification | None:
+        raise NotImplementedError
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         async with self._engine.connect() as connection:
