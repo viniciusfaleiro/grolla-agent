@@ -15,15 +15,15 @@
 
 ## ✨ O que é
 
-Tudo o que uma instância precisa para rodar fora do ambiente de desenvolvimento: Postgres, api e
-worker num compose só, construídos a partir deste repositório na própria máquina. Uma instância
+Tudo o que uma instância precisa para rodar fora do ambiente de desenvolvimento: Postgres, api,
+worker e o servidor MCP do SigNoz num compose só, construídos a partir deste repositório na própria máquina. Uma instância
 atende um time; a primeira é a da **Credenciadora**. ECR e CI entram quando o deploy deixar de
 ser manual.
 
 | Arquivo | Papel |
 |---|---|
-| [`compose.yml`](compose.yml) | `db`, `api` e `worker` com `restart: unless-stopped` e volume do banco |
-| [`credenciadora.yaml`](credenciadora.yaml) | Configuração do time: filtro, labels de serviço, janela e regras de severidade |
+| [`compose.yml`](compose.yml) | `db`, `api`, `worker` e `signoz-mcp` com `restart: unless-stopped` e volume do banco |
+| [`credenciadora.yaml`](credenciadora.yaml) | Configuração do time: filtro, labels de serviço, janela, regras de severidade e a investigação (modelo, limites, SigNoz, Azure DevOps) |
 | [`.env.example`](.env.example) | Modelo do `.env` com os segredos (o `.env` nunca vai para o git) |
 
 ## 📋 Pré-requisitos
@@ -32,6 +32,34 @@ ser manual.
 - Saída HTTPS da EC2 para o Teams (Workflow do canal) e entrada do SigNoz na porta da api.
 - A URL do Workflow do Teams do canal do time ("Post to a channel when a webhook request is
   received").
+- Para a investigação (S3):
+  - **chave da API da Anthropic**;
+  - **API key do SigNoz de papel Viewer**, sem permissão de escrita;
+  - **PAT do Azure DevOps somente leitura**, com escopos `Build (Read)` e `Code (Read)`.
+- Saída da EC2 para `api.anthropic.com`, para a instância do SigNoz e para `dev.azure.com`.
+
+## 🔎 Investigação
+
+Cada incidente novo recebe dois cards: "Estou investigando", na hora, e "Análise pronta" (ou
+"Análise parcial") em até `investigation.timeout_seconds`. A análise usa:
+
+| Fonte | Como | Configuração |
+|---|---|---|
+| **LLM** | API da Anthropic, modelo da etapa `investigation` | `llm.stages.investigation` · `GROLLA_ANTHROPIC_API_KEY` |
+| **SigNoz** | Container `signoz-mcp` (servidor MCP oficial), só na rede interna. O agente chama apenas ferramentas de leitura de uma lista fechada | `signoz.mcp_url` e `signoz.base_url` · `GROLLA_SIGNOZ_URL` e `GROLLA_SIGNOZ_API_KEY` |
+| **Azure DevOps** | API REST de builds, para os deploys recentes | `azure_devops.base_url` e `projects` · `GROLLA_AZURE_DEVOPS_TOKEN` |
+
+Não é preciso mapear todos os serviços. Sem entrada em `service_repo_map`, o agente procura um
+repositório com o nome do serviço nos `projects`. Só as exceções vão no mapa. Se não achar, a
+análise registra "serviço sem repositório mapeado" e segue.
+
+Se o LLM, o SigNoz ou o Azure DevOps falharem, o time recebe a **análise parcial** com o que deu
+para avaliar. O custo fica em `llm_usage`:
+
+```bash
+docker compose exec db psql -U grolla -c \
+  "SELECT date(at), model, sum(input_tokens), sum(output_tokens) FROM llm_usage GROUP BY 1, 2 ORDER BY 1 DESC"
+```
 
 ## 🚀 Primeiro deploy
 
@@ -101,7 +129,7 @@ aws s3 cp s3://<bucket>/grolla/credenciadora/<data>.dump - \
 - `GET /health`: a api está de pé e alcança o banco.
 - `GET /health/worker`: 503 se o worker não grava um heartbeat há mais de 2 minutos. Aponte uma
   checagem de URL do SigNoz para cá: um worker parado significa cards represados na outbox.
-- Logs: `docker compose logs -f api worker`.
+- Logs: `docker compose logs -f api worker signoz-mcp`.
 
 ## ⏪ Desligar
 

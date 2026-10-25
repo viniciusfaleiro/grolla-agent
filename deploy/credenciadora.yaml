@@ -22,3 +22,26 @@ severity_rules:
     severity: P1
   - match: { severity: warning }
     severity: P2
+
+# ---- Investigação (S3) ----
+# Limites da análise inicial de cada incidente novo. Passou do tempo ou dos tokens, o card de
+# análise sai como parcial.
+investigation:
+  timeout_seconds: 300
+  max_tokens: 300000
+  lookback_minutes: 60
+  max_parallel: 3
+
+# Modelo por etapa; trocar é mudar aqui e reiniciar o worker.
+llm:
+  stages:
+    investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
+
+signoz:
+  mcp_url: http://signoz-mcp:8000/mcp       # container do deploy/compose.yml
+  base_url: https://signoz.interno          # ajuste: links "Ver no SigNoz" nos cards
+
+azure_devops:
+  base_url: https://dev.azure.com/troque-organizacao
+  projects: [troque-projeto]                # onde procurar um repositório com o nome do serviço
+  service_repo_map: {}                      # só as exceções: servico: { project: X, repo: Y }
