@@ -19,7 +19,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-S1%20funda%C3%A7%C3%A3o-yellow)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-S1%20funda%C3%A7%C3%A3o%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -213,12 +213,16 @@ Toda change fecha revisando os READMEs, com `make e2e` e `make check` verdes.
 
 ## 🗺 Roadmap
 
-Construído em **slices verticais**, cada um uma change do openspec:
+Construído em **slices de valor**: cada um fecha uma funcionalidade de ponta a ponta e vai para
+produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 
-- **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes 🚧
-- **Próximos slices** · em definição a partir da [spec de produto](docs/initial-spec.md):
-  alertas e incidentes, severidade e acionamento, notificações, investigação com LLM, war room,
-  console e post mortem.
+- **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes ✅
+- **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams e página do incidente
+- **S3 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
+- **S4 — Investigação pronta** · hipóteses ranqueadas com evidência do SigNoz e do Azure DevOps
+- **S5 — Agente acompanha a crise** · updates, impacto financeiro, chat e proposta de encerramento
+- **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
+- **S7–S10** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS
 
 ## 📄 Licença
 
