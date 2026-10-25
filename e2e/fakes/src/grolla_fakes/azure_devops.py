@@ -1,8 +1,9 @@
 """API REST fake do Azure DevOps em `/azure-devops/{org}/{project}/_apis/...`.
 
 Sem roteiro, todo repositório existe (em qualquer projeto) e tem 1 deploy bem-sucedido há
-20 min, coerente com a história padrão do MCP fake do SigNoz. O roteiro
-(`POST /_control/azure-devops`) limita os repositórios, fixa os builds ou faz a API falhar.
+20 min, com a mensagem do commit em `triggerInfo`, coerente com a história padrão do MCP fake
+do SigNoz. O roteiro (`POST /_control/azure-devops`) limita os repositórios, fixa os builds ou
+faz a API falhar.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -93,6 +94,7 @@ def _deploy(org: str, project: str, repo: str, started: datetime) -> dict[str, A
         "definition": {"id": 1, "name": f"{repo}-deploy"},
         "sourceBranch": "refs/heads/main",
         "sourceVersion": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        "triggerInfo": {"ci.message": "Aumenta o pool de conexões"},
         "requestedFor": {"displayName": "Fulana de Tal"},
         "repository": {"id": repo, "type": "TfsGit", "name": repo},
         "_links": {

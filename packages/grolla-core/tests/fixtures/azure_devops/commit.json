@@ -1,0 +1,18 @@
+{
+  "treeId": "9f846aff81b354e5ee78f2cd1891b2f0628f5be5",
+  "commitId": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+  "author": {
+    "name": "Beltrano Souza",
+    "email": "beltrano@credenciadora.com.br",
+    "date": "2026-10-25T21:19:31Z"
+  },
+  "committer": {
+    "name": "Beltrano Souza",
+    "email": "beltrano@credenciadora.com.br",
+    "date": "2026-10-25T21:19:31Z"
+  },
+  "comment": "Merge PR 931: Corrige o arredondamento da captura\n\nDetalhes no PR.",
+  "parents": [],
+  "url": "",
+  "remoteUrl": ""
+}

@@ -81,6 +81,20 @@ class TestScriptedLanguageModelContract(LanguageModelContract):
     def invalid_model(self) -> LanguageModel:
         return ScriptedLanguageModel(calls=TOOLS, error=InvalidAnalysisError("fora do schema"))
 
+    @pytest.fixture
+    def verifying_model(self) -> LanguageModel:
+        return ScriptedLanguageModel(verification_calls=TOOLS)
+
+    @pytest.fixture
+    def failing_verifier(self) -> LanguageModel:
+        return ScriptedLanguageModel(verification_error=LanguageModelError("API fora do ar"))
+
+    @pytest.fixture
+    def invalid_verifier(self) -> LanguageModel:
+        return ScriptedLanguageModel(
+            verification_calls=TOOLS, verification_error=InvalidAnalysisError("fora do schema")
+        )
+
 
 class TestInMemoryAnalysisQueueContract(AnalysisQueueContract):
     @pytest.fixture

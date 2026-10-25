@@ -15,9 +15,10 @@ from grolla.domain.analysis import (
     Evidence,
     Hypothesis,
     PartialReason,
+    Verification,
 )
 from grolla.domain.incidents import Notification, NotificationKind, Severity
-from grolla.testing.builders import T0
+from grolla.testing.builders import T0, make_verification, make_verification_draft
 
 URL = "https://chat.interno/workflows/abc?sig=segredo"
 
@@ -300,9 +301,103 @@ def test_partial_analysis_without_evaluations_says_nothing_was_checked() -> None
     assert lines[lines.index("O que avaliei") + 1] == "- nenhuma consulta concluída"
 
 
+def test_analysis_with_hypotheses_says_the_verification_is_on_the_way() -> None:
+    assert texts(analysis_card(analysis()))[-1] == (
+        "Estou validando as hipóteses; a causa raiz vem em seguida."
+    )
+    partial = texts(analysis_card(analysis(PartialReason.LLM_FAILED)))
+    assert "Estou validando as hipóteses; a causa raiz vem em seguida." not in partial
+
+
+def root_cause_card(item: Verification) -> dict[str, Any]:
+    return adaptive_card(
+        replace(
+            notification(NotificationKind.ROOT_CAUSE, "https://signoz"),
+            severity=Severity.P1,
+            verification=item,
+        )
+    )
+
+
+def sections(card: dict[str, Any]) -> dict[str, str]:
+    lines = texts(card)
+    return {title: lines[i + 1] for i, title in enumerate(lines[:-1])}
+
+
+def test_confirmed_root_cause_card_has_cause_verdicts_and_concrete_plan() -> None:
+    card = root_cause_card(make_verification(UUID(int=1)))
+
+    lines = texts(card)
+    assert lines[0] == "Causa raiz · P1"
+    assert "Serviços: capture-api, authorizer-api" in lines
+    section = sections(card)
+    assert section["Causa raiz"] == "Deploy 2.4.1 introduziu erro em POST /capturas às 10:02"
+    assert section["Hipóteses"] == (
+        "- Hipótese 1: confirmada — Erros após o deploy\n"
+        "- Hipótese 2: rejeitada — Dependência saudável"
+    )
+    assert section["Plano de ação"] == (
+        "- Fazer rollback do capture-api para o build 2.4.0 (capture-api) → "
+        "Taxa de erro volta para 0,2% ([abrir](https://origem.interno/1))\n"
+        "- Escalar o time de capturas (time de capturas) → Correção do bug"
+    )
+    assert "O que faltou" not in lines
+    assert [(a["title"], a["url"]) for a in card["actions"]] == [
+        ("Abrir incidente", "https://grolla/incidents/1")
+    ]
+
+
+def test_unconfirmed_root_cause_card_says_what_was_missing_without_a_plan() -> None:
+    draft = make_verification_draft(confirmed=False)
+    item = replace(
+        make_verification(UUID(int=1)),
+        verdicts=draft.verdicts,
+        root_cause=None,
+        actions=(),
+        missing=draft.missing,
+    )
+
+    card = root_cause_card(item)
+
+    lines = texts(card)
+    assert lines[0] == "Causa raiz não confirmada · P1"
+    assert "Plano de ação" not in lines
+    assert "Causa raiz" not in lines
+    assert sections(card)["O que faltou"] == "Faltou o histórico de mudanças da dependência"
+    assert sections(card)["Hipóteses"].startswith("- Hipótese 1: inconclusiva — Sem dado")
+
+
+def test_partial_verification_card_says_why_right_below_the_headline() -> None:
+    item = make_verification(
+        UUID(int=1), status=AnalysisStatus.PARTIAL, partial_reason=PartialReason.BUDGET
+    )
+
+    lines = texts(root_cause_card(item))
+
+    assert lines[:2] == ["Validação parcial · P1", "Motivo: orçamento de tokens esgotado"]
+    assert "Serviços: capture-api, authorizer-api" in lines
+    assert "O que faltou" not in lines
+    assert "Plano de ação" not in lines
+
+
+def test_long_verification_is_summarized_in_the_card() -> None:
+    item = make_verification(UUID(int=1))
+    verdict = replace(item.verdicts[0], reasoning="motivo\nlongo " + "x" * 500)
+    action = replace(item.actions[0], action="Religar " + "y" * 500)
+    long = replace(item, verdicts=(verdict,) * 6, actions=(action,) * 9)
+
+    card = root_cause_card(long)
+
+    section = sections(card)
+    assert section["Hipóteses"].split("\n")[-1] == "- … mais 3 na página do incidente"
+    assert section["Plano de ação"].split("\n")[-1] == "- … mais 4 na página do incidente"
+    assert len(json.dumps(card)) < 8_000
+
+
 def test_card_uses_only_elements_the_test_console_renders() -> None:
     allowed = {"TextBlock", "FactSet", "Container", "ColumnSet"}
-    for card in (adaptive_card(notification()), analysis_card(analysis())):
+    verification = root_cause_card(make_verification(UUID(int=1)))
+    for card in (adaptive_card(notification()), analysis_card(analysis()), verification):
         types = {e["type"] for e in card["body"]}
         types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
         assert types <= allowed

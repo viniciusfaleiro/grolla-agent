@@ -28,6 +28,8 @@ do procrastinate.
 | **Heartbeat** | Grava o horário do `Clock` na tabela `heartbeats` a cada 15 s — prova de vida do worker | periódico `heartbeat` (`* * * * * */15`) |
 | **Análise de incidentes** | Reivindica os pedidos de análise e investiga cada um com o modelo de linguagem até a fila esvaziar. Cada pedido termina como análise concluída ou parcial, com o card no canal. Roda até `investigation.max_parallel` rodadas ao mesmo tempo, cada uma pegando pedidos diferentes | periódico `run_analyses` (`* * * * * */5`, fila `analysis`, `queueing_lock`) |
 | **Análises presas** | Encerra como parcial ("interrompida") a análise que ficou em andamento além de `timeout + 2 min`, quando o worker caiu no meio dela | periódico `reap_stuck_analyses` (todo minuto, fila `analysis`, `lock`) |
+| **Validação até a causa raiz** | Reivindica as validações pedidas pela análise inicial com hipóteses e valida cada hipótese com o modelo de linguagem (as mesmas ferramentas, mais as de nuvem), até a fila esvaziar. Cada validação termina concluída (causa raiz e plano de ação, ou "não confirmada" e o que faltou) ou parcial, com o card "Causa raiz" no canal | periódico `run_verifications` (`* * * * * */5`, fila `analysis`, `queueing_lock`) |
+| **Validações presas** | Encerra como parcial ("interrompida") a validação em andamento além de `verification_timeout + 2 min` | periódico `reap_stuck_verifications` (todo minuto, fila `analysis`, `lock`) |
 | **Entrega de cards** | Entrega a outbox de notificações no canal do time (Adaptive Card via Workflow do Teams), em ordem por incidente, com retentativa e espera crescente; registra no incidente a entrega ou a desistência | periódico `deliver_notifications` (`* * * * * */5`, uma rodada por vez com `queueing_lock` e `lock`) |
 
 ## 🏗 Arquitetura
@@ -37,9 +39,11 @@ O processo roda **dois laços do procrastinate**:
 | Fila | Concorrência | Jobs |
 |---|---|---|
 | `default` | 1 | `heartbeat`, `deliver_notifications` |
-| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses` |
+| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications` |
 
-Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. O `main.py`
+Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises e
+validações recebem os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
+seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. O `main.py`
 trata SIGINT/SIGTERM e encerra os dois laços com graça, porque com dois laços os handlers de
 sinal do procrastinate brigariam.
 
@@ -65,10 +69,11 @@ docker build -f packages/grolla-worker/Dockerfile -t grolla-worker:local .
 |---|---|---|
 | `GROLLA_DATABASE_URL` | sim | — |
 | `GROLLA_TEAMS_WEBHOOK_URL` | sim | — (URL do Workflow do Teams que posta no canal; é segredo) |
-| `GROLLA_CONFIG_FILE` | sim | — (YAML do time: `investigation`, `llm`, `signoz`, `azure_devops`) |
+| `GROLLA_CONFIG_FILE` | sim | — (YAML do time: `investigation`, `llm`, `signoz`, `azure_devops` e, opcional, `cloud`) |
 | `GROLLA_ANTHROPIC_API_KEY` | sim | — |
 | `GROLLA_AZURE_DEVOPS_TOKEN` | sim | — (PAT somente leitura) |
 | `GROLLA_ANTHROPIC_BASE_URL` | não | API da Anthropic (o e2e aponta para o `grolla-fakes`) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | não | cadeia padrão do SDK da AWS (ou a role da máquina); só com a seção `cloud`, e de um principal somente leitura |
 | `GROLLA_LOG_LEVEL` | não | `INFO` |
 
 ## 🧪 Testes
@@ -77,8 +82,8 @@ docker build -f packages/grolla-worker/Dockerfile -t grolla-worker:local .
 uv run pytest packages/grolla-worker
 ```
 
-- `tests/unit/` — a lógica do job (`beat`) com `FakeClock`, sem banco; os jobs de entrega e de
-  análise com os fakes dos ports; as filas e os crons de cada job; os dois laços parando no
+- `tests/unit/` — a lógica do job (`beat`) com `FakeClock`, sem banco; os jobs de entrega, de
+  análise e de validação com os fakes dos ports; as filas e os crons de cada job; os dois laços parando no
   SIGINT/SIGTERM; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — um heartbeat enfileirado é processado pelo worker contra Postgres real.
 

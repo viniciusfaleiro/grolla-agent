@@ -30,8 +30,8 @@ Teams, Spike.sh, MCPs).
 |---|---|---|
 | **Roteiro** | Carrega as rotas e respostas do cenário | `POST /_control/scenario` |
 | **Gravação** | Lista as requisições recebidas, em ordem | `GET /_control/requests` |
-| **Reset** | Limpa roteiro, gravações e os roteiros do SigNoz e do Azure DevOps e volta o LLM para `completa` | `POST /_control/reset` |
-| **Modo do LLM** | Troca o comportamento da Messages API fake: `completa` (padrão), `fora_do_ar` ou `lenta`; responde 204 | `POST /_control/llm` `{"mode": "fora_do_ar"}` |
+| **Reset** | Limpa roteiro, gravações e os roteiros do SigNoz e do Azure DevOps e volta as duas fases do LLM para `completa` | `POST /_control/reset` |
+| **Modo do LLM** | Troca o comportamento da Messages API fake por fase: `mode` (análise inicial) e `verification_mode` (validação), cada um `completa` (padrão), `fora_do_ar`, `lenta` ou `inconclusiva` (só na validação). Os dois campos são opcionais e um não mexe no outro; responde 204 | `POST /_control/llm` `{"mode": "fora_do_ar"}` · `{"verification_mode": "inconclusiva"}` |
 | **Roteiro da telemetria** | Fixa respostas ou falhas das ferramentas do MCP do SigNoz | `POST /_control/signoz` |
 | **Roteiro dos deploys** | Limita repositórios, fixa builds ou derruba a API do Azure DevOps | `POST /_control/azure-devops` |
 | **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker (investigando, análise e causa raiz) como um canal do Teams, põe o Teams aceitando (202) ou falhando (500) e escolhe o roteiro do LLM fake para a análise (completa, fora do ar, lenta) e para a validação (completa, fora do ar, lenta, inconclusiva) | `GET /_console` |
@@ -47,15 +47,15 @@ Teams, Spike.sh, MCPs).
 |---|---|---|
 | **Teams** | O worker posta os cards em `POST /teams/webhook`; o cenário declara a rota com 202 e confere os cards com `expect_fake_requests` | S2 |
 | **SigNoz** | Não passa pelo fake: o próprio runner chama `POST /webhooks/alerts` da api com payloads no formato do SigNoz | S2 |
-| **Anthropic** | Messages API em `POST /anthropic/v1/messages` (o worker usa `GROLLA_ANTHROPIC_BASE_URL=http://fakes:9000/anthropic`). Cada chamada fica gravada. No modo `completa`, a primeira resposta pede `query_metric`, `recent_deploys` e `search_logs` (tool_use), com argumentos tirados do `input_schema` recebido e o serviço tirado da linha "Serviços:" do brief. Quando chegam os tool_results, devolve o JSON da análise citando trechos deles. `fora_do_ar` responde 529 overloaded com `retry-after-ms: 10`, para o SDK desistir em milissegundos. `lenta` espera 60 s, além do timeout de 15 s do e2e | S3 |
+| **Anthropic** | Messages API em `POST /anthropic/v1/messages` (o worker usa `GROLLA_ANTHROPIC_BASE_URL=http://fakes:9000/anthropic`). Cada chamada fica gravada. No modo `completa`, a primeira resposta pede `query_metric`, `recent_deploys` e `search_logs` (tool_use), com argumentos tirados do `input_schema` recebido e o serviço tirado da linha "Serviços:" do brief. Quando chegam os tool_results, devolve o JSON da análise citando trechos deles. `fora_do_ar` responde 529 overloaded com `retry-after-ms: 10`, para o SDK desistir em milissegundos. `lenta` espera 60 s, além do timeout de 15 s do e2e, e a resposta tardia da análise não traz hipóteses. A **validação** é reconhecida pelo schema de `output_config.format` com a propriedade `verdicts`: no modo `completa` pede `query_metric` e `recent_deploys` e depois confirma a primeira hipótese da seção "Hipóteses da análise inicial", rejeita as outras, dá a causa raiz citando o serviço da linha "Serviços:" e a ação "Fazer rollback do <serviço> para o deploy anterior"; `inconclusiva` deixa todas inconclusivas, sem causa nem plano e com o que faltou | S3 |
 | **SigNoz (MCP)** | Servidor MCP streamable HTTP (lib `mcp`, sem estado) em `/signoz/mcp`, com as ferramentas de leitura que o adapter usa: `signoz_aggregate_traces`, `signoz_search_logs`, `signoz_search_traces` e `signoz_get_service_top_operations`, respostas no formato do Query Builder v5. Cada chamada é gravada como `POST /signoz/mcp` com `{"tool", "arguments"}`; ferramenta desconhecida (por exemplo de escrita) responde erro | S3 |
 | **Azure DevOps** | `GET /azure-devops/{org}/{project}/_apis/git/repositories/{repo}` e `GET .../_apis/build/builds` (exigem PAT em Basic; sem ele, 401). Cada chamada é gravada com a query em `body` | S3 |
 
 **História padrão do S3.** Sem roteiro, as duas pontas contam a mesma história, para o LLM fake e
 os evals terem o que relacionar: todo repositório existe e tem **1 deploy bem-sucedido há 20 min**
-(`{repo}-deploy`, branch `main`, por Fulana de Tal); a partir de **18 min atrás** a taxa de erro do
+(`{repo}-deploy`, branch `main`, por Fulana de Tal, commit "Aumenta o pool de conexões" em `triggerInfo`); a partir de **18 min atrás** a taxa de erro do
 serviço sobe de 0,4% para 7%, o p99 vai de 180 ms para 2.400 ms, a vazão fica em 20 chamadas/s e
-os logs mostram 31× `connection timeout to {serviço}-db:5432 after 5000ms (pool exhausted)`, com
+os logs mostram 31× ERROR `connection timeout to {serviço}-db:5432 after 5000ms (pool exhausted)` e 22× WARN `connection to server at "10.0.1.23", port 5432 failed: server closed the connection unexpectedly` (o IP alterna entre .23 e .24), com
 12 spans `POST /authorize` com erro de timeout no banco. Tudo é calculado sobre a janela pedida.
 
 **Roteiros** (o `POST /_control/reset` limpa os dois):

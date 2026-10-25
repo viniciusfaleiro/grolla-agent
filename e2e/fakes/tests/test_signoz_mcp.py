@@ -77,7 +77,7 @@ async def test_default_latency_and_throughput() -> None:
     assert {v["value"] for v in rate_values["values"]} == {20.0}
 
 
-async def test_default_logs_show_the_database_timeout() -> None:
+async def test_default_logs_show_the_database_timeout_and_the_dropped_connection() -> None:
     app = create_app()
     found = await call(app, "signoz_search_logs", {"service": "authorizer-api", **window()})
     filtered = await call(
@@ -85,8 +85,11 @@ async def test_default_logs_show_the_database_timeout() -> None:
     )
 
     rows = payload(found)["data"]["data"]["results"][0]["rows"]
-    assert len(rows) == 31
-    assert "connection timeout to authorizer-api-db" in rows[0]["data"]["body"]
+    levels = [row["data"]["severity_text"] for row in rows]
+    assert (levels.count("ERROR"), levels.count("WARN")) == (31, 22)
+    bodies = {row["data"]["body"] for row in rows}
+    assert any("connection timeout to authorizer-api-db" in body for body in bodies)
+    assert any("server closed the connection unexpectedly" in body for body in bodies)
     assert payload(filtered)["data"]["data"]["results"][0]["rows"] == []
 
 
