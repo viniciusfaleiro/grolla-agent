@@ -1,0 +1,128 @@
+"""Ports e casos de uso dos incidentes: receber alertas e entregar as notificações."""
+
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Protocol
+from uuid import UUID
+
+from grolla.application.clock import Clock
+from grolla.domain.incidents import Alert, Incident, IncidentEvent, Notification, SeverityPolicy
+
+
+class InvalidAlertPayloadError(Exception):
+    """O payload recebido não segue o formato de alertas esperado."""
+
+
+class NotificationFailedError(Exception):
+    """O canal de chat recusou ou não respondeu à notificação."""
+
+
+class AlertIngress(Protocol):
+    """Entrada de alertas vindos da plataforma de observabilidade."""
+
+    def authenticate(self, headers: Mapping[str, str]) -> bool: ...
+
+    def parse(self, payload: Any) -> list[Alert]:
+        """Converte o payload em alertas neutros; levanta InvalidAlertPayloadError."""
+        ...
+
+
+class ChatNotifier(Protocol):
+    """Canal de chat do time."""
+
+    async def post(self, notification: Notification) -> None:
+        """Publica a notificação; levanta NotificationFailedError."""
+        ...
+
+
+class IncidentUnitOfWork(Protocol):
+    """Operações de escrita de uma transação."""
+
+    async def register_alert(self, alert: Alert) -> bool:
+        """Grava o alerta; False se o mesmo (fingerprint, início, status) já foi visto."""
+        ...
+
+    async def active_incidents(self, service: str, since: datetime) -> list[Incident]:
+        """Incidentes do serviço com alerta disparando ou último alerta desde `since`."""
+        ...
+
+    async def incident_firing(self, fingerprint: str) -> Incident | None: ...
+
+    async def save(self, incident: Incident) -> None: ...
+
+    async def append(self, events: Sequence[IncidentEvent]) -> None: ...
+
+    async def link_alert(self, alert: Alert, incident_id: UUID) -> None: ...
+
+    async def enqueue(self, notification: Notification, at: datetime) -> None:
+        """Põe a notificação na outbox, pronta para entrega a partir de `at`."""
+        ...
+
+
+class IncidentRepository(Protocol):
+    def transaction(self) -> AbstractAsyncContextManager[IncidentUnitOfWork]: ...
+
+    async def list_incidents(self, limit: int) -> list[Incident]:
+        """Mais recentes primeiro."""
+        ...
+
+    async def get_incident(self, incident_id: UUID) -> Incident | None: ...
+
+    async def alerts_of(self, incident_id: UUID) -> list[Alert]: ...
+
+    async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
+        """Em ordem cronológica."""
+        ...
+
+
+@dataclass(frozen=True)
+class OutboxItem:
+    id: int
+    notification: Notification
+    attempts: int
+
+
+class NotificationOutbox(Protocol):
+    async def due(self, now: datetime, limit: int) -> list[OutboxItem]:
+        """Itens pendentes com horário de tentativa vencido, em ordem de criação."""
+        ...
+
+    async def delivered(self, item: OutboxItem, at: datetime) -> None:
+        """Marca entregue e registra o evento no incidente."""
+        ...
+
+    async def retry_later(self, item: OutboxItem, at: datetime, error: str) -> None:
+        """Incrementa as tentativas e agenda a próxima para `at`."""
+        ...
+
+    async def give_up(self, item: OutboxItem, at: datetime, error: str) -> None:
+        """Marca falha definitiva e registra o evento no incidente."""
+        ...
+
+
+@dataclass(frozen=True)
+class IntakePolicy:
+    label_filter: Mapping[str, str]
+    severity: SeverityPolicy
+    window: timedelta
+    page_url: Callable[[UUID], str]
+
+
+async def receive_alerts(
+    alerts: Sequence[Alert], repository: IncidentRepository, policy: IntakePolicy, clock: Clock
+) -> None:
+    """Processa cada alerta numa transação própria."""
+    raise NotImplementedError
+
+
+async def deliver_notifications(
+    outbox: NotificationOutbox,
+    notifier: ChatNotifier,
+    clock: Clock,
+    max_attempts: int = 8,
+    base_delay: timedelta = timedelta(seconds=5),
+) -> int:
+    """Entrega o que venceu na outbox e devolve quantas foram entregues."""
+    raise NotImplementedError

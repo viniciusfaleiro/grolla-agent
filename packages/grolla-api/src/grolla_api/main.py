@@ -1,18 +1,29 @@
 import uvicorn
-from grolla.bootstrap import ConfigError, load_settings, prepare
+from grolla.bootstrap import ApiContainer, ConfigError, prepare_api
 
-from grolla_api.app import create_app
+from grolla_api.app import Services, create_app
 
 # Dentro do container a api precisa aceitar conexões de fora do próprio processo.
 HOST = "0.0.0.0"  # noqa: S104
 PORT = 8000
 
 
+def services_from(container: ApiContainer) -> Services:
+    return Services(
+        database_is_up=container.database.ping,
+        latest_heartbeat=container.database.latest_heartbeat,
+        ingress=container.ingress,
+        repository=container.repository,
+        intake=container.intake,
+        clock=container.clock,
+    )
+
+
 def main() -> None:
     try:
-        settings = load_settings()
+        container = prepare_api()
     except ConfigError as error:
         raise SystemExit(f"grolla-api: {error}") from error
-    container = prepare(settings)
-    app = create_app(container.database.ping)
-    uvicorn.run(app, host=HOST, port=PORT, log_level=settings.log_level.lower())
+    app = create_app(services_from(container))
+    log_level = container.settings.log_level.lower()
+    uvicorn.run(app, host=HOST, port=PORT, log_level=log_level)

@@ -1,10 +1,10 @@
 import procrastinate
-from grolla.bootstrap import Container
+from grolla.bootstrap import WorkerContainer
 
 from grolla_worker.heartbeat import HEARTBEAT_CRON, beat
 
 
-def build_app(container: Container) -> procrastinate.App:
+def build_app(container: WorkerContainer) -> procrastinate.App:
     app = procrastinate.App(
         connector=procrastinate.PsycopgConnector(conninfo=container.settings.database_url)
     )

@@ -128,6 +128,7 @@ class Decision:
 
 def decide_firing(
     alert: Alert,
+    *,
     candidates: Sequence[Incident],
     policy: SeverityPolicy,
     window: timedelta,
@@ -143,19 +144,19 @@ def decide_resolved(
 ### Ports — `grolla.application`
 
 ```python
-class InvalidAlertPayload(Exception): ...
+class InvalidAlertPayloadError(Exception): ...
 
 
-class NotificationFailed(Exception): ...
+class NotificationFailedError(Exception): ...
 
 
 class AlertIngress(Protocol):  # adapter: grolla.adapters.signoz
     def authenticate(self, headers: Mapping[str, str]) -> bool: ...
-    def parse(self, payload: Any) -> list[Alert]: ...  # InvalidAlertPayload
+    def parse(self, payload: Any) -> list[Alert]: ...  # InvalidAlertPayloadError
 
 
 class ChatNotifier(Protocol):  # adapter: grolla.adapters.teams
-    async def post(self, notification: Notification) -> None: ...  # NotificationFailed
+    async def post(self, notification: Notification) -> None: ...  # NotificationFailedError
 
 
 class IncidentUnitOfWork(Protocol):  # adapter: grolla.adapters.postgres
@@ -165,7 +166,7 @@ class IncidentUnitOfWork(Protocol):  # adapter: grolla.adapters.postgres
     async def save(self, incident: Incident) -> None: ...
     async def append(self, events: Sequence[IncidentEvent]) -> None: ...
     async def link_alert(self, alert: Alert, incident_id: UUID) -> None: ...
-    async def enqueue(self, notification: Notification) -> None: ...
+    async def enqueue(self, notification: Notification, at: datetime) -> None: ...
 
 
 class IncidentRepository(Protocol):
@@ -222,6 +223,7 @@ Cada alerta é processado numa transação própria (`register_alert` → decis�
 team: credenciadora
 page_base_url: https://grolla-credenciadora.interno
 alert_filter: { team: credenciadora }
+service_labels: [service_name, service.name]  # primeiro presente vence
 grouping_window_minutes: 15
 default_severity: P3
 severity_rules:
@@ -297,5 +299,5 @@ Ambiente: `GROLLA_DATABASE_URL`, `GROLLA_CONFIG_FILE`, `GROLLA_LOG_LEVEL`; na ap
 
 ## Open Questions
 
-- Labels reais dos alertas da Credenciadora (nome do label de serviço e de time).
+- Labels reais dos alertas da Credenciadora (nome do label de serviço e de time): **configuráveis** em `service_labels` e `alert_filter`; o deploy ajusta o YAML quando os labels forem conhecidos.
 - Regras de severidade iniciais da Credenciadora: entram como exemplo e o time ajusta no YAML.

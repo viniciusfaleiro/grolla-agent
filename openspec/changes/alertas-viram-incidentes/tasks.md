@@ -2,14 +2,14 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 Dependências: `jinja2` e `pyyaml` no `grolla-api`/`grolla-core`, `httpx2` no `grolla-core`; `uv lock`.
-- [ ] 0.2 `grolla.domain.incidents` com os modelos e as assinaturas do design (corpos `raise NotImplementedError`).
-- [ ] 0.3 Ports, `OutboxItem`, exceções, `IntakePolicy` e assinaturas dos casos de uso em `grolla.application`.
-- [ ] 0.4 Migração `0002` (incidents, incident_events com trigger de imutabilidade, alerts, outbox).
-- [ ] 0.5 `TeamConfig` (YAML), settings por processo e `prepare_api()` / `prepare_worker()` no `bootstrap`, ligando os adapters ainda vazios.
-- [ ] 0.6 Compose do e2e: config YAML de teste, credenciais do webhook na api e `GROLLA_TEAMS_WEBHOOK_URL` do worker apontando para o `grolla-fakes`.
-- [ ] 0.7 Fixture de payload do webhook do SigNoz (disparando e resolvido) em `packages/grolla-core/tests/fixtures/`.
-- [ ] 0.8 `make check` verde com os stubs e commit de contrato.
+- [x] 0.1 Dependências: `jinja2` e `pyyaml` no `grolla-api`/`grolla-core`, `httpx2` no `grolla-core`; `uv lock`.
+- [x] 0.2 `grolla.domain.incidents` com os modelos e as assinaturas do design (corpos `raise NotImplementedError`).
+- [x] 0.3 Ports, `OutboxItem`, exceções, `IntakePolicy` e assinaturas dos casos de uso em `grolla.application`.
+- [x] 0.4 Migração `0002` (incidents, incident_events com trigger de imutabilidade, alerts, outbox).
+- [x] 0.5 `TeamConfig` (YAML), settings por processo e `prepare_api()` / `prepare_worker()` no `bootstrap`, ligando os adapters ainda vazios.
+- [x] 0.6 Compose do e2e: config YAML de teste, credenciais do webhook na api e `GROLLA_TEAMS_WEBHOOK_URL` do worker apontando para o `grolla-fakes`.
+- [x] 0.7 Fixture de payload do webhook do SigNoz (disparando e resolvido) em `packages/grolla-core/tests/fixtures/`.
+- [x] 0.8 `make check` verde com os stubs e commit de contrato.
 
 ## 1. grolla-dominio
 
@@ -31,8 +31,8 @@
 
 ## 3. grolla-integracoes
 
-- [ ] 3.1 `grolla.adapters.signoz`: autenticação Basic em tempo constante, parse para `Alert` neutro, `InvalidAlertPayload`, serviço `desconhecido`; testes com a fixture.
-- [ ] 3.2 `grolla.adapters.teams`: Adaptive Card por tipo de notificação, envio via `httpx2`, `NotificationFailed` em erro HTTP ou de rede; testes com transporte fake.
+- [ ] 3.1 `grolla.adapters.signoz`: autenticação Basic em tempo constante, parse para `Alert` neutro, `InvalidAlertPayloadError`, serviço `desconhecido`; testes com a fixture.
+- [ ] 3.2 `grolla.adapters.teams`: Adaptive Card por tipo de notificação, envio via `httpx2`, `NotificationFailedError` em erro HTTP ou de rede; testes com transporte fake.
 - [ ] 3.3 Os dois adapters passando nas suítes de contrato dos ports.
 - [ ] 3.4 Job periódico `deliver_notifications` (a cada 5 s, `queueing_lock`) no `grolla-worker` e README do worker.
 - [ ] 3.5 `make check` verde no worktree.

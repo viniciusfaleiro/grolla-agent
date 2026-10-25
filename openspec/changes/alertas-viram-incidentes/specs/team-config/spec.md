@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Configuração da instância por YAML
-Cada instância SHALL ler um arquivo YAML indicado por `GROLLA_CONFIG_FILE` com: nome do time, URL base das páginas, filtro de labels dos alertas, janela de agrupamento, regras de severidade e severidade padrão. O arquivo SHALL ser validado na inicialização, e erro de validação SHALL impedir o processo de subir com mensagem que aponte o campo.
+Cada instância SHALL ler um arquivo YAML indicado por `GROLLA_CONFIG_FILE` com: nome do time, URL base das páginas, filtro de labels dos alertas, labels que identificam o serviço, janela de agrupamento, regras de severidade e severidade padrão. Os nomes de labels SHALL ser todos configuráveis, porque os labels reais dos alertas do time ainda não são conhecidos. O arquivo SHALL ser validado na inicialização, e erro de validação SHALL impedir o processo de subir com mensagem que aponte o campo.
 
 #### Scenario: Regra com severidade inválida
 - **WHEN** o YAML tem uma regra com `severity: P7`

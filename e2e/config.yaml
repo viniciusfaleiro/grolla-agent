@@ -1,0 +1,14 @@
+# Configuração do time usada pela api no e2e (montada em /etc/grolla/grolla.yaml).
+team: credenciadora
+page_base_url: http://localhost:8000
+alert_filter: { team: credenciadora }
+service_labels: [service_name, service.name]
+grouping_window_minutes: 15
+default_severity: P3
+severity_rules:
+  - match: { alertname: "Queda de aprovação" }
+    severity: P0
+  - match: { severity: critical }
+    severity: P1
+  - match: { severity: warning }
+    severity: P2

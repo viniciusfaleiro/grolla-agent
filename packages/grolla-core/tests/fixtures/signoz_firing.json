@@ -1,0 +1,48 @@
+{
+  "receiver": "grolla-credenciadora",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "Taxa de erro alta no authorizer",
+        "ruleId": "42",
+        "service_name": "authorizer-api",
+        "severity": "critical",
+        "team": "credenciadora"
+      },
+      "annotations": {
+        "summary": "Taxa de erro de 7,2% no authorizer-api",
+        "description": "A taxa de erro HTTP 5xx do authorizer-api está em 7,2% nos últimos 5 minutos (limite 2%)."
+      },
+      "startsAt": "2026-01-01T10:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://signoz.interno/alerts/edit?ruleId=42",
+      "fingerprint": "a1b2c3d4e5f60718"
+    },
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "Latência alta no authorizer",
+        "ruleId": "43",
+        "service_name": "authorizer-api",
+        "severity": "warning",
+        "team": "credenciadora"
+      },
+      "annotations": {
+        "summary": "p99 de 1,8 s no authorizer-api",
+        "description": "O p99 de latência do authorizer-api está em 1,8 s (limite 800 ms)."
+      },
+      "startsAt": "2026-01-01T10:01:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://signoz.interno/alerts/edit?ruleId=43",
+      "fingerprint": "0f1e2d3c4b5a6978"
+    }
+  ],
+  "groupLabels": { "alertname": "Taxa de erro alta no authorizer" },
+  "commonLabels": { "service_name": "authorizer-api", "team": "credenciadora" },
+  "commonAnnotations": {},
+  "externalURL": "https://signoz.interno",
+  "version": "4",
+  "groupKey": "{}:{alertname=\"Taxa de erro alta no authorizer\"}"
+}
