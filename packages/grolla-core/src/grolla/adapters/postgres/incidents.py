@@ -324,7 +324,8 @@ class PostgresUnitOfWork:
         await self._connection.execute(
             sa.text(
                 "INSERT INTO analyses (incident_id, status, requested_at)"
-                " VALUES (:incident_id, :status, :at)"
+                # Pedido repetido mantém o primeiro: um erro abortaria a transação do alerta.
+                " VALUES (:incident_id, :status, :at) ON CONFLICT (incident_id) DO NOTHING"
             ),
             {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
         )

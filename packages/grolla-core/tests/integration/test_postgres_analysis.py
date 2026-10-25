@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.analysis_queue_contract import AnalysisQueueContract
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresDatabase,
@@ -20,6 +21,8 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.analysis import AnalysisQueue
+from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import LlmUsage
 from grolla.domain.analysis import (
     Analysis,
@@ -68,6 +71,20 @@ async def clean(database: PostgresDatabase) -> None:
     """Cada teste começa sem pedidos na fila."""
     async with database.engine.begin() as connection:
         await connection.execute(sa.text("DELETE FROM analyses"))
+
+
+class TestPostgresAnalysisQueueContract(AnalysisQueueContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def queue(self, database: PostgresDatabase) -> AnalysisQueue:
+        return PostgresAnalysisQueue(database)
+
+    @pytest.fixture
+    def outbox(self, database: PostgresDatabase) -> NotificationOutbox:
+        return PostgresNotificationOutbox(database)
 
 
 @pytest.fixture
@@ -169,14 +186,16 @@ async def test_requested_analysis_is_pending(repository: PostgresIncidentReposit
 
 
 @pytest.mark.usefixtures("clean")
-async def test_second_request_for_the_same_incident_is_refused(
+async def test_second_request_for_the_same_incident_keeps_the_first(
     repository: PostgresIncidentRepository,
 ) -> None:
     incident_id = await requested(repository)
+    async with repository.transaction() as uow:
+        await uow.request_analysis(incident_id, T0 + timedelta(minutes=1))
 
-    with pytest.raises(IntegrityError):
-        async with repository.transaction() as uow:
-            await uow.request_analysis(incident_id, T0)
+    analysis = await repository.analysis_of(incident_id)
+    assert analysis is not None
+    assert analysis.requested_at == T0
 
 
 @pytest.mark.usefixtures("clean")

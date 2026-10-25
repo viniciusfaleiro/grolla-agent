@@ -99,7 +99,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou
   `notification_failed` com `{"kind", "attempts"[, "error"]}`.
 - `request_analysis` (na unidade de trabalho) grava o pedido pendente na mesma transação que
-  abre o incidente; um segundo pedido para o mesmo incidente viola a chave. `analysis_of`
+  abre o incidente; um segundo pedido para o mesmo incidente mantém o primeiro
+  (`ON CONFLICT DO NOTHING`). `analysis_of`
   devolve a análise em qualquer estado, ou `None` se nunca foi pedida.
 - `PostgresAnalysisQueue.claim` marca em andamento o pendente mais antigo com
   `FOR UPDATE SKIP LOCKED`: workers em paralelo nunca pegam o mesmo pedido
