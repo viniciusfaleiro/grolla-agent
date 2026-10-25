@@ -12,6 +12,7 @@ from contracts.language_model_contract import LanguageModelContract
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     SYSTEM_PROMPT,
+    VERIFICATION_PROMPT,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
@@ -22,9 +23,19 @@ from grolla.application.investigation import (
     Toolbox,
     ToolSpec,
     brief_text,
+    verification_text,
 )
-from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis
-from grolla.testing.builders import T0, make_alert, make_incident
+from grolla.domain.analysis import (
+    Action,
+    Analysis,
+    AnalysisDraft,
+    Evidence,
+    Hypothesis,
+    HypothesisVerdict,
+    Verdict,
+    VerificationDraft,
+)
+from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -108,6 +119,21 @@ class TestClaudeLanguageModelContract(LanguageModelContract):
     @pytest.fixture
     def invalid_model(self) -> LanguageModel:
         return claude(ScriptedApi(ok(final("não é json"))))
+
+    @pytest.fixture
+    def verifying_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return verifier(ScriptedApi(tool_use, ok(final(verification()))))
+
+    @pytest.fixture
+    def failing_verifier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return verifier(ScriptedApi(response, response, response))
+
+    @pytest.fixture
+    def invalid_verifier(self) -> LanguageModel:
+        return verifier(ScriptedApi(ok(final({"verdicts": "não é lista"}))))
 
 
 def brief() -> InvestigationBrief:
@@ -301,3 +327,203 @@ async def test_result_outside_the_schema_is_invalid(draft: object) -> None:
 async def test_truncated_result_is_invalid() -> None:
     with pytest.raises(InvalidAnalysisError, match="max_tokens"):
         await investigate(ScriptedApi(ok(final('{"summary": "s', stop_reason="max_tokens"))))
+
+
+# ---- Validação: a segunda passada, até a causa raiz
+
+VERIFICATION_SETTINGS = ModelSettings(model="claude-opus-5-5", max_tokens=32000, effort="high")
+DEPLOY_LINK = "https://dev.azure.com/org/Core/_build/results?buildId=7"
+ROOT_CAUSE = "Deploy 1.4.2 introduziu KeyError em POST /authorize às 10:04"
+ROLLBACK = {
+    "action": "Fazer rollback do authorizer-api para o build 1.4.1",
+    "target": "authorizer-api",
+    "expected": "taxa de erro volta para 0,4%",
+    "link": DEPLOY_LINK,
+}
+INVESTIGATE_STEP = {
+    "action": "Investigar o banco",
+    "target": "authorizer-db",
+    "expected": "saber se está lento",
+    "link": None,
+}
+
+
+def verification(
+    *, actions: list[dict[str, Any]] | None = None, root_cause: str | None = ROOT_CAUSE
+) -> dict[str, Any]:
+    return {
+        "verdicts": [
+            {
+                "hypothesis": "Deploy 1.4.2 com regressão",
+                "verdict": "confirmada",
+                "reasoning": "Os erros começam 2 min depois do deploy.",
+                "evidence": [{"text": "build 1.4.2 às 10:02", "url": DEPLOY_LINK}],
+            },
+            {
+                "hypothesis": "Banco lento",
+                "verdict": "rejeitada",
+                "reasoning": "p99 do banco estável.",
+                "evidence": [{"text": "p99 180 ms", "url": None}],
+            },
+        ],
+        "root_cause": root_cause,
+        "actions": [ROLLBACK] if actions is None else actions,
+        "missing": "" if root_cause else "Faltou o log da aplicação",
+    }
+
+
+def verifier(handler: Handler) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(
+        "chave",
+        SETTINGS,
+        base_url="http://fake/anthropic",
+        transport=httpx2.MockTransport(handler),
+        verification=VERIFICATION_SETTINGS,
+    )
+
+
+def analysis() -> Analysis:
+    return make_analysis(brief().incident.id)
+
+
+async def verify(
+    handler: Handler, toolbox: Toolbox | None = None, budget: TokenBudget | None = None
+) -> VerificationDraft:
+    return await verifier(handler).verify(
+        brief(), analysis(), toolbox or RecordingToolbox(), budget or RecordingBudget()
+    )
+
+
+async def test_verification_returns_verdicts_root_cause_and_actions() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(verification())))
+    toolbox = RecordingToolbox()
+
+    draft = await verify(api, toolbox)
+
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+    assert draft == VerificationDraft(
+        verdicts=(
+            HypothesisVerdict(
+                "Deploy 1.4.2 com regressão",
+                Verdict.CONFIRMED,
+                "Os erros começam 2 min depois do deploy.",
+                (Evidence("build 1.4.2 às 10:02", DEPLOY_LINK),),
+            ),
+            HypothesisVerdict(
+                "Banco lento",
+                Verdict.REJECTED,
+                "p99 do banco estável.",
+                (Evidence("p99 180 ms", None),),
+            ),
+        ),
+        root_cause=ROOT_CAUSE,
+        actions=(
+            Action(
+                "Fazer rollback do authorizer-api para o build 1.4.1",
+                "authorizer-api",
+                "taxa de erro volta para 0,4%",
+                DEPLOY_LINK,
+            ),
+        ),
+        missing="",
+    )
+
+
+async def test_verification_request_uses_its_prompt_schema_and_stage_settings() -> None:
+    api = ScriptedApi(ok(final(verification())))
+    budget = RecordingBudget()
+
+    await verify(api, budget=budget)
+
+    [body] = api.bodies
+    assert body["model"] == "claude-opus-5-5"
+    assert body["max_tokens"] == 32000
+    assert body["output_config"]["effort"] == "high"
+    assert body["output_config"]["format"]["schema"]["required"] == [
+        "verdicts",
+        "root_cause",
+        "actions",
+        "missing",
+    ]
+    assert body["system"][0]["text"] == VERIFICATION_PROMPT
+    assert body["messages"] == [{"role": "user", "content": verification_text(brief(), analysis())}]
+    assert [usage.stage for usage in budget.spent] == ["verification"]
+
+
+async def test_verification_without_its_own_stage_inherits_the_investigation_settings() -> None:
+    api = ScriptedApi(ok(final(verification())))
+
+    await claude(api).verify(brief(), analysis(), RecordingToolbox(), RecordingBudget())
+
+    assert api.bodies[0]["model"] == "claude-sonnet-5-5"
+    assert api.bodies[0]["output_config"]["effort"] == "medium"
+
+
+async def test_unconfirmed_cause_has_no_plan_and_says_what_was_missing() -> None:
+    api = ScriptedApi(ok(final(verification(actions=[], root_cause=""))))
+
+    draft = await verify(api)
+
+    assert draft.root_cause is None
+    assert draft.actions == ()
+    assert draft.missing == "Faltou o log da aplicação"
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        verification(actions=[INVESTIGATE_STEP]),  # passo de investigação no plano
+        verification(root_cause=None),  # ações sem causa confirmada
+    ],
+)
+async def test_plan_that_is_not_concrete_gets_one_correction(first: dict[str, Any]) -> None:
+    api = ScriptedApi(ok(final(first)), ok(final(verification())))
+    budget = RecordingBudget()
+
+    draft = await verify(api, budget=budget)
+
+    assert draft.root_cause == ROOT_CAUSE
+    first_body, second_body = api.bodies
+    assert second_body["messages"][: len(first_body["messages"])] == first_body["messages"]
+    assistant, correction = second_body["messages"][-2:]
+    assert assistant["role"] == "assistant"
+    assert correction == {
+        "role": "user",
+        "content": "O plano tem passo de investigação: troque por ações concretas, ou deixe "
+        "sem plano se a causa não foi confirmada.",
+    }
+    assert len(budget.spent) == 2
+
+
+async def test_plan_that_stays_not_concrete_is_invalid() -> None:
+    step = final(verification(actions=[INVESTIGATE_STEP]))
+    api = ScriptedApi(ok(step), ok(step))
+
+    with pytest.raises(InvalidAnalysisError, match="plano não concreto"):
+        await verify(api)
+
+    assert len(api.bodies) == 2
+
+
+def _with(**changes: Any) -> dict[str, Any]:
+    return {**verification(), **changes}
+
+
+INVALID_VERIFICATIONS: list[object] = [
+    "não é json",
+    _with(verdicts=[{**verification()["verdicts"][0], "verdict": "provável"}]),
+    _with(verdicts=[{**verification()["verdicts"][0], "evidence": []}]),
+    _with(extra=1),
+    {key: value for key, value in verification().items() if key != "missing"},
+]
+
+
+@pytest.mark.parametrize("draft", INVALID_VERIFICATIONS)
+async def test_verification_outside_the_schema_is_invalid(draft: object) -> None:
+    with pytest.raises(InvalidAnalysisError, match="formato da validação"):
+        await verify(ScriptedApi(ok(final(draft))))
+
+
+async def test_verification_refusal_becomes_language_model_error() -> None:
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await verify(ScriptedApi(ok(final("", stop_reason="refusal"))))
