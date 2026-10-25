@@ -3,6 +3,11 @@
 Espera o stack do profile `e2e` do compose de pé (o `make e2e` sobe e derruba). Cada cenário:
 reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e confere (`then`).
 
+Ações: `http`, `expect_status`, `wait_for_db_row`, `expect_db_count`, `expect_fake_requests`
+(contagem exata por trechos do corpo) e `expect_fake_request_order` (a primeira requisição com
+os trechos `first` chegou antes da com `then`). O modo do LLM fake se troca com `http` em
+`POST /_control/llm`.
+
 O banco não é limpo entre cenários: cada cenário usa serviços e fingerprints próprios e filtra
 as consultas e os cards por eles.
 """
@@ -72,6 +77,13 @@ def run_step(step: Step) -> None:
                 cast(list[str], args.get("contains") or []),
                 args.get("timeout_seconds", 30),
             )
+        case "expect_fake_request_order":
+            expect_fake_request_order(
+                args["path"],
+                cast(list[str], args["first"]),
+                cast(list[str], args["then"]),
+                args.get("timeout_seconds", 30),
+            )
         case _:
             raise ValueError(f"ação desconhecida no cenário: {action}")
 
@@ -93,14 +105,39 @@ def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:
     pytest.fail(f"esperava ao menos {at_least} em `{sql}`, achei {count} em {timeout_seconds}s")
 
 
-def matching_fake_requests(path: str, contains: list[str]) -> int:
+def fake_request_bodies(path: str) -> list[str]:
     recorded = cast(list[dict[str, Any]], http("fakes", "GET", "/_control/requests").json())
-    bodies = [
+    return [
         json.dumps(request["body"], ensure_ascii=False)
         for request in recorded
         if request["path"] == path
     ]
-    return sum(all(text in body for text in contains) for body in bodies)
+
+
+def first_match(bodies: list[str], contains: list[str]) -> int | None:
+    return next(
+        (i for i, body in enumerate(bodies) if all(text in body for text in contains)), None
+    )
+
+
+def matching_fake_requests(path: str, contains: list[str]) -> int:
+    return sum(all(text in body for text in contains) for body in fake_request_bodies(path))
+
+
+def expect_fake_request_order(
+    path: str, first: list[str], then: list[str], timeout_seconds: float
+) -> None:
+    """Confere que a primeira requisição com os trechos `first` chegou antes da com `then`."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        bodies = fake_request_bodies(path)
+        before, after = first_match(bodies, first), first_match(bodies, then)
+        if (before is not None and after is not None) or time.monotonic() >= deadline:
+            break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    assert before is not None, f"nenhuma requisição a {path} com {first}"
+    assert after is not None, f"nenhuma requisição a {path} com {then}"
+    assert before < after, f"{first} chegou depois de {then} em {path}"
 
 
 def expect_fake_requests(
