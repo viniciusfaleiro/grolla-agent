@@ -5,10 +5,22 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from grolla.application.clock import Clock
-from grolla.domain.incidents import Alert, Incident, IncidentEvent, Notification, SeverityPolicy
+from grolla.domain.incidents import (
+    Alert,
+    AlertStatus,
+    Incident,
+    IncidentEvent,
+    Notification,
+    SeverityPolicy,
+    decide_firing,
+    decide_resolved,
+    labels_match,
+)
+
+DELIVERY_BATCH = 100
 
 
 class InvalidAlertPayloadError(Exception):
@@ -118,7 +130,41 @@ async def receive_alerts(
     alerts: Sequence[Alert], repository: IncidentRepository, policy: IntakePolicy, clock: Clock
 ) -> None:
     """Processa cada alerta numa transação própria."""
-    raise NotImplementedError
+    for alert in alerts:
+        if not labels_match(alert.labels, policy.label_filter):
+            continue
+        async with repository.transaction() as uow:
+            await _receive(alert, uow, policy, clock)
+
+
+async def _receive(
+    alert: Alert, uow: IncidentUnitOfWork, policy: IntakePolicy, clock: Clock
+) -> None:
+    if not await uow.register_alert(alert):
+        return  # reenvio
+    now = clock.now()
+    if alert.status is AlertStatus.FIRING:
+        decision = decide_firing(
+            alert,
+            candidates=await uow.active_incidents(alert.service, now - policy.window),
+            policy=policy.severity,
+            window=policy.window,
+            now=now,
+            page_url=policy.page_url,
+            new_id=uuid4,
+        )
+    else:
+        incident = await uow.incident_firing(alert.fingerprint)
+        if incident is None:
+            return  # resolvido sem incidente: só fica no histórico
+        decision = decide_resolved(alert, incident, now, policy.page_url)
+    if decision.incident is None:
+        return
+    await uow.save(decision.incident)
+    await uow.append(decision.events)
+    await uow.link_alert(alert, decision.incident.id)
+    for notification in decision.notifications:
+        await uow.enqueue(notification, now)
 
 
 async def deliver_notifications(
@@ -128,5 +174,28 @@ async def deliver_notifications(
     max_attempts: int = 8,
     base_delay: timedelta = timedelta(seconds=5),
 ) -> int:
-    """Entrega o que venceu na outbox e devolve quantas foram entregues."""
-    raise NotImplementedError
+    """Entrega o que venceu na outbox e devolve quantas foram entregues.
+
+    Falha num card adia os cards seguintes do mesmo incidente nesta rodada, para manter a ordem.
+    A espera dobra a cada tentativa: base_delay, 2x, 4x, ...
+    """
+    delivered = 0
+    held: set[UUID] = set()
+    for item in await outbox.due(clock.now(), limit=DELIVERY_BATCH):
+        incident_id = item.notification.incident_id
+        if incident_id in held:
+            continue
+        try:
+            await notifier.post(item.notification)
+        except NotificationFailedError as error:
+            held.add(incident_id)
+            attempts = item.attempts + 1
+            now = clock.now()
+            if attempts >= max_attempts:
+                await outbox.give_up(item, now, str(error))
+            else:
+                await outbox.retry_later(item, now + base_delay * 2 ** (attempts - 1), str(error))
+            continue
+        await outbox.delivered(item, clock.now())
+        delivered += 1
+    return delivered

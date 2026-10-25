@@ -29,6 +29,11 @@ os deployables só montam o processo.
 | **Port `Clock`** | Única fonte de "agora", UTC e não decrescente | `grolla.application.clock.Clock` |
 | **Relógio do sistema** | Adapter real do `Clock` | `grolla.adapters.system_clock.SystemClock` |
 | **Relógio fake** | Relógio parado que só anda quando o teste manda | `grolla.testing.clock.FakeClock` |
+| **Incidentes (domínio)** | Severidade por regras, agrupamento por serviço na janela, estados Detectado/Informado, eventos e cards — decisões puras | `grolla.domain.incidents.decide_firing` · `decide_resolved` |
+| **Receber alertas** | Filtro por time, deduplicação e uma transação por alerta | `grolla.application.incidents.receive_alerts` |
+| **Entregar cards** | Outbox em ordem por incidente, espera dobrando a cada falha, desistência no limite | `grolla.application.incidents.deliver_notifications` |
+| **Ports de incidentes** | `AlertIngress`, `ChatNotifier`, `IncidentRepository`/`IncidentUnitOfWork`, `NotificationOutbox` | `grolla.application.incidents` |
+| **Fakes de incidentes** | Repositório e outbox em memória, canal de chat que grava e falha sob comando, entrada de alertas | `grolla.testing.incidents` · `grolla.testing.builders` |
 | **Postgres** | Engine async, ping, heartbeats | `grolla.adapters.postgres.PostgresDatabase` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Configuração** | Variáveis `GROLLA_*` validadas; erro nomeia a variável | `grolla.bootstrap.load_settings` |
@@ -64,7 +69,7 @@ uv run pytest packages/grolla-core/tests/unit           # só unitários (sem re
 |---|---|---|
 | `tests/unit/` | Unitários; inclui a prova de que a rede está bloqueada | bloqueada |
 | `tests/integration/` | Postgres real via Testcontainers (fixture `database_url`) | liberada |
-| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`) | — |
+| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`, `IncidentRepositoryContract`, `NotificationOutboxContract`, `ChatNotifierContract`, `AlertIngressContract`) | — |
 
 Todo adapter e todo fake de um port herdam a suíte de contrato dele:
 
@@ -79,10 +84,10 @@ class TestSystemClockContract(ClockContract):
 
 ```
 src/grolla/
-  domain/          (vazio no S1)
-  application/     clock.py
+  domain/          incidents.py
+  application/     clock.py · incidents.py
   adapters/        system_clock/ · postgres/ (database, migrate, migrations/)
   bootstrap/       settings.py · container.py
-  testing/         clock.py (FakeClock)
+  testing/         clock.py (FakeClock) · incidents.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/
 ```
