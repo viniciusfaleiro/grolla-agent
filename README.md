@@ -242,10 +242,10 @@ Construído em **slices de valor**: cada um fecha uma funcionalidade de ponta a 
 produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 
 - **S1 — Fundação** · workspace, harness, esqueleto da api e do worker, e2e com fakes ✅
-- **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams e página do incidente ✅ (aceite com alertas reais da Credenciadora pendente)
-- **S3 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
-- **S4 — Investigação pronta** · hipóteses ranqueadas com evidência do SigNoz e do Azure DevOps, começando pelos incidentes parecidos
-- **S5 — Agente acompanha a crise** · updates, impacto financeiro, chat e proposta de encerramento
+- **S2 — Alertas viram incidentes** · deduplicados, agrupados, com severidade, card no Teams, página do incidente e console de testes ✅ (aceite em produção junto com o S3)
+- **S3 — O agente investiga cada alerta** · "estou investigando" em segundos e, em até 5 min, a análise: o que avaliou, hipóteses com evidência, plano proposto e botão para o incidente
+- **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) e ações no war room
+- **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, incidentes parecidos, updates, impacto financeiro, chat e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
 - **S7 — O agente aprende** · memória do ambiente e de incidentes passados: "já vi isso no incidente #N"
 - **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · investigação na AWS

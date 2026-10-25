@@ -9,6 +9,7 @@ O agent-grolla é um agente de SRE que acompanha o ambiente de adquirência e ca
 ## Objetivos
 
 - Reduzir o TTD (tempo até detectar) e o TTA (tempo até acionar) de incidentes P0/P1 para poucos minutos.
+- Entregar mais do que o alerta: todo alerta que chega ao canal vem com uma análise do agente (o que ele avaliou, hipóteses com evidência e um plano proposto), não só o aviso que o SigNoz já manda.
 - Entregar ao on-call uma investigação já em andamento, com hipóteses ranqueadas e evidências.
 - Manter um registro completo e auditável de cada incidente, sem esforço manual do time.
 - Gerar o rascunho do post mortem automaticamente, para revisão e aprovação humana.
@@ -22,7 +23,7 @@ O agent-grolla é um agente de SRE que acompanha o ambiente de adquirência e ca
 
 ## Escopo da v1 e decisões tomadas
 
-A v1 cobre todos os sistemas do time que faz o deploy do agente, com investigação e acionamento automáticos apenas para P0/P1. As decisões abaixo já foram fechadas e orientam o resto da spec.
+A v1 cobre todos os sistemas do time que faz o deploy do agente. **Todo alerta que vira incidente é investigado**: o valor do agente sobre o webhook que o SigNoz já manda para o Teams é chegar com a análise pronta. O acionamento automático do on-call é só para P0/P1. As decisões abaixo já foram fechadas e orientam o resto da spec.
 
 | Tema | Decisão |
 |---|---|
@@ -30,7 +31,7 @@ A v1 cobre todos os sistemas do time que faz o deploy do agente, com investigaç
 | Observabilidade | Tudo instrumentado no SigNoz (métricas, logs e traces via OpenTelemetry), mais leitura nas contas AWS para checar a saúde da infraestrutura quando necessário |
 | Código e mudanças | Azure DevOps via MCP, lido sob demanda pelo agente |
 | Gatilhos | Alertas do SigNoz (threshold e anomalia), recebidos por webhook |
-| Tratamento por severidade | P0/P1: investigação, war room, acionamento e acompanhamento. P2/P3: apenas aviso no Teams |
+| Tratamento por severidade | Todos: card "investigando" e card de análise inicial no Teams (o que avaliou, hipóteses e plano proposto, com botão para a página do incidente). P0/P1: além disso, investigação mais profunda, acionamento, war room com acompanhamento e updates |
 | Acionamento | Spike.sh acionado automaticamente pelo agente desde o primeiro dia |
 | Comunicação | Teams via webhook (Workflows) só para notificar; interação acontece no war room web |
 | Interação humana | Chat com o agente dentro da página do incidente, mais upload de transcrição de call; e um console de chat geral para perguntas sobre a saúde do ambiente |
@@ -126,10 +127,10 @@ A severidade é decidida em até 3 minutos após a detecção, por regras de imp
 
 | Severidade | Critério (thresholds a calibrar) | Ação do agente |
 |---|---|---|
-| **P0** | Indisponibilidade total de um domínio (autorização, captura, liquidação etc.), queda de aprovação acima de X% no total, ou uma bandeira inteira fora | Spike.sh imediato, card no Teams, war room, investigação, updates a cada 5 min |
-| **P1** | Degradação parcial com risco de perda financeira: queda de aprovação num recorte (bandeira, emissor, MCC), latência de autorização perto do timeout da bandeira, falha de liquidação ou agenda | Spike.sh imediato, card no Teams, war room, investigação, updates a cada 5 min |
-| **P2** | Degradação sem impacto financeiro direto, ou componente redundante falhando | Apenas card no Teams |
-| **P3** | Anomalia sem impacto visível ao cliente | Apenas card no Teams |
+| **P0** | Indisponibilidade total de um domínio (autorização, captura, liquidação etc.), queda de aprovação acima de X% no total, ou uma bandeira inteira fora | Spike.sh imediato, cards de investigação e análise, war room, investigação profunda, updates a cada 5 min |
+| **P1** | Degradação parcial com risco de perda financeira: queda de aprovação num recorte (bandeira, emissor, MCC), latência de autorização perto do timeout da bandeira, falha de liquidação ou agenda | Spike.sh imediato, cards de investigação e análise, war room, investigação profunda, updates a cada 5 min |
+| **P2** | Degradação sem impacto financeiro direto, ou componente redundante falhando | Cards "investigando" e de análise inicial, sem acionamento e sem updates periódicos |
+| **P3** | Anomalia sem impacto visível ao cliente | Cards "investigando" e de análise inicial, sem acionamento e sem updates periódicos |
 
 ### Como a severidade é decidida
 
@@ -195,7 +196,7 @@ Cada transição grava o timestamp usado no cálculo de TTD, TTA, TTM e TTR.
 
 ## Investigação
 
-A investigação é feita por um worker LLM por incidente, que usa os MCPs do SigNoz, do Azure DevOps e da AWS e devolve hipóteses estruturadas ao núcleo. O worker nunca altera estado diretamente: tudo o que ele produz vira evento no banco, e o núcleo decide o que fazer.
+A investigação é feita por um worker LLM por incidente, **para todo incidente, de qualquer severidade**, que usa os MCPs do SigNoz, do Azure DevOps e da AWS e devolve hipóteses estruturadas ao núcleo. O worker nunca altera estado diretamente: tudo o que ele produz vira evento no banco, e o núcleo decide o que fazer.
 
 ### Roteiro padrão de investigação
 
@@ -224,7 +225,9 @@ Cada ciclo devolve um JSON validado com:
 
 ### Ciclos e acompanhamento
 
-- **Investigação inicial:** até 10 minutos ou até atingir confiança mínima numa hipótese, o que vier primeiro.
+- **Análise inicial (todos os incidentes):** começa logo depois do card "investigando" e tem limite de tempo (padrão 5 minutos, configurável) e de tokens. O resultado vira o card de análise. P2/P3 param aqui.
+- **A análise sempre chega.** Se o LLM falhar, estourar o tempo ou o orçamento, o agente posta o card de análise mesmo assim, como **parcial**: o que conseguiu avaliar, o que faltou e por quê. O time nunca fica só com o "investigando".
+- **Investigação profunda (P0/P1):** continua depois da análise inicial, até 10 minutos ou até atingir confiança mínima numa hipótese, e atualiza o war room.
 - **Acompanhamento:** a cada 5 minutos (configurável) para P0/P1, o worker revisita métricas e logs, atualiza hipóteses e verifica se as ações relatadas pelo time surtiram efeito.
 - **Gatilho de mudança:** uma mensagem do time no chat, uma transcrição nova ou um alerta agrupado disparam um ciclo fora do intervalo.
 
@@ -257,14 +260,14 @@ O Teams é o canal de notificação, e o war room web é onde o time interage co
 
 | Momento | Conteúdo do card |
 |---|---|
-| Detecção (P0/P1) | "Identifiquei a anomalia X, baseado nas evidências Y, que pode ser um problema. Vou começar a investigar." Severidade, serviços afetados, impacto estimado, link do war room |
-| Já vi isso antes | "Isso parece o incidente #N de 12/09 (causa: pool de conexões do RDS esgotado; resolvido com restart do authorizer-api)." Link do incidente e do post mortem, e o grau de semelhança |
-| Acionamento | Confirmação de que o on-call foi acionado no Spike.sh e por quê |
-| Update periódico (5 min) | Status, o que mudou desde o último update, hipótese principal e confiança, impacto acumulado |
-| Hipóteses prontas | Top 3 hipóteses em ordem de prioridade, ações sugeridas, link para detalhes |
+| Investigando (todos) | Postado em segundos, antes de qualquer chamada ao LLM: "Identifiquei a anomalia X no serviço Y (evidência: alerta Z). Estou investigando." Severidade, serviços afetados, o que o agente vai checar e o botão **Abrir incidente** (página do incidente) |
+| Análise inicial (todos) | O resultado da primeira investigação, no mesmo canal: **o que avaliei** (cada checagem com o resultado: métricas, logs, traces, deploys recentes, histórico), **hipóteses** ranqueadas (título, confiança, evidência com link para o SigNoz ou o Azure DevOps), **plano proposto** (próximos passos sugeridos ao time; o agente não executa nada) e os botões **Abrir incidente** e **Ver no SigNoz**. Se a análise for parcial, o card diz o que faltou |
+| Já vi isso antes | "Isso parece o incidente #N de 12/09 (causa: pool de conexões do RDS esgotado; resolvido com restart do authorizer-api)." Link do incidente e do post mortem, e o grau de semelhança. Entra dentro da análise inicial quando o caso parecido é achado nela |
+| Acionamento (P0/P1) | Confirmação de que o on-call foi acionado no Spike.sh e por quê |
+| Update periódico (P0/P1, 5 min) | Status, o que mudou desde o último update, hipótese principal e confiança, impacto acumulado |
+| Severidade elevada | Nova severidade e o motivo; se passou a P0/P1, a investigação profunda começa |
 | Proposta de encerramento | Métricas normalizadas há N minutos; pedido de confirmação no war room |
-| Encerramento | Duração, impacto final, link do rascunho do post mortem |
-| P2/P3 | Card único informativo, sem war room e sem updates |
+| Normalizado / Encerramento | Duração, impacto final, link do rascunho do post mortem |
 
 Para não poluir o canal único, os updates periódicos só são postados quando há mudança relevante (estado, hipótese principal, tendência do impacto). Sem mudança, o agente posta um update curto a cada 15 minutos dizendo que segue acompanhando.
 
@@ -431,6 +434,7 @@ severity_rules:
     severity: P1
 
 intervals:
+  initial_analysis_timeout_minutes: 5   # todos os incidentes; passou disso, sai análise parcial
   p0_p1_update_minutes: 5
   quiet_update_minutes: 15
   resolution_stable_minutes: 15
@@ -454,6 +458,7 @@ llm:
     postmortem:    { model: claude-opus-5-5, effort: high }
   budgets:
     max_tokens_per_incident: 2000000
+    initial_analysis_max_tokens: 300000   # análise inicial de P2/P3 (P0/P1 usam o limite do incidente)
     console_max_tokens_per_day: 500000
 ```
 
@@ -474,7 +479,8 @@ O agente é somente leitura em todas as integrações, e o custo de LLM é limit
 
 ### Controle de custo
 
-- Limite de tokens por incidente; ao atingir 80%, o agente reduz a frequência de ciclos e avisa no war room.
+- Limite de tokens por incidente, menor para a análise inicial de P2/P3 do que para P0/P1; ao atingir 80%, o agente reduz a frequência de ciclos e avisa no war room.
+- Como todo incidente é investigado, o agrupamento importa para o custo: alertas agrupados num incidente já investigado não abrem investigação nova, só entram como evidência no próximo ciclo.
 - Modelo rápido para triagem e agrupamento; modelo maior só na investigação.
 - Resultados de consultas ao SigNoz em cache por ciclo, para não repetir chamadas.
 - Painel de custo diário e por incidente a partir da tabela `llm_usage`, para embasar a definição de orçamento depois de algumas semanas.
@@ -482,7 +488,7 @@ O agente é somente leitura em todas as integrações, e o custo de LLM é limit
 ### Confiabilidade do próprio agente
 
 - Heartbeat do agente monitorado pelo próprio SigNoz: se o grolla parar, o on-call recebe alerta pelo caminho tradicional.
-- Se a API da Anthropic falhar, o núcleo determinístico continua: recebe alertas, aplica regras de severidade, aciona o Spike.sh e posta no Teams, apenas sem a investigação.
+- Se a API da Anthropic falhar, o núcleo determinístico continua: recebe alertas, aplica regras de severidade, aciona o Spike.sh e posta no Teams. O card de análise sai como parcial, dizendo que a investigação não rodou.
 - Retentativas com backoff para Teams, Spike.sh e MCPs; falhas registradas como eventos.
 
 ## Riscos e questões em aberto

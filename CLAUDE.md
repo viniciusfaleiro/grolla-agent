@@ -33,7 +33,7 @@ quem encerra um incidente é sempre um humano.
 S1 (`fundacao-harness`): workspace, harness e esqueleto dos deployables. S2
 (`alertas-viram-incidentes`): webhook do SigNoz, deduplicação, agrupamento por serviço,
 severidade por regras do YAML, log de eventos imutável, cards no Teams por outbox, páginas de
-incidentes e o pacote de deploy manual (`deploy/`). Próximo: S3 (on-call acionado sozinho) — ver
+incidentes e o pacote de deploy manual (`deploy/`). Próximo: S3 (o agente investiga cada alerta) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)
