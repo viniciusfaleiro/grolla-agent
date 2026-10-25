@@ -59,7 +59,7 @@ rules:
     - Sempre incluir uma seção "Contratos" com os ports, modelos, endpoints, eventos e schema que a change cria ou altera; numa change multiagente, eles viram o commit de contrato do agente pai.
   tasks:
     - Começar declarando o modo - "Change de um agente só" (uma área) ou "Change multiagente" (mais de uma área).
-    - Numa change multiagente, o grupo 0 é "Contratos (agente pai)" e termina com o commit de contrato; depois vem um grupo por papel, nomeado pelo agente (grolla-dominio, grolla-persistencia, grolla-integracoes, grolla-web, grolla-e2e), cada um terminando com `make check` verde no próprio worktree; o último grupo é "Integração (agente pai)", com o merge dos branches e as tarefas de fechamento.
+    - Numa change multiagente, o grupo 0 é "Contratos (agente pai)" e termina com o commit de contrato; depois vem um grupo por papel, nomeado pelo agente (grolla-dominio, grolla-persistencia, grolla-integracoes, grolla-web, grolla-e2e), cada um terminando com `make check` verde no próprio worktree; o último grupo é "Integração (agente pai)", com o merge dos branches, o code review do todo entregue (com os ajustes que fizerem sentido) e as tarefas de fechamento.
     - Todo port novo vem com suíte de contrato, fake em memória e adapter real passando nela.
     - Todo comportamento visível ponta a ponta ganha ao menos um cenário e2e.
     - A antepenúltima tarefa de toda change é revisar e atualizar o README de cada componente afetado e o README do pai (Features, Roadmap e badge de status), no padrão do README do eng-performance.

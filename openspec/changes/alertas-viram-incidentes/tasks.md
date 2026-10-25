@@ -53,8 +53,9 @@
 ## 6. Integração (agente pai)
 
 - [ ] 6.1 Juntar os branches dos agentes e resolver conflitos.
-- [ ] 6.2 Pacote `deploy/`: `compose.yml` de produção, `credenciadora.yaml`, `.env.example` e `README.md` com o passo a passo do deploy manual, a configuração do webhook no SigNoz e o backup do banco.
-- [ ] 6.3 Registrar no `design.md` os desvios de contrato combinados entre os agentes.
-- [ ] 6.4 Revisar e atualizar os READMEs do pai e de cada componente (features, roadmap e badge de status).
-- [ ] 6.5 Rodar `make e2e` e garantir todos os cenários verdes.
-- [ ] 6.6 Rodar `make fmt && make check` e garantir tudo verde.
+- [ ] 6.2 Code review do todo entregue (consistência entre componentes, duplicação, desvio de contrato, simplicidade, cobertura das specs) e ajustes.
+- [ ] 6.3 Pacote `deploy/`: `compose.yml` de produção, `credenciadora.yaml`, `.env.example` e `README.md` com o passo a passo do deploy manual, a configuração do webhook no SigNoz e o backup do banco.
+- [ ] 6.4 Registrar no `design.md` os desvios de contrato combinados entre os agentes.
+- [ ] 6.5 Revisar e atualizar os READMEs do pai e de cada componente (features, roadmap e badge de status).
+- [ ] 6.6 Rodar `make e2e` e garantir todos os cenários verdes.
+- [ ] 6.7 Rodar `make fmt && make check` e garantir tudo verde.

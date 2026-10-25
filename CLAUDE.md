@@ -153,7 +153,9 @@ Os jobs do `grolla-worker` ficam com o papel cuja lógica eles disparam, indicad
 4. **Integração (agente pai).** O agente pai é o único que altera os arquivos compartilhados
    (`pyproject.toml`, `uv.lock`, `grolla.bootstrap`, `docker-compose.yml`, `Makefile`, este
    arquivo, os READMEs do pai e `openspec/`). No fim, ele junta os branches, resolve conflitos,
-   **roda `make e2e` e `make check`**, revisa os READMEs e só então a change pode ser arquivada.
+   **faz o code review do todo** (consistência entre componentes, duplicação, desvio de contrato,
+   simplicidade, cobertura das specs) e ajusta o que fizer sentido, **roda `make e2e` e
+   `make check`**, revisa os READMEs e só então a change pode ser arquivada.
 
 ## 📘 READMEs — sempre atualizados
 
