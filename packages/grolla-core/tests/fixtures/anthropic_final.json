@@ -7,7 +7,7 @@
     {"type": "thinking", "thinking": "", "signature": "EqQBCkYIBxgCKkB"},
     {
       "type": "text",
-      "text": "{\"summary\": \"Erros subiram depois do deploy 1.4.2.\", \"hypotheses\": [{\"title\": \"Deploy 1.4.2 com regressão\", \"confidence\": 0.8, \"evidence\": [{\"text\": \"build 1.4.2 às 10:02\", \"url\": \"https://dev.azure.com/org/Core/_build/results?buildId=7\"}]}, {\"title\": \"Banco lento\", \"confidence\": 0.2, \"evidence\": []}], \"plan\": [\"Avaliar rollback do 1.4.2\"]}"
+      "text": "{\"summary\": \"Erros subiram depois do deploy 1.4.2.\", \"hypotheses\": [{\"title\": \"Deploy 1.4.2 com regressão\", \"confidence\": 0.8, \"evidence\": [{\"text\": \"build 1.4.2 às 10:02\", \"url\": \"https://dev.azure.com/org/Core/_build/results?buildId=7\"}]}, {\"title\": \"Banco lento\", \"confidence\": 0.2, \"evidence\": [{\"text\": \"p99 do banco estável\", \"url\": null}]}], \"plan\": [\"Avaliar rollback do 1.4.2\"]}"
     }
   ],
   "stop_reason": "end_turn",

@@ -6,19 +6,22 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
-import grolla.adapters.anthropic
 import httpx2
 import pytest
+from contracts.language_model_contract import LanguageModelContract
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
+    SYSTEM_PROMPT,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
+    LanguageModel,
     LanguageModelError,
     LlmUsage,
     TokenBudget,
     Toolbox,
     ToolSpec,
+    brief_text,
 )
 from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis
 from grolla.testing.builders import T0, make_alert, make_incident
@@ -89,13 +92,22 @@ class RecordingBudget(TokenBudget):
             raise BudgetExceededError("estourou")
 
 
-@pytest.fixture(autouse=True)
-def fixed_brief_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    def text(_brief: InvestigationBrief) -> str:
-        return "Serviços: authorizer-api"
+class TestClaudeLanguageModelContract(LanguageModelContract):
+    @pytest.fixture
+    def model(self) -> LanguageModel:
+        return claude(
+            ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(fixture("anthropic_final.json")))
+        )
 
-    monkeypatch.setattr(grolla.adapters.anthropic, "brief_text", text)
-    monkeypatch.setattr(grolla.adapters.anthropic, "SYSTEM_PROMPT", "Investigue.")
+    @pytest.fixture
+    def failing_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return claude(ScriptedApi(response, response, response))
+
+    @pytest.fixture
+    def invalid_model(self) -> LanguageModel:
+        return claude(ScriptedApi(ok(final("não é json"))))
 
 
 def brief() -> InvestigationBrief:
@@ -105,7 +117,7 @@ def brief() -> InvestigationBrief:
     )
 
 
-def model(handler: Handler, settings: ModelSettings = SETTINGS) -> ClaudeLanguageModel:
+def claude(handler: Handler, settings: ModelSettings = SETTINGS) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
         "chave", settings, base_url="http://fake/anthropic", transport=httpx2.MockTransport(handler)
     )
@@ -117,7 +129,7 @@ async def investigate(
     budget: TokenBudget | None = None,
     settings: ModelSettings = SETTINGS,
 ) -> AnalysisDraft:
-    return await model(handler, settings).investigate(
+    return await claude(handler, settings).investigate(
         brief(), toolbox or RecordingToolbox(), budget or RecordingBudget()
     )
 
@@ -145,7 +157,11 @@ async def test_runs_the_requested_tools_and_returns_the_structured_draft() -> No
                     ),
                 ),
             ),
-            Hypothesis(title="Banco lento", confidence=0.2, evidence=()),
+            Hypothesis(
+                title="Banco lento",
+                confidence=0.2,
+                evidence=(Evidence(text="p99 do banco estável", url=None),),
+            ),
         ),
         plan=("Avaliar rollback do 1.4.2",),
     )
@@ -157,7 +173,7 @@ async def test_sends_tool_results_back_after_the_assistant_turn() -> None:
     await investigate(api)
 
     first, second = api.bodies
-    assert first["messages"] == [{"role": "user", "content": "Serviços: authorizer-api"}]
+    assert first["messages"] == [{"role": "user", "content": brief_text(brief())}]
     user, assistant, results = second["messages"]
     assert user == first["messages"][0]
     assert assistant["role"] == "assistant"
@@ -197,7 +213,7 @@ async def test_request_uses_the_stage_settings_structured_output_and_cache() -> 
     ]
     assert "tool_choice" not in body
     assert body["system"] == [
-        {"type": "text", "text": "Investigue.", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+        {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
     ]
     assert [tool["name"] for tool in body["tools"]] == ["query_metric", "recent_deploys"]
     assert "cache_control" not in body["tools"][0]
@@ -259,6 +275,7 @@ async def test_refusal_becomes_language_model_error() -> None:
 
 
 INVALID_DRAFTS: list[object] = [
+    {"summary": "s", "hypotheses": [{"title": "t", "confidence": 0.5, "evidence": []}], "plan": []},
     "não é json",
     {"summary": "s", "hypotheses": [], "plan": [], "extra": 1},
     {"summary": "s", "plan": []},

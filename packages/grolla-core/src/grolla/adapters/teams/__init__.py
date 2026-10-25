@@ -7,6 +7,7 @@ import httpx2
 from grolla.application.incidents import NotificationFailedError
 from grolla.domain.analysis import (
     INITIAL_CHECKS,
+    PARTIAL_REASON_TEXT,
     Analysis,
     Evaluation,
     Evidence,
@@ -32,13 +33,8 @@ _COLORS = {
 }
 
 
-_PARTIAL_REASONS = {
-    PartialReason.LLM_FAILED: "LLM indisponível",
-    PartialReason.TIMEOUT: "tempo esgotado",
-    PartialReason.BUDGET: "orçamento esgotado",
-    PartialReason.INVALID_RESULT: "resultado inválido",
-    PartialReason.INTERRUPTED: "interrompida",
-}
+# O canal diz "LLM indisponível" para a falha do modelo: é o que o time entende de cara.
+_PARTIAL_REASONS = {**PARTIAL_REASON_TEXT, PartialReason.LLM_FAILED: "LLM indisponível"}
 
 _NOTHING = "- nenhuma consulta concluída"
 
@@ -114,15 +110,17 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
 
 def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[str, Any]]:
     if analysis.partial_reason is None:
-        body = [_headline("Análise pronta", notification, "Accent")]
-    else:
+        body = [
+            _headline("Análise pronta", notification, "Accent"),
+            *_identity(notification),
+            _text(analysis.summary),
+        ]
+    else:  # o resumo da parcial só repete o motivo, que já vai logo abaixo do título
         body = [
             _headline("Análise parcial", notification, "Warning"),
             _text(f"Motivo: {_PARTIAL_REASONS[analysis.partial_reason]}"),
+            *_identity(notification),
         ]
-    body.extend(_identity(notification))
-    if analysis.summary:
-        body.append(_text(analysis.summary))
     body.append(
         _section("O que avaliei", [_evaluation(e) for e in analysis.evaluations] or [_NOTHING])
     )

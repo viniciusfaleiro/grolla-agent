@@ -66,7 +66,7 @@ def analysis(reason: PartialReason | None = None) -> Analysis:
         requested_at=T0,
         started_at=T0,
         finished_at=T0,
-        summary="" if reason else "Erros começaram logo depois do deploy 1.4.2.",
+        summary="Análise parcial." if reason else "Erros começaram logo depois do deploy 1.4.2.",
         evaluations=EVALUATIONS,
         hypotheses=()
         if reason
@@ -255,7 +255,7 @@ def test_analysis_card_without_telemetry_link_only_links_the_page() -> None:
     [
         (PartialReason.LLM_FAILED, "LLM indisponível"),
         (PartialReason.TIMEOUT, "tempo esgotado"),
-        (PartialReason.BUDGET, "orçamento esgotado"),
+        (PartialReason.BUDGET, "orçamento de tokens esgotado"),
         (PartialReason.INVALID_RESULT, "resultado inválido"),
         (PartialReason.INTERRUPTED, "interrompida"),
     ],
@@ -269,6 +269,7 @@ def test_partial_analysis_card_says_why_right_below_the_headline(
     assert lines[1] == f"Motivo: {text}"
     assert "Serviços: capture-api, authorizer-api" in lines
     assert "O que avaliei" in lines
+    assert "Análise parcial." not in lines
     assert "Hipóteses" not in lines
     assert "Plano proposto" not in lines
 

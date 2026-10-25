@@ -41,8 +41,8 @@ REQUEST_TIMEOUT_SECONDS = 60.0
 # Cache de 1 h no prefixo estável (ferramentas e system): as análises de um mesmo dia o reusam.
 _CACHE_1H: Any = {"type": "ephemeral", "ttl": "1h"}
 
-# Schema do resultado final. Structured outputs não aceita limites numéricos: a confiança
-# entre 0 e 1 é conferida na validação.
+# Schema do resultado final. Structured outputs não aceita limites numéricos (só minItems 0
+# ou 1): a confiança entre 0 e 1 é conferida na validação.
 DRAFT_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -56,6 +56,7 @@ DRAFT_SCHEMA: dict[str, object] = {
                     "confidence": {"type": "number"},
                     "evidence": {
                         "type": "array",
+                        "minItems": 1,  # toda hipótese cita ao menos uma evidência
                         "items": {
                             "type": "object",
                             "properties": {
@@ -99,7 +100,7 @@ class _Evidence(_Strict):
 class _Hypothesis(_Strict):
     title: str
     confidence: float = Field(ge=0, le=1)
-    evidence: list[_Evidence]
+    evidence: list[_Evidence] = Field(min_length=1)
 
 
 class _Draft(_Strict):

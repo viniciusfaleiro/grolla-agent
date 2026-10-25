@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import grolla_worker.app
 import pytest
@@ -11,9 +11,11 @@ from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
+    InMemoryAnalysisQueue,
     InMemoryIncidentRepository,
     InMemoryNotificationOutbox,
 )
+from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry, ScriptedLanguageModel
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
@@ -39,7 +41,6 @@ async def container() -> AsyncIterator[WorkerContainer]:
     database = PostgresDatabase(DATABASE_URL)
     repository = InMemoryIncidentRepository()
     config = TeamConfig(team="t", page_base_url="http://grolla")
-    pending = cast(Any, None)  # provisório: os fakes da investigação chegam do grolla-dominio
     yield WorkerContainer(
         settings=WorkerSettings(
             database_url=DATABASE_URL,
@@ -54,10 +55,10 @@ async def container() -> AsyncIterator[WorkerContainer]:
         outbox=InMemoryNotificationOutbox(repository),
         notifier=FakeChatNotifier(),
         repository=repository,
-        analysis_queue=pending,
-        model=pending,
-        telemetry=pending,
-        changes=pending,
+        analysis_queue=InMemoryAnalysisQueue(repository),
+        model=ScriptedLanguageModel(),
+        telemetry=FakeTelemetry(),
+        changes=FakeChangeHistory(),
         analysis=config.analysis_policy(),
     )
     await database.dispose()
