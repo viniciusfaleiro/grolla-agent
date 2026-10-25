@@ -36,7 +36,7 @@ Workspace, harness completo (`make check`, `make e2e`), esqueleto do `grolla-api
 
 ## S2 · Alertas viram incidentes ✅
 
-Entregue na change `alertas-viram-incidentes`, com o console de testes no `grolla-fakes`. O aceite
+Entregue nas changes `changes/archive/2026-10-25-alertas-viram-incidentes` e `changes/archive/2026-10-25-console-de-testes`. O aceite
 com alertas reais é feito junto com o S3 (sozinho, o S2 repete o que o SigNoz já manda). Ficaram
 para depois: poller de 60 s, agrupamento por dependência (precisa do `Telemetry`, S3), Secrets
 Manager e backup automatizado (o deploy é manual; o `deploy/README.md` traz o backup por cron).

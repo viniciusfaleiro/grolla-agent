@@ -1,7 +1,9 @@
 # architecture-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change fundacao-harness. Update Purpose after archive.
+
+Manter a arquitetura hexagonal: dependências só para dentro e cada fornecedor externo isolado num adapter próprio.
+
 ## Requirements
 ### Requirement: Camadas hexagonais impostas no build
 O `grolla-core` SHALL se organizar em `grolla.domain`, `grolla.application`, `grolla.adapters` e `grolla.bootstrap`. Os contratos do import-linter SHALL garantir que: `domain` não importa nenhuma outra camada; `application` importa só `domain`; `adapters` importam só `application` e `domain`; nada importa `bootstrap`, exceto os pacotes deployables; e não há ciclos de importação.

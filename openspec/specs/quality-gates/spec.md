@@ -1,7 +1,9 @@
 # quality-gates Specification
 
 ## Purpose
-TBD - created by archiving change fundacao-harness. Update Purpose after archive.
+
+Garantir que todo código entra com os gates de qualidade verdes: formatação, lint, tipos, arquitetura, testes, cobertura, supply chain, segredos e specs.
+
 ## Requirements
 ### Requirement: Um comando único roda todos os gates rápidos
 O projeto pai SHALL expor `make check`, que roda, em todos os pacotes do workspace e também em `e2e/` (runner e `grolla-fakes`) e `scripts/`: verificação de formatação (ruff format), lint com zero warnings (ruff check, incluindo as regras de segurança do bandit), checagem de tipos em modo strict (pyright), contratos de arquitetura (import-linter), checagem de vocabulário de fornecedor, testes unitários, testes de integração, verificação dos pisos de cobertura, auditoria de dependências (pip-audit), busca de segredos (gitleaks) e validação estrita do openspec. O comando SHALL terminar com código diferente de zero se qualquer gate falhar.

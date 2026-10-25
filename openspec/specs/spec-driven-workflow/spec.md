@@ -1,7 +1,9 @@
 # spec-driven-workflow Specification
 
 ## Purpose
-TBD - created by archiving change fundacao-harness. Update Purpose after archive.
+
+Fazer toda mudança de comportamento passar pelo openspec, inclusive quando desenvolvida por vários agentes em paralelo.
+
 ## Requirements
 ### Requirement: Mudança de comportamento passa pelo openspec
 Toda mudança de comportamento SHALL passar pelo fluxo `/opsx:propose`, `/opsx:apply` e `/opsx:archive`. Specs em `openspec/specs/` SHALL NOT ser editadas à mão; elas SHALL mudar só ao arquivar uma change. A regra SHALL estar escrita no `CLAUDE.md` e no `README.md`.
