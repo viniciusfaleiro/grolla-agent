@@ -123,6 +123,38 @@ Não comece a escrever código de feature sem uma change aprovada. **Nunca** edi
 As regras de artefato estão em `openspec/config.yaml`. As três últimas tarefas de toda change
 são: revisar os READMEs, `make e2e` verde e `make fmt && make check` verde.
 
+## 🤖 Desenvolvimento com múltiplos agentes
+
+Quando uma change toca **mais de uma área**, ela roda com um agente por área, em paralelo, e a
+sessão principal atua como **agente pai**. Change pequena ou de uma área só roda com um agente
+(o `tasks.md` declara o modo no início).
+
+| Papel (`.claude/agents/`) | Dono de |
+|---|---|
+| `grolla-dominio` | `grolla.domain`, `grolla.application`, `grolla.testing` e os testes deles |
+| `grolla-persistencia` | `grolla.adapters.postgres` (log de eventos, projeções, outbox, migrações) |
+| `grolla-integracoes` | `grolla.adapters.<fornecedor externo>` + o protocolo dele em `e2e/fakes/` |
+| `grolla-web` | `packages/grolla-api/` |
+| `grolla-e2e` | `e2e/scenarios/` e `e2e/test_scenarios.py` |
+
+Os jobs do `grolla-worker` ficam com o papel cuja lógica eles disparam, indicado no `tasks.md`.
+
+**Fluxo:**
+
+1. **Contratos primeiro (agente pai).** O `design.md` da change tem a seção **Contratos**. O
+   agente pai escreve esses contratos como código (ports, modelos Pydantic, endpoints, migração
+   de schema) e faz o **commit de contrato** antes de abrir qualquer agente.
+2. **Trabalho paralelo.** Cada agente parte do commit de contrato, num git worktree e branch
+   próprios, e altera **só os caminhos do seu papel**. Precisa de algo fora deles? Pede por
+   mensagem ao dono. Mudança de contrato é combinada por mensagem entre os agentes afetados e
+   registrada no `design.md`.
+3. **`make check` por agente.** Cada agente entrega o branch com `make check` verde no próprio
+   worktree. Ninguém roda `make e2e` em paralelo (as portas do compose são fixas).
+4. **Integração (agente pai).** O agente pai é o único que altera os arquivos compartilhados
+   (`pyproject.toml`, `uv.lock`, `grolla.bootstrap`, `docker-compose.yml`, `Makefile`, este
+   arquivo, os READMEs do pai e `openspec/`). No fim, ele junta os branches, resolve conflitos,
+   **roda `make e2e` e `make check`**, revisa os READMEs e só então a change pode ser arquivada.
+
 ## 📘 READMEs — sempre atualizados
 
 O projeto pai e **cada componente** (`grolla-core`, `grolla-api`, `grolla-worker`,
