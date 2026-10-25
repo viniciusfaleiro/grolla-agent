@@ -33,6 +33,8 @@ os deployables só montam o processo.
 | **Repositório de incidentes** | Unidade de trabalho transacional, deduplicação de alertas, log de eventos e projeção | `grolla.adapters.postgres.PostgresIncidentRepository` |
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
+| **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
+| **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL) | `grolla.adapters.teams.TeamsChatNotifier` |
 | **Configuração** | Variáveis `GROLLA_*` validadas; erro nomeia a variável | `grolla.bootstrap.load_settings` |
 | **Composição** | Migra e monta as dependências de um processo | `grolla.bootstrap.prepare` |
 
@@ -108,7 +110,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          (vazio no S1)
   application/     clock.py
-  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/)
+  adapters/        system_clock/ · postgres/ (database, incidents, migrate, migrations/) · signoz/ · teams/
   bootstrap/       settings.py · container.py
   testing/         clock.py (FakeClock)
 tests/             unit/ · integration/ · contracts/
