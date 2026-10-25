@@ -32,7 +32,8 @@ quem encerra um incidente é sempre um humano.
 
 Slice 1 (`fundacao-harness`): workspace, harness completo e esqueleto dos deployables. A api
 responde `/health`, o worker grava um heartbeat a cada 15 s, o e2e sobe tudo com os fakes.
-Nenhuma regra de negócio ainda. O plano de slices seguintes ainda vai ser discutido.
+Nenhuma regra de negócio ainda. Próximo: S2 (alertas viram incidentes) — ver
+[`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)
 
