@@ -18,9 +18,13 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     async def heartbeat(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await beat(container.clock, container.database.record_heartbeat)
 
-    # O queueing_lock garante uma rodada por vez: a outbox não precisa de SKIP LOCKED.
+    # Uma rodada na fila (queueing_lock) e uma rodando (lock): a outbox não precisa de SKIP LOCKED.
     @app.periodic(cron=DELIVERY_CRON)
-    @app.task(name="deliver_notifications", queueing_lock="deliver_notifications")
+    @app.task(
+        name="deliver_notifications",
+        queueing_lock="deliver_notifications",
+        lock="deliver_notifications",
+    )
     async def deliver(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await deliver_notifications(container.outbox, container.notifier, container.clock)
 

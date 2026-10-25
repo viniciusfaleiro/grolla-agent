@@ -25,6 +25,8 @@ from grolla.domain.incidents import (
 )
 
 SYSTEM_AUTHOR = "sistema"
+# Primeira chave dos advisory locks por serviço (a segunda é o hash do nome do serviço).
+SERVICE_LOCK_NAMESPACE = 7042
 
 
 def _incident(row: sa.Row[Any]) -> Incident:
@@ -154,6 +156,12 @@ class PostgresUnitOfWork:
         return result.scalar_one_or_none() is not None
 
     async def active_incidents(self, service: str, since: datetime) -> list[Incident]:
+        # Serializa até o commit as transações do mesmo serviço: dois webhooks simultâneos
+        # não podem abrir dois incidentes para o mesmo problema.
+        await self._connection.execute(
+            sa.text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:service))"),
+            {"namespace": SERVICE_LOCK_NAMESPACE, "service": service},
+        )
         result = await self._connection.execute(
             sa.text(
                 "SELECT "
@@ -161,19 +169,21 @@ class PostgresUnitOfWork:
                 " FROM incidents"
                 " WHERE :service = ANY (services)"
                 " AND (cardinality(firing) > 0 OR last_alert_at >= :since)"
-                " ORDER BY last_alert_at DESC"
+                " ORDER BY last_alert_at DESC FOR UPDATE"
             ),
             {"service": service, "since": since},
         )
         return [_incident(row) for row in result]
 
     async def incident_firing(self, fingerprint: str) -> Incident | None:
+        # FOR UPDATE aqui e em active_incidents: resolução e agrupamento simultâneos no mesmo
+        # incidente não perdem a atualização de `firing` um do outro.
         result = await self._connection.execute(
             sa.text(
                 "SELECT "
                 "id, title, state, severity, services, detected_at, last_alert_at, firing"
                 " FROM incidents WHERE :fingerprint = ANY (firing)"
-                " ORDER BY last_alert_at DESC LIMIT 1"
+                " ORDER BY last_alert_at DESC LIMIT 1 FOR UPDATE"
             ),
             {"fingerprint": fingerprint},
         )

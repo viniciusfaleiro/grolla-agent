@@ -48,6 +48,7 @@ def test_delivery_runs_every_five_seconds_one_round_at_a_time(
 
     task = app.tasks["deliver_notifications"]
     assert task.queueing_lock == "deliver_notifications"
+    assert task.lock == "deliver_notifications"
     periodic = app.periodic_registry.periodic_tasks[("deliver_notifications", "")]
     assert periodic.cron == DELIVERY_CRON == "* * * * * */5"
 
