@@ -3,7 +3,8 @@
 Expõe só as ferramentas de leitura que o adapter usa, com os mesmos nomes e respostas no formato
 do Query Builder v5. Sem roteiro, conta uma história plausível e coerente com o deploy padrão do
 Azure DevOps fake (há 20 min): a partir de 18 min atrás a taxa de erro e a latência sobem e os
-logs mostram timeout de conexão com o banco.
+logs mostram timeout de conexão com o banco (ERROR) e a conexão derrubada pelo servidor (WARN,
+com o IP variando como no Postgres real).
 
 O roteiro (`POST /_control/signoz`) fixa a resposta de uma ferramenta ou a faz falhar.
 """
@@ -27,6 +28,7 @@ ERROR_SPANS_BEFORE, ERROR_SPANS_AFTER = 5, 90
 P99_BEFORE_NS, P99_AFTER_NS = 180_000_000, 2_400_000_000
 CALLS_PER_SECOND = 20.0
 ERROR_LOGS = 31
+WARN_LOGS = 22
 ERROR_SPANS = 12
 
 _ANY: dict[str, Any] = {"type": ["string", "number", "boolean"]}
@@ -172,20 +174,30 @@ def _aggregate(
 def _logs(
     arguments: dict[str, Any], service: str, start: datetime, end: datetime, onset: datetime
 ) -> dict[str, Any]:
-    body = f"connection timeout to {service}-db:5432 after 5000ms (pool exhausted)"
+    error = f"connection timeout to {service}-db:5432 after 5000ms (pool exhausted)"
+    logs = [(onset + timedelta(seconds=30 * i), error, "ERROR", 17) for i in range(ERROR_LOGS)]
+    logs += [
+        (
+            onset + timedelta(seconds=40 * i),
+            f'connection to server at "10.0.1.{23 + i % 2}", port 5432 failed: server closed '
+            "the connection unexpectedly",
+            "WARN",
+            13,
+        )
+        for i in range(WARN_LOGS)
+    ]
     text = str(arguments.get("searchText") or "").lower()
-    moments = [onset + timedelta(seconds=30 * i) for i in range(ERROR_LOGS)]
     rows = [
         {
             "timestamp": m.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "data": {
                 "body": body,
-                "severity_text": "ERROR",
-                "severity_number": 17,
+                "severity_text": level,
+                "severity_number": number,
                 "resources_string": {"service.name": service},
             },
         }
-        for m in moments
+        for m, body, level, number in sorted(logs, reverse=True)
         if start <= m <= end and text in body.lower()
     ]
     return _envelope("raw", {"queryName": "A", "nextCursor": "", "rows": rows})

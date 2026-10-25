@@ -35,7 +35,9 @@ S1 (`fundacao-harness`): workspace, harness e esqueleto dos deployables. S2
 severidade por regras do YAML, log de eventos imutável, cards no Teams por outbox, páginas de
 incidentes e o pacote de deploy manual (`deploy/`). S3 (`agente-investiga-cada-alerta`): todo
 incidente novo recebe "estou investigando" e a análise do LLM (avaliações reais, hipóteses, plano)
-sobre o MCP do SigNoz e o Azure DevOps, com análise parcial garantida e `make evals`. Próximo: S4
+sobre o MCP do SigNoz e o Azure DevOps, com análise parcial garantida e `make evals`. S3.1
+(`investigacao-ate-a-causa-raiz`): validação de cada hipótese até a causa raiz com plano de ação
+concreto e consulta somente leitura à AWS. Próximo: S4
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

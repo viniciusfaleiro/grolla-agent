@@ -32,6 +32,7 @@ class FakeAzureDevOps:
         )
         self.builds: Any = fixture("builds")
         self.status = 200
+        self.commit_status = 200
         self.requests: list[httpx2.Request] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
@@ -40,6 +41,8 @@ class FakeAzureDevOps:
             return httpx2.Response(self.status, text="<html>login</html>")
         parts = request.url.path.split("/")  # /minha-org/{projeto}/_apis/...
         project = parts[2]
+        if "/commits/" in request.url.path:
+            return httpx2.Response(self.commit_status, json=fixture("commit"))
         if "/_apis/git/repositories/" in request.url.path:
             if (project, parts[-1]) not in self.repositories:
                 return httpx2.Response(404, json={"message": "TF401019: repository not found"})
@@ -53,8 +56,9 @@ class FakeAzureDevOps:
             BASE, TOKEN, projects, mapping or {}, httpx2.MockTransport(self)
         )
 
-    def paths(self) -> list[str]:
-        return [r.url.path for r in self.requests]
+    def paths(self, *, commits: bool = False) -> list[str]:
+        """Caminhos pedidos; sem as buscas de mensagem de commit, salvo se `commits`."""
+        return [r.url.path for r in self.requests if commits or "/commits/" not in r.url.path]
 
 
 class TestAzureDevOpsChangeHistoryContract(ChangeHistoryContract):
@@ -76,9 +80,10 @@ async def test_deploys_list_time_version_author_and_link() -> None:
 
     assert result.summary == (
         "2 deploy(s) do repositório authorizer-api desde 25/10 05:00 UTC: "
-        "25/10 10:38 UTC authorizer-api-deploy 20261025.3 (main a1b2c3d) por Fulana de Tal: "
-        "sucesso; 25/10 08:12 UTC authorizer-api-deploy 20261025.2 (refs/pull/931/merge "
-        "9f8e7d6) por Beltrano Souza: em andamento"
+        "25/10 10:38 UTC authorizer-api-deploy 20261025.3 (main a1b2c3d) "
+        '"Aumenta o pool de conexões" por Fulana de Tal: sucesso; 25/10 08:12 UTC '
+        'authorizer-api-deploy 20261025.2 (refs/pull/931/merge 9f8e7d6) "Merge PR 931: Corrige '
+        'o arredondamento da captura" por Beltrano Souza: em andamento'
     )
     assert result.url == (
         "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10"
@@ -91,7 +96,7 @@ async def test_builds_are_filtered_by_repository_and_since_with_basic_pat() -> N
 
     await fake.history().recent_deploys("authorizer-api", SINCE)
 
-    builds = fake.requests[-1]
+    [builds] = [r for r in fake.requests if r.url.path.endswith("/build/builds")]
     assert builds.url.path == "/minha-org/Core/_apis/build/builds"
     assert dict(builds.url.params) == {
         "repositoryId": REPO_ID,
@@ -103,6 +108,49 @@ async def test_builds_are_filtered_by_repository_and_since_with_basic_pat() -> N
     }
     expected = base64.b64encode(f":{TOKEN}".encode()).decode()
     assert builds.headers["authorization"] == f"Basic {expected}"
+
+
+async def test_message_comes_from_the_commit_only_when_the_build_lacks_it() -> None:
+    fake = FakeAzureDevOps()
+
+    await fake.history().recent_deploys("authorizer-api", SINCE)
+
+    commits = [p for p in fake.paths(commits=True) if "/commits/" in p]
+    assert commits == [
+        "/minha-org/Core/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/commits/"
+        "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
+    ]
+
+
+@pytest.mark.parametrize("status", [404, 500])
+async def test_commit_lookup_failure_keeps_the_build_without_message(status: int) -> None:
+    fake = FakeAzureDevOps()
+    fake.commit_status = status
+
+    result = await fake.history().recent_deploys("authorizer-api", SINCE)
+
+    assert result.summary.endswith(
+        "20261025.2 (refs/pull/931/merge 9f8e7d6) por Beltrano Souza: em andamento"
+    )
+
+
+async def test_build_message_is_its_first_line_clipped() -> None:
+    fake = FakeAzureDevOps()
+    build = {
+        "buildNumber": "8",
+        "status": "completed",
+        "result": "succeeded",
+        "queueTime": "2026-10-25T09:00:00Z",
+        "definition": {"name": "ci"},
+        "sourceVersionMessage": "Revert " + "x" * 200 + "\nsegunda linha",
+    }
+    fake.builds = {"count": 1, "value": [build]}
+
+    result = await fake.history().recent_deploys("authorizer-api", SINCE)
+
+    assert '"Revert xxx' in result.summary
+    assert "segunda linha" not in result.summary
+    assert "…" in result.summary
 
 
 async def test_repository_is_found_by_service_name_in_the_projects() -> None:

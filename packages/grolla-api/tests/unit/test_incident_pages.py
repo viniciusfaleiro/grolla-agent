@@ -5,12 +5,16 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from grolla.domain.analysis import (
+    Action,
     Analysis,
     AnalysisStatus,
     Evaluation,
     Evidence,
     Hypothesis,
+    HypothesisVerdict,
     PartialReason,
+    Verdict,
+    Verification,
 )
 from grolla.domain.incidents import EventType, IncidentEvent, Severity
 from grolla.testing.builders import T0, make_alert, make_incident
@@ -19,14 +23,14 @@ from grolla_api.app import Services, create_app
 
 
 class RepositoryWithAnalyses(InMemoryIncidentRepository):
-    """Stub local de `analysis_of` até o fake do domínio chegar."""
+    """Stub local de `verification_of` até o fake do domínio chegar."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.analyses: dict[UUID, Analysis] = {}
+        self.verifications: dict[UUID, Verification] = {}
 
-    async def analysis_of(self, incident_id: UUID) -> Analysis | None:
-        return self.analyses.get(incident_id)
+    async def verification_of(self, incident_id: UUID) -> Verification | None:
+        return self.verifications.get(incident_id)
 
 
 @pytest.fixture
@@ -233,3 +237,183 @@ def test_analysis_text_is_escaped(client: TestClient, repository: RepositoryWith
 
     assert "<img src=x" not in page
     assert "&lt;img src=x" in page
+
+
+ROOT_CAUSE = "Banco grolla-lab-db parado por StopDBInstance às 10:00"
+
+
+def make_verification(
+    incident_id: UUID,
+    status: AnalysisStatus = AnalysisStatus.COMPLETED,
+    partial_reason: PartialReason | None = None,
+) -> Verification:
+    return Verification(
+        incident_id=incident_id,
+        status=status,
+        requested_at=T0 + timedelta(minutes=2),
+        started_at=T0 + timedelta(minutes=2, seconds=5),
+        finished_at=T0 + timedelta(minutes=5),
+        verdicts=(
+            HypothesisVerdict(
+                hypothesis="Banco degradado",
+                verdict=Verdict.CONFIRMED,
+                reasoning="O banco está parado desde 10:00 e os erros começam no mesmo minuto.",
+                evidence=(
+                    Evidence("StopDBInstance às 10:00", "https://nuvem.interno/auditoria/1"),
+                ),
+            ),
+            HypothesisVerdict(
+                hypothesis="Deploy 1.4.2 introduziu regressão",
+                verdict=Verdict.REJECTED,
+                reasoning="O deploy é um revert e saiu 10 min antes do problema.",
+                evidence=(),
+            ),
+            HypothesisVerdict(
+                hypothesis="Adquirente lenta",
+                verdict=Verdict.INCONCLUSIVE,
+                reasoning="Sem traces da adquirente na janela.",
+                evidence=(),
+            ),
+        ),
+        root_cause=ROOT_CAUSE,
+        actions=(
+            Action(
+                action="Religar o banco grolla-lab-db",
+                target="RDS grolla-lab-db",
+                expected="Conexões voltam e a taxa de erro cai para o normal",
+                link="https://nuvem.interno/rds/grolla-lab-db",
+            ),
+            Action(
+                action="Reiniciar o pool do pedidos-api",
+                target="pedidos-api",
+                expected="Pool reabre as conexões",
+                link=None,
+            ),
+        ),
+        missing="",
+        evaluations=(
+            Evaluation(
+                tool="cloud_changes",
+                subject="mudanças nos recursos de pedidos-api",
+                finding="StopDBInstance em grolla-lab-db às 10:00",
+                url="https://nuvem.interno/auditoria/1",
+                ok=True,
+            ),
+        ),
+        partial_reason=partial_reason,
+    )
+
+
+def page_with(
+    client: TestClient, repository: RepositoryWithAnalyses, verification: Verification | None
+) -> str:
+    incident = make_incident()
+    repository.incidents = {incident.id: incident}
+    repository.analyses = {incident.id: make_analysis(incident.id)}
+    if verification is not None:
+        repository.verifications = {incident.id: replace(verification, incident_id=incident.id)}
+    return client.get(f"/incidents/{incident.id}").text
+
+
+def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
+    client: TestClient, repository: RepositoryWithAnalyses
+) -> None:
+    page = page_with(client, repository, make_verification(uuid4()))
+
+    validation = page.index("<h2>Validação</h2>")
+    assert page.index("<h2>Análise</h2>") < validation < page.index("<h2>Alertas</h2>")
+    assert "validação concluída" in page
+    assert page.index(ROOT_CAUSE) < page.index("<h2>Análise</h2>")  # resumo perto do título
+    assert page.count(ROOT_CAUSE) == 2
+    assert "Veredito por hipótese" in page
+    assert "confirmada" in page
+    assert "rejeitada" in page
+    assert "inconclusiva" in page
+    assert "O deploy é um revert e saiu 10 min antes do problema." in page
+    assert 'href="https://nuvem.interno/auditoria/1"' in page
+    assert "Plano de ação" in page
+    assert "Religar o banco grolla-lab-db" in page
+    assert "RDS grolla-lab-db" in page
+    assert "Conexões voltam e a taxa de erro cai para o normal" in page
+    assert 'href="https://nuvem.interno/rds/grolla-lab-db"' in page
+    assert "O que avaliei na validação" in page
+    assert "StopDBInstance em grolla-lab-db às 10:00" in page
+    assert "não confirmada" not in page
+
+
+@pytest.mark.parametrize("status", [AnalysisStatus.PENDING, AnalysisStatus.RUNNING])
+def test_verification_not_finished_shows_validating(
+    client: TestClient, repository: RepositoryWithAnalyses, status: AnalysisStatus
+) -> None:
+    pending = replace(
+        make_verification(uuid4(), status),
+        finished_at=None,
+        verdicts=(),
+        root_cause=None,
+        actions=(),
+        evaluations=(),
+    )
+
+    page = page_with(client, repository, pending)
+
+    assert "validando as hipóteses" in page
+    assert "Deploy 1.4.2 introduziu regressão" in page  # as hipóteses iniciais continuam
+    assert "não confirmada" not in page
+    assert "Plano de ação" not in page
+
+
+def test_verification_without_root_cause_says_what_was_missing(
+    client: TestClient, repository: RepositoryWithAnalyses
+) -> None:
+    unconfirmed = replace(
+        make_verification(uuid4()),
+        root_cause=None,
+        actions=(),
+        missing="Sem acesso aos eventos de auditoria da nuvem",
+    )
+
+    page = page_with(client, repository, unconfirmed)
+
+    assert "Causa raiz não confirmada" in page
+    assert "Sem acesso aos eventos de auditoria da nuvem" in page
+    assert "Causa raiz:" not in page
+    assert "Plano de ação" not in page
+
+
+def test_partial_verification_shows_the_reason_in_portuguese(
+    client: TestClient, repository: RepositoryWithAnalyses
+) -> None:
+    partial = replace(
+        make_verification(uuid4(), AnalysisStatus.PARTIAL, PartialReason.LLM_FAILED),
+        verdicts=(),
+        root_cause=None,
+        actions=(),
+    )
+
+    page = page_with(client, repository, partial)
+
+    assert "validação parcial" in page
+    assert "LLM indisponível" in page
+    assert "falha_do_llm" not in page
+    assert "Causa raiz não confirmada" in page
+    assert "O que avaliei na validação" in page
+
+
+def test_incident_without_verification_says_so(
+    client: TestClient, repository: RepositoryWithAnalyses
+) -> None:
+    page = page_with(client, repository, None)
+
+    assert "Nenhuma validação pedida" in page
+    assert "Causa raiz" not in page
+
+
+def test_verification_text_is_escaped(
+    client: TestClient, repository: RepositoryWithAnalyses
+) -> None:
+    hostile = replace(make_verification(uuid4()), root_cause="<script>x</script>")
+
+    page = page_with(client, repository, hostile)
+
+    assert "<script>" not in page
+    assert "&lt;script&gt;" in page

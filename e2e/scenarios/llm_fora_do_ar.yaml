@@ -1,5 +1,5 @@
 # Com o LLM fora do ar, a análise sai parcial por falha do LLM e o canal recebe o card
-# "investigando" e depois o card de análise parcial.
+# "investigando" e depois o card de análise parcial. Sem hipóteses, a validação não é pedida.
 # O modo do LLM fake vale para qualquer análise em andamento: troca antes do alerta e volta para
 # "completa" no fim.
 name: LLM fora do ar gera análise parcial
@@ -54,6 +54,12 @@ then:
         WHERE 'llm-fora-api' = ANY(i.services) AND a.status = 'parcial'
         AND a.partial_reason = 'falha_do_llm'
       count: 1
+  # Parcial e sem hipóteses: a validação não é pedida (nem card de causa raiz, na contagem acima).
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM verifications v JOIN incidents i ON i.id = v.incident_id
+        WHERE 'llm-fora-api' = ANY(i.services)
+      count: 0
   - http:
       service: fakes
       method: POST

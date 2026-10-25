@@ -31,11 +31,15 @@ investigation:
   max_tokens: 300000
   lookback_minutes: 60
   max_parallel: 3
+  # Validação das hipóteses até a causa raiz (segunda fase, logo depois da análise inicial).
+  verification_timeout_seconds: 300
+  verification_max_tokens: 150000
 
 # Modelo por etapa; trocar é mudar aqui e reiniciar o worker.
 llm:
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
+    verification: { model: claude-sonnet-5-5, effort: high, max_tokens: 16000 }
 
 signoz:
   mcp_url: http://signoz-mcp:8000/mcp       # container do deploy/compose.yml
@@ -45,3 +49,10 @@ azure_devops:
   base_url: https://dev.azure.com/troque-organizacao
   projects: [troque-projeto]                # onde procurar um repositório com o nome do serviço
   service_repo_map: {}                      # só as exceções: servico: { project: X, repo: Y }
+
+# Consulta à nuvem (somente leitura): estado dos recursos do serviço, mudanças no CloudTrail e
+# alarmes do CloudWatch. Recursos achados pela tag service=<nome>; o mapa cobre as exceções.
+# Sem esta seção, as ferramentas de nuvem respondem que a consulta não está configurada.
+cloud:
+  regions: [us-east-1]
+  resource_map: {}            # servico: [arn ou identificador, ...]

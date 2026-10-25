@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from grolla.domain.analysis import Analysis
+from grolla.domain.analysis import Analysis, Verification
 
 UNKNOWN_SERVICE = "desconhecido"
 
@@ -80,6 +80,9 @@ class EventType(StrEnum):
     ANALYSIS_REQUESTED = "analysis_requested"
     ANALYSIS_COMPLETED = "analysis_completed"
     ANALYSIS_PARTIAL = "analysis_partial"
+    VERIFICATION_REQUESTED = "verification_requested"
+    VERIFICATION_COMPLETED = "verification_completed"
+    VERIFICATION_PARTIAL = "verification_partial"
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,7 @@ class IncidentEvent:
 class NotificationKind(StrEnum):
     INCIDENT_OPENED = "incident_opened"  # card "investigando"
     ANALYSIS_READY = "analysis_ready"
+    ROOT_CAUSE = "root_cause"
     SEVERITY_RAISED = "severity_raised"
     INCIDENT_NORMALIZED = "incident_normalized"
 
@@ -110,6 +114,7 @@ class Notification:
     source_url: str | None
     page_url: str
     analysis: Analysis | None = None  # só em ANALYSIS_READY
+    verification: Verification | None = None  # só em ROOT_CAUSE
 
 
 @dataclass(frozen=True)

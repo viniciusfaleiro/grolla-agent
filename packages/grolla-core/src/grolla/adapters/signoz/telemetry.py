@@ -5,12 +5,13 @@ próprio ambiente: o adapter não manda chave. Cada chamada abre uma sessão MCP
 no todo; qualquer falha vira `ToolUnavailableError`.
 
 Os sinais neutros viram agregações sobre os spans do serviço (`signoz_aggregate_traces`), os
-logs de erro vêm de `signoz_search_logs` e os traces de `signoz_search_traces` (com erro) ou
+logs WARN ou acima vêm de `signoz_search_logs` e os traces de `signoz_search_traces` (com erro) ou
 `signoz_get_service_top_operations` (lentos). As respostas são do Query Builder v5 do SigNoz.
 """
 
 import asyncio
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -36,13 +37,25 @@ READ_TOOLS = frozenset(
     }
 )
 
-SERIES_POINTS = 6  # pontos da série devolvida ao modelo
-MIN_STEP_SECONDS = 60
+STEP_SECONDS = 60  # pontos de 1 min: o minuto da mudança se compara ao horário dos deploys
+SERIES_POINTS = 10  # só os últimos pontos vão para o modelo, para economizar tokens
+BASELINE_POINTS = 5  # o patamar do início da janela é a média dos primeiros pontos
+CHANGE_FACTOR = 3.0  # mudança de patamar: mais de 3x (ou menos de 1/3) do patamar
+CHANGE_POINTS = 5.0  # na taxa de erro: mais de 5 pontos percentuais
 ROW_LIMIT = 100
 TOP = 3
+TOP_LOGS = 5
 MESSAGE_CHARS = 160
-ERROR_SEVERITY = "severity_number >= 17"  # ERROR e FATAL na escala do OpenTelemetry
+WARN_SEVERITY = "severity_number >= 13"  # WARN e acima na escala do OpenTelemetry
 NANOS_PER_MS = 1_000_000
+
+# Variações da mesma mensagem viram uma só: identificadores, endereços e números longos.
+_VARIABLE_PARTS = (
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I),
+    re.compile(r"\b0x[0-9a-f]+\b", re.I),
+    re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b"),
+    re.compile(r"\d{4,}"),
+)
 
 _SIGNAL_QUERIES: dict[Signal, dict[str, str]] = {
     # Total e só os com erro, em duas consultas: agrupar por has_error não devolve a série dos
@@ -74,12 +87,11 @@ class SignozTelemetry:
     async def query_metric(
         self, service: str, signal: Signal, start: datetime, end: datetime
     ) -> ToolResult:
-        step = max(MIN_STEP_SECONDS, int((end - start).total_seconds()) // SERIES_POINTS)
         arguments = {
             **_SIGNAL_QUERIES[signal],
             "service": service,
             "requestType": "time_series",
-            "stepInterval": str(step),
+            "stepInterval": str(STEP_SECONDS),
             **_window(start, end),
         }
         series = await self._aggregate(arguments)
@@ -88,14 +100,14 @@ class SignozTelemetry:
         else:
             points = _first(series)
         label = f"{_SIGNAL_LABELS[signal]} de {service} entre {_hhmm(start)} e {_hhmm(end)}"
-        return ToolResult(_series_summary(label, signal, points, step), self._service_url(service))
+        return ToolResult(_series_summary(label, signal, points), self._service_url(service))
 
     async def search_logs(
         self, service: str, text: str | None, start: datetime, end: datetime
     ) -> ToolResult:
         arguments = {
             "service": service,
-            "filter": ERROR_SEVERITY,
+            "filter": WARN_SEVERITY,
             "limit": str(ROW_LIMIT),
             **_window(start, end),
         }
@@ -108,10 +120,20 @@ class SignozTelemetry:
             where += f' com o texto "{text}"'
         url = f"{self._base_url}/logs/logs-explorer"
         if not rows:
-            return ToolResult(f"nenhum log de erro {where}", url)
-        messages = Counter(_message(str(row.data.get("body", ""))) for row in rows)
-        top = "; ".join(f'{count}x "{message}"' for message, count in messages.most_common(TOP))
-        summary = f"{_count(len(rows))} logs de erro {where}. Mais frequentes: {top}"
+            return ToolResult(f"nenhum log WARN ou acima {where}", url)
+        groups: Counter[tuple[str, str]] = Counter()
+        shown: dict[tuple[str, str], str] = {}  # a primeira mensagem de cada grupo, como veio
+        for row in rows:
+            message = _message(str(row.data.get("body", "")))
+            level = str(row.data.get("severity_text") or "?").upper()
+            key = (level, _normalized(message))
+            groups[key] += 1
+            shown.setdefault(key, message)
+        top = "; ".join(
+            f"{count}x [{level}] {shown[(level, normalized)]}"
+            for (level, normalized), count in groups.most_common(TOP_LOGS)
+        )
+        summary = f"{_count(len(rows))} logs WARN ou acima {where}. Mais frequentes: {top}"
         return ToolResult(summary, url)
 
     async def find_traces(
@@ -311,17 +333,34 @@ def _error_rate(total: list[_Series], failed: list[_Series]) -> list[tuple[int, 
     return [(ts, 100 * errors[ts] / count) for ts, count in sorted(totals.items()) if count]
 
 
-def _series_summary(label: str, signal: Signal, points: list[tuple[int, float]], step: int) -> str:
+def _series_summary(label: str, signal: Signal, points: list[tuple[int, float]]) -> str:
     if not points:
         return f"sem dados de {label}"
     peak_ts, peak = max(points, key=lambda p: p[1])
-    peak_at = _hhmm(datetime.fromtimestamp(peak_ts / 1000, UTC))
-    shown = " · ".join(_value(signal, v) for _, v in points[-SERIES_POINTS * 2 :])
+    shown = " · ".join(_value(signal, v) for _, v in points[-SERIES_POINTS:])
     return (
         f"{label}: {_value(signal, points[0][1])} no início, {_value(signal, points[-1][1])} "
-        f"no fim, máximo {_value(signal, peak)} às {peak_at}"
-        f". Série a cada {step // 60} min: {shown}"
+        f"no fim, máximo {_value(signal, peak)} às {_at(peak_ts)}. {_change(signal, points)}. "
+        f"Últimos {min(SERIES_POINTS, len(points))} pontos, a cada 1 min: {shown}"
     )
+
+
+def _change(signal: Signal, points: list[tuple[int, float]]) -> str:
+    """O primeiro ponto que sai do patamar do início da janela (média dos primeiros pontos)."""
+    baseline = sum(v for _, v in points[:BASELINE_POINTS]) / len(points[:BASELINE_POINTS])
+    for ts, value in points:
+        if signal == "taxa_de_erro":
+            changed = abs(value - baseline) > CHANGE_POINTS
+        else:
+            changed = value > baseline * CHANGE_FACTOR or value * CHANGE_FACTOR < baseline
+        if changed:
+            before, after = _value(signal, baseline), _value(signal, value)
+            return f"Mudou às {_at(ts)}, de {before} para {after}"
+    return "Sem mudança de patamar na janela"
+
+
+def _at(timestamp_ms: int) -> str:
+    return _hhmm(datetime.fromtimestamp(timestamp_ms / 1000, UTC))
 
 
 def _value(signal: Signal, value: float) -> str:
@@ -342,6 +381,12 @@ def _decimal(value: float) -> str:
 
 def _count(n: int) -> str:
     return f"{n}+" if n >= ROW_LIMIT else str(n)
+
+
+def _normalized(message: str) -> str:
+    for pattern in _VARIABLE_PARTS:
+        message = pattern.sub("#", message)
+    return message
 
 
 def _message(text: str) -> str:

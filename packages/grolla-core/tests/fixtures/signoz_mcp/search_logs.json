@@ -606,6 +606,358 @@
                   "service.name": "authorizer-api"
                 }
               }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000064",
+                "span_id": "0000000000000064",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000065",
+                "span_id": "0000000000000065",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:30Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000066",
+                "span_id": "0000000000000066",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:50:45Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000067",
+                "span_id": "0000000000000067",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000068",
+                "span_id": "0000000000000068",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000069",
+                "span_id": "0000000000000069",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:30Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006a",
+                "span_id": "000000000000006a",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:51:45Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006b",
+                "span_id": "000000000000006b",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006c",
+                "span_id": "000000000000006c",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006d",
+                "span_id": "000000000000006d",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:30Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006e",
+                "span_id": "000000000000006e",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:52:45Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "0000000000000000000000000000006f",
+                "span_id": "000000000000006f",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000070",
+                "span_id": "0000000000000070",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000071",
+                "span_id": "0000000000000071",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:30Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000072",
+                "span_id": "0000000000000072",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:53:45Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000073",
+                "span_id": "0000000000000073",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000074",
+                "span_id": "0000000000000074",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000075",
+                "span_id": "0000000000000075",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:30Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000076",
+                "span_id": "0000000000000076",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:54:45Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000077",
+                "span_id": "0000000000000077",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:00Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.23\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000078",
+                "span_id": "0000000000000078",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
+            },
+            {
+              "timestamp": "2026-10-25T10:55:15Z",
+              "data": {
+                "body": "connection to server at \"10.0.1.24\", port 5432 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally",
+                "severity_text": "WARN",
+                "severity_number": 13,
+                "trace_id": "00000000000000000000000000000079",
+                "span_id": "0000000000000079",
+                "attributes_string": {
+                  "code.function": "connect"
+                },
+                "resources_string": {
+                  "service.name": "authorizer-api"
+                }
+              }
             }
           ]
         }

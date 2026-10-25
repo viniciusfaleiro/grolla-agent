@@ -1,7 +1,32 @@
 {% extends "base.html" %}
+{% macro evaluations_table(evaluations) %}
+<table>
+  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
+  <tbody>
+  {% for evaluation in evaluations %}
+    <tr>
+      <td><code>{{ evaluation.tool }}</code></td>
+      <td>{{ evaluation.subject }}</td>
+      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
+      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+{% macro evidence_list(evidence) %}
+<ul>
+  {% for item in evidence %}
+  <li>{{ item.text }}{% if item.url %} · <a href="{{ item.url }}">abrir</a>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
 {% block title %}{{ incident.title }}{% endblock %}
 {% block content %}
 <h1>{{ incident.title }}</h1>
+{% if verification and verification.root_cause %}
+<p class="root-cause"><strong>Causa raiz:</strong> {{ verification.root_cause }}</p>
+{% endif %}
 <dl>
   <dt>Severidade</dt><dd class="sev">{{ incident.severity }}</dd>
   <dt>Estado</dt><dd>{{ incident.state }}</dd>
@@ -19,19 +44,7 @@
 
 {% if analysis.evaluations %}
 <h3>O que avaliei</h3>
-<table>
-  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
-  <tbody>
-  {% for evaluation in analysis.evaluations %}
-    <tr>
-      <td><code>{{ evaluation.tool }}</code></td>
-      <td>{{ evaluation.subject }}</td>
-      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
-      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+{{ evaluations_table(analysis.evaluations) }}
 {% endif %}
 
 {% if analysis.hypotheses %}
@@ -41,11 +54,7 @@
   <li>
     <strong>{{ hypothesis.title }}</strong> · {{ (hypothesis.confidence * 100) | round | int }}%
     {% if hypothesis.evidence %}
-    <ul>
-      {% for evidence in hypothesis.evidence %}
-      <li>{{ evidence.text }}{% if evidence.url %} · <a href="{{ evidence.url }}">abrir</a>{% endif %}</li>
-      {% endfor %}
-    </ul>
+    {{ evidence_list(hypothesis.evidence) }}
     {% endif %}
   </li>
   {% endfor %}
@@ -57,6 +66,55 @@
 <ol>
   {% for step in analysis.plan %}<li>{{ step }}</li>{% endfor %}
 </ol>
+{% endif %}
+{% endif %}
+
+<h2>Validação</h2>
+{% if verification is none %}
+<p class="muted">Nenhuma validação pedida.</p>
+{% else %}
+<p class="verification-status"><strong>{{ verification_labels[verification.status] }}</strong>
+{% if verification.partial_reason %} · {{ partial_reasons[verification.partial_reason] }}{% endif %}</p>
+{% if verification.root_cause %}
+<p class="root-cause"><strong>Causa raiz:</strong> {{ verification.root_cause }}</p>
+{% elif verification.finished_at %}
+<p class="root-cause"><strong>Causa raiz não confirmada.</strong>
+{% if verification.missing %} O que faltou: {{ verification.missing }}{% endif %}</p>
+{% endif %}
+
+{% if verification.verdicts %}
+<h3>Veredito por hipótese</h3>
+<ol>
+  {% for item in verification.verdicts %}
+  <li>
+    <strong>{{ item.hypothesis }}</strong> · <span class="verdict verdict-{{ item.verdict.name | lower }}">{{ item.verdict }}</span>
+    {% if item.reasoning %}<p>{{ item.reasoning }}</p>{% endif %}
+    {% if item.evidence %}{{ evidence_list(item.evidence) }}{% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+
+{% if verification.actions %}
+<h3>Plano de ação</h3>
+<table>
+  <thead><tr><th>Ação</th><th>Alvo</th><th>Efeito esperado</th><th>Link</th></tr></thead>
+  <tbody>
+  {% for action in verification.actions %}
+    <tr>
+      <td>{{ action.action }}</td>
+      <td>{{ action.target }}</td>
+      <td>{{ action.expected }}</td>
+      <td>{% if action.link %}<a href="{{ action.link }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if verification.evaluations %}
+<h3>O que avaliei na validação</h3>
+{{ evaluations_table(verification.evaluations) }}
 {% endif %}
 {% endif %}
 

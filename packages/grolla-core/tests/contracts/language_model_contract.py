@@ -7,6 +7,9 @@ O adapter sobrescreve três fixtures, cada uma o adapter com um roteiro do trans
 - `invalid_model`: a API devolve um resultado fora do schema e o adapter levanta
   InvalidAnalysisError.
 
+E as mesmas três para a validação (`verify`): `verifying_model`, `failing_verifier` e
+`invalid_verifier`. A `analysis` validada vem pronta.
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -15,6 +18,7 @@ from datetime import timedelta
 import pytest
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
+    STAGE_VERIFICATION,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
@@ -23,9 +27,9 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
 )
-from grolla.domain.analysis import AnalysisDraft
+from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
 from grolla.domain.incidents import IncidentState, Severity
-from grolla.testing.builders import T0, make_alert, make_incident
+from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry
 
@@ -44,6 +48,22 @@ class LanguageModelContract:
     @pytest.fixture
     def invalid_model(self) -> LanguageModel:
         raise NotImplementedError
+
+    @pytest.fixture
+    def verifying_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_verifier(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def invalid_verifier(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def analysis(self, brief: InvestigationBrief) -> Analysis:
+        return make_analysis(brief.incident.id)
 
     @pytest.fixture
     def toolbox(self) -> Toolbox:
@@ -134,3 +154,69 @@ class LanguageModelContract:
     ) -> None:
         with pytest.raises(InvalidAnalysisError):
             await invalid_model.investigate(brief, toolbox, budget)
+
+    # ---- Validação
+
+    async def test_verification_returns_a_valid_concrete_draft(
+        self,
+        verifying_model: LanguageModel,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        draft = await verifying_model.verify(brief, analysis, toolbox, budget)
+
+        assert isinstance(draft, VerificationDraft)
+        assert draft.verdicts
+        for verdict in draft.verdicts:
+            assert verdict.hypothesis.strip()
+            assert verdict.reasoning.strip()
+            assert verdict.evidence
+        check_plan(draft)  # plano concreto, e só com causa confirmada
+
+    async def test_verification_calls_tools_and_spends_with_its_stage(
+        self,
+        verifying_model: LanguageModel,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        await verifying_model.verify(brief, analysis, toolbox, budget)
+
+        assert toolbox.evaluations
+        assert len(budget.usages) >= 2
+        assert {usage.stage for usage in budget.usages} == {STAGE_VERIFICATION}
+
+    async def test_exhausted_budget_stops_the_verification(
+        self,
+        verifying_model: LanguageModel,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await verifying_model.verify(brief, analysis, toolbox, TokenBudget(limit=1))
+
+    async def test_verification_api_failure_raises_language_model_error(
+        self,
+        failing_verifier: LanguageModel,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_verifier.verify(brief, analysis, toolbox, budget)
+
+    async def test_verification_out_of_schema_raises_invalid_analysis(
+        self,
+        invalid_verifier: LanguageModel,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(InvalidAnalysisError):
+            await invalid_verifier.verify(brief, analysis, toolbox, budget)

@@ -3,6 +3,11 @@
 A cada turno o modelo pede ferramentas do `Toolbox` (tool_use) ou devolve o resultado final,
 que o structured outputs (`output_config.format`) obriga a seguir o schema do rascunho. O uso
 de cada resposta passa pelo `TokenBudget` antes de qualquer outra coisa.
+
+As duas fases usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`) e a
+validação das hipóteses até a causa raiz (`verify`, etapa `verification`, com modelo e
+`effort` próprios). Na validação, um plano com passo de investigação ganha uma única mensagem
+de correção; se vier de novo, o resultado é inválido.
 """
 
 import asyncio
@@ -22,7 +27,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
+    STAGE_VERIFICATION,
     SYSTEM_PROMPT,
+    VERIFICATION_PROMPT,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModelError,
@@ -30,8 +37,20 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
     brief_text,
+    verification_text,
 )
-from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis
+from grolla.domain.analysis import (
+    Action,
+    Analysis,
+    AnalysisDraft,
+    Evidence,
+    Hypothesis,
+    HypothesisVerdict,
+    NotConcreteError,
+    Verdict,
+    VerificationDraft,
+    check_plan,
+)
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -40,6 +59,17 @@ REQUEST_TIMEOUT_SECONDS = 60.0
 
 # Cache de 1 h no prefixo estável (ferramentas e system): as análises de um mesmo dia o reusam.
 _CACHE_1H: Any = {"type": "ephemeral", "ttl": "1h"}
+
+_EVIDENCE_SCHEMA: dict[str, object] = {
+    "type": "array",
+    "minItems": 1,  # toda hipótese e todo veredito citam ao menos uma evidência
+    "items": {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "url": {"type": ["string", "null"]}},
+        "required": ["text", "url"],
+        "additionalProperties": False,
+    },
+}
 
 # Schema do resultado final. Structured outputs não aceita limites numéricos (só minItems 0
 # ou 1): a confiança entre 0 e 1 é conferida na validação.
@@ -54,19 +84,7 @@ DRAFT_SCHEMA: dict[str, object] = {
                 "properties": {
                     "title": {"type": "string"},
                     "confidence": {"type": "number"},
-                    "evidence": {
-                        "type": "array",
-                        "minItems": 1,  # toda hipótese cita ao menos uma evidência
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": {"type": "string"},
-                                "url": {"type": ["string", "null"]},
-                            },
-                            "required": ["text", "url"],
-                            "additionalProperties": False,
-                        },
-                    },
+                    "evidence": _EVIDENCE_SCHEMA,
                 },
                 "required": ["title", "confidence", "evidence"],
                 "additionalProperties": False,
@@ -78,6 +96,51 @@ DRAFT_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
+# Schema da validação: um veredito por hipótese, a causa raiz (null sem confirmação), o plano de
+# ações concretas e o que faltou. O plano concreto é conferido depois, por `check_plan`.
+VERIFICATION_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "verdicts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "hypothesis": {"type": "string"},
+                    "verdict": {"type": "string", "enum": [v.value for v in Verdict]},
+                    "reasoning": {"type": "string"},
+                    "evidence": _EVIDENCE_SCHEMA,
+                },
+                "required": ["hypothesis", "verdict", "reasoning", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+        "root_cause": {"type": ["string", "null"]},
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "target": {"type": "string"},
+                    "expected": {"type": "string"},
+                    "link": {"type": ["string", "null"]},
+                },
+                "required": ["action", "target", "expected", "link"],
+                "additionalProperties": False,
+            },
+        },
+        "missing": {"type": "string"},
+    },
+    "required": ["verdicts", "root_cause", "actions", "missing"],
+    "additionalProperties": False,
+}
+
+NOT_CONCRETE = (
+    "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
+    "causa não foi confirmada."
+)
+
 
 @dataclass(frozen=True)
 class ModelSettings:
@@ -86,6 +149,22 @@ class ModelSettings:
     model: str
     max_tokens: int
     effort: str | None = None
+
+
+@dataclass(frozen=True)
+class _Phase:
+    """O que muda entre a análise inicial e a validação."""
+
+    system: str
+    schema: dict[str, object]
+    settings: ModelSettings
+    stage: str
+
+    def output_config(self) -> Any:
+        config: dict[str, object] = {"format": {"type": "json_schema", "schema": self.schema}}
+        if self.settings.effort is not None:
+            config["effort"] = self.settings.effort
+        return config
 
 
 class _Strict(BaseModel):
@@ -109,6 +188,27 @@ class _Draft(_Strict):
     plan: list[str]
 
 
+class _Verdict(_Strict):
+    hypothesis: str
+    verdict: Verdict
+    reasoning: str
+    evidence: list[_Evidence] = Field(min_length=1)
+
+
+class _Action(_Strict):
+    action: str
+    target: str
+    expected: str
+    link: str | None
+
+
+class _Verification(_Strict):
+    verdicts: list[_Verdict]
+    root_cause: str | None
+    actions: list[_Action]
+    missing: str
+
+
 class ClaudeLanguageModel:
     def __init__(
         self,
@@ -116,64 +216,107 @@ class ClaudeLanguageModel:
         settings: ModelSettings,
         base_url: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
+        verification: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
+        self._verification = verification or settings  # etapa `verification` herda a da análise
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
     async def investigate(
         self, brief: InvestigationBrief, toolbox: Toolbox, budget: TokenBudget
     ) -> AnalysisDraft:
+        phase = _Phase(SYSTEM_PROMPT, DRAFT_SCHEMA, self._settings, STAGE_INVESTIGATION)
+        messages: list[MessageParam] = [{"role": "user", "content": brief_text(brief)}]
+        async with self._client() as client:
+            try:
+                return _draft(await _loop(client, phase, messages, toolbox, budget))
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def verify(
+        self,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> VerificationDraft:
+        phase = _Phase(
+            VERIFICATION_PROMPT, VERIFICATION_SCHEMA, self._verification, STAGE_VERIFICATION
+        )
+        text = verification_text(brief, analysis)
+        messages: list[MessageParam] = [{"role": "user", "content": text}]
+        async with self._client() as client:
+            try:
+                return await _concrete(client, phase, messages, toolbox, budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    def _client(self) -> anthropic.AsyncAnthropic:
         http_client = (
             None
             if self._transport is None
             else anthropic.DefaultAsyncHttpxClient(transport=self._transport)
         )
-        async with anthropic.AsyncAnthropic(
+        return anthropic.AsyncAnthropic(
             api_key=self._api_key,
             base_url=self._base_url,
             http_client=http_client,
             max_retries=MAX_RETRIES,
             timeout=REQUEST_TIMEOUT_SECONDS,
-        ) as client:
-            try:
-                return await self._loop(client, brief, toolbox, budget)
-            except anthropic.APIError as error:
-                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        )
 
-    async def _loop(
-        self,
-        client: anthropic.AsyncAnthropic,
-        brief: InvestigationBrief,
-        toolbox: Toolbox,
-        budget: TokenBudget,
-    ) -> AnalysisDraft:
-        tools = _tools(toolbox)
-        messages: list[MessageParam] = [{"role": "user", "content": brief_text(brief)}]
-        while True:
-            response = await client.messages.create(
-                model=self._settings.model,
-                max_tokens=self._settings.max_tokens,
-                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": _CACHE_1H}],
-                tools=tools,
-                messages=messages,
-                thinking={"type": "adaptive"},
-                output_config=self._output_config(),
-            )
-            budget.spend(_usage(response))
-            if response.stop_reason != "tool_use":
-                return _draft(response)
-            calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
-            results = await asyncio.gather(*(_run(toolbox, call) for call in calls))
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": list(results)})
 
-    def _output_config(self) -> Any:
-        config: dict[str, object] = {"format": {"type": "json_schema", "schema": DRAFT_SCHEMA}}
-        if self._settings.effort is not None:
-            config["effort"] = self._settings.effort
-        return config
+async def _loop(
+    client: anthropic.AsyncAnthropic,
+    phase: _Phase,
+    messages: list[MessageParam],
+    toolbox: Toolbox,
+    budget: TokenBudget,
+) -> Message:
+    """Roda as ferramentas pedidas até a resposta final e a devolve; estende `messages`."""
+    tools = _tools(toolbox)
+    while True:
+        response = await client.messages.create(
+            model=phase.settings.model,
+            max_tokens=phase.settings.max_tokens,
+            system=[{"type": "text", "text": phase.system, "cache_control": _CACHE_1H}],
+            tools=tools,
+            messages=messages,
+            thinking={"type": "adaptive"},
+            output_config=phase.output_config(),
+        )
+        budget.spend(_usage(response, phase.stage))
+        if response.stop_reason != "tool_use":
+            return response
+        calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
+        results = await asyncio.gather(*(_run(toolbox, call) for call in calls))
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": list(results)})
+
+
+async def _concrete(
+    client: anthropic.AsyncAnthropic,
+    phase: _Phase,
+    messages: list[MessageParam],
+    toolbox: Toolbox,
+    budget: TokenBudget,
+) -> VerificationDraft:
+    """Validação com plano concreto: uma correção só, na mesma conversa e no mesmo orçamento."""
+    response = await _loop(client, phase, messages, toolbox, budget)
+    draft = _verification(response)
+    try:
+        check_plan(draft)
+    except NotConcreteError:
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": NOT_CONCRETE})
+        draft = _verification(await _loop(client, phase, messages, toolbox, budget))
+        try:
+            check_plan(draft)
+        except NotConcreteError as error:
+            raise InvalidAnalysisError(f"plano não concreto: {error}") from error
+    return draft
 
 
 def _tools(toolbox: Toolbox) -> list[ToolParam]:
@@ -195,10 +338,10 @@ async def _run(toolbox: Toolbox, call: ToolUseBlock) -> ToolResultBlockParam:
     return {"type": "tool_result", "tool_use_id": call.id, "content": text}
 
 
-def _usage(response: Message) -> LlmUsage:
+def _usage(response: Message, stage: str) -> LlmUsage:
     usage = response.usage
     return LlmUsage(
-        stage=STAGE_INVESTIGATION,
+        stage=stage,
         model=response.model,
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
@@ -207,14 +350,17 @@ def _usage(response: Message) -> LlmUsage:
     )
 
 
-def _draft(response: Message) -> AnalysisDraft:
+def _final_text(response: Message) -> str:
     if response.stop_reason == "refusal":
         raise LanguageModelError("o modelo recusou a análise")
     if response.stop_reason != "end_turn":
         raise InvalidAnalysisError(f"resposta incompleta ({response.stop_reason})")
-    text = "".join(block.text for block in response.content if block.type == "text")
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def _draft(response: Message) -> AnalysisDraft:
     try:
-        draft = _Draft.model_validate_json(text)
+        draft = _Draft.model_validate_json(_final_text(response))
     except ValidationError as error:
         raise InvalidAnalysisError("resultado fora do formato da análise") from error
     return AnalysisDraft(
@@ -228,6 +374,27 @@ def _draft(response: Message) -> AnalysisDraft:
             for item in draft.hypotheses
         ),
         plan=tuple(draft.plan),
+    )
+
+
+def _verification(response: Message) -> VerificationDraft:
+    try:
+        draft = _Verification.model_validate_json(_final_text(response))
+    except ValidationError as error:
+        raise InvalidAnalysisError("resultado fora do formato da validação") from error
+    return VerificationDraft(
+        verdicts=tuple(
+            HypothesisVerdict(
+                hypothesis=item.hypothesis,
+                verdict=item.verdict,
+                reasoning=item.reasoning,
+                evidence=tuple(Evidence(text=e.text, url=e.url) for e in item.evidence),
+            )
+            for item in draft.verdicts
+        ),
+        root_cause=draft.root_cause or None,  # texto vazio também é "não confirmada"
+        actions=tuple(Action(a.action, a.target, a.expected, a.link) for a in draft.actions),
+        missing=draft.missing,
     )
 
 

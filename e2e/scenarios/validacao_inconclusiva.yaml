@@ -1,0 +1,62 @@
+# Quando a validação deixa todas as hipóteses inconclusivas, o card diz "causa raiz não
+# confirmada", lista o que faltou e não traz plano de ação como se a causa fosse conhecida.
+# O modo do LLM fake vale para qualquer validação em andamento: troca antes do alerta e volta
+# para "completa" no fim.
+name: validação inconclusiva não confirma a causa raiz
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json: { verification_mode: inconclusiva }
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no inconclusiva-api
+              service_name: inconclusiva-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no inconclusiva-api
+              description: A taxa de erro HTTP 5xx do inconclusiva-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=116
+            fingerprint: e2e-inconclusiva-1
+then:
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [inconclusiva-api, Análise pronta, Estou validando as hipóteses]
+      then: [inconclusiva-api, "Causa raiz não confirmada · P1", O que faltou]
+      timeout_seconds: 90
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [inconclusiva-api]
+      count: 3
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM verifications v JOIN incidents i ON i.id = v.incident_id
+        WHERE 'inconclusiva-api' = ANY(i.services) AND v.status = 'concluida'
+        AND v.root_cause IS NULL AND v.actions = '[]'::jsonb
+      count: 1
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json: { verification_mode: completa }
+      status: 204

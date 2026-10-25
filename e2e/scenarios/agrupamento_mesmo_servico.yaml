@@ -1,6 +1,6 @@
 # Dois alertas diferentes do mesmo serviço entram num incidente só. O segundo chega depois da
-# análise do primeiro: sem mudança de severidade, não gera card nem reabre a análise (os 2 cards
-# são o "investigando" e a análise do primeiro alerta).
+# análise do primeiro: sem mudança de severidade, não gera card nem reabre a análise (os 3 cards
+# são o "investigando", a análise e a causa raiz do primeiro alerta).
 name: dois alertas do mesmo serviço agrupam sem nova análise
 given:
   fakes:
@@ -83,4 +83,5 @@ then:
   - expect_fake_requests:
       path: /teams/webhook
       contains: [agrupa-api]
-      count: 2
+      count: 3
+      timeout_seconds: 90

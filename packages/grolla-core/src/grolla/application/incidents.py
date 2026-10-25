@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from grolla.application.clock import Clock
-from grolla.domain.analysis import Analysis
+from grolla.domain.analysis import Analysis, Verification
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -91,6 +91,10 @@ class IncidentRepository(Protocol):
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         """A análise do incidente em qualquer estado; None se nunca foi pedida."""
+        ...
+
+    async def verification_of(self, incident_id: UUID) -> Verification | None:
+        """A validação do incidente em qualquer estado; None se nunca foi pedida."""
         ...
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:

@@ -51,6 +51,14 @@ def test_page_offers_the_llm_scripts_through_the_control_route() -> None:
         assert f'data-llm="{mode}"' in page
 
 
+def test_page_offers_the_verification_scripts_through_the_control_route() -> None:
+    page = console(FakeApi()).get("/_console").text
+
+    assert "verification_mode:" in page
+    for mode in ("completa", "fora_do_ar", "lenta", "inconclusiva"):
+        assert f'data-verification="{mode}"' in page
+
+
 def test_fired_alert_reaches_the_webhook_in_the_alerting_format() -> None:
     api = FakeApi()
     client = console(api)

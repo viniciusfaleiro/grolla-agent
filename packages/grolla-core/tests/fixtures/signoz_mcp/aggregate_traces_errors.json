@@ -20,28 +20,52 @@
                 {
                   "values": [
                     {
-                      "timestamp": 1792922400000,
-                      "value": 5
+                      "timestamp": 1792924920000,
+                      "value": 1
                     },
                     {
-                      "timestamp": 1792923000000,
-                      "value": 6
-                    },
-                    {
-                      "timestamp": 1792923600000,
-                      "value": 5
-                    },
-                    {
-                      "timestamp": 1792924200000,
-                      "value": 40
-                    },
-                    {
-                      "timestamp": 1792924800000,
-                      "value": 88
+                      "timestamp": 1792925220000,
+                      "value": 1
                     },
                     {
                       "timestamp": 1792925400000,
-                      "value": 90
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925460000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925520000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925580000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925640000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925700000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925760000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925820000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925880000,
+                      "value": 84
+                    },
+                    {
+                      "timestamp": 1792925940000,
+                      "value": 84
                     }
                   ]
                 }

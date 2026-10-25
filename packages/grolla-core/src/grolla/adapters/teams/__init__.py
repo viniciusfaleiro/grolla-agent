@@ -8,10 +8,13 @@ from grolla.application.incidents import NotificationFailedError
 from grolla.domain.analysis import (
     INITIAL_CHECKS,
     PARTIAL_REASON_TEXT,
+    Action,
     Analysis,
     Evaluation,
     Evidence,
     Hypothesis,
+    HypothesisVerdict,
+    Verification,
 )
 from grolla.domain.incidents import Notification, NotificationKind
 
@@ -20,6 +23,7 @@ TIMEOUT_SECONDS = 10.0
 _HEADLINES = {
     NotificationKind.INCIDENT_OPENED: "Estou investigando",
     NotificationKind.ANALYSIS_READY: "Análise pronta",
+    NotificationKind.ROOT_CAUSE: "Causa raiz",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -27,12 +31,14 @@ _HEADLINES = {
 _COLORS = {
     NotificationKind.INCIDENT_OPENED: "Attention",
     NotificationKind.ANALYSIS_READY: "Accent",
+    NotificationKind.ROOT_CAUSE: "Good",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }
 
 
 _NOTHING = "- nenhuma consulta concluída"
+VERIFYING = "Estou validando as hipóteses; a causa raiz vem em seguida."
 
 
 class TeamsChatNotifier:
@@ -70,14 +76,18 @@ def message(notification: Notification) -> dict[str, Any]:
 
 def adaptive_card(notification: Notification) -> dict[str, Any]:
     analysis = notification.analysis
-    if notification.kind is NotificationKind.ANALYSIS_READY and analysis is not None:
+    verification = notification.verification
+    source_title: str | None = None  # o card da causa raiz só leva ao incidente
+    if notification.kind is NotificationKind.ROOT_CAUSE and verification is not None:
+        body = _verification_body(notification, verification)
+    elif notification.kind is NotificationKind.ANALYSIS_READY and analysis is not None:
         body = _analysis_body(notification, analysis)
         source_title = "Ver no SigNoz"
     else:
         body = _alert_body(notification)
         source_title = "Ver alerta na origem"
     actions = [{"type": "Action.OpenUrl", "title": "Abrir incidente", "url": notification.page_url}]
-    if notification.source_url:
+    if notification.source_url and source_title:
         actions.append(
             {"type": "Action.OpenUrl", "title": source_title, "url": notification.source_url}
         )
@@ -125,6 +135,38 @@ def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[
     if analysis.plan:
         steps = [f"- {_clip(step)}" for step in analysis.plan]
         body.append(_section("Plano proposto", _limit(steps, MAX_PLAN_STEPS)))
+    if analysis.hypotheses:  # com hipóteses, a validação foi pedida junto
+        body.append({"type": "TextBlock", "text": VERIFYING, "wrap": True, "isSubtle": True})
+    return body
+
+
+def _verification_body(
+    notification: Notification, verification: Verification
+) -> list[dict[str, Any]]:
+    if verification.partial_reason is not None:
+        body = [
+            _headline("Validação parcial", notification, "Warning"),
+            _text(f"Motivo: {PARTIAL_REASON_TEXT[verification.partial_reason]}"),
+            *_identity(notification),
+        ]
+    elif verification.root_cause:
+        body = [_headline("Causa raiz", notification, "Good"), *_identity(notification)]
+    else:
+        body = [
+            _headline("Causa raiz não confirmada", notification, "Warning"),
+            *_identity(notification),
+        ]
+    if verification.root_cause:
+        body.append(_section("Causa raiz", [_clip(verification.root_cause)]))
+    if verification.verdicts:
+        verdicts = [_verdict(v) for v in verification.verdicts]
+        body.append(_section("Hipóteses", _limit(verdicts, MAX_HYPOTHESES)))
+    if verification.actions:
+        steps = [_action(a) for a in verification.actions]
+        body.append(_section("Plano de ação", _limit(steps, MAX_PLAN_STEPS)))
+    unconfirmed = verification.partial_reason is None and not verification.root_cause
+    if unconfirmed and verification.missing.strip():  # na parcial, o motivo já está no topo
+        body.append(_section("O que faltou", [_clip(verification.missing)]))
     return body
 
 
@@ -195,6 +237,15 @@ def _hypothesis(hypothesis: Hypothesis) -> str:
     line = f"- {_clip(hypothesis.title)} (confiança {hypothesis.confidence:.0%})"
     evidence = "; ".join(_evidence(e) for e in hypothesis.evidence[:MAX_EVIDENCE])
     return f"{line}: {evidence}" if evidence else line
+
+
+def _verdict(verdict: HypothesisVerdict) -> str:
+    return f"- {_clip(verdict.hypothesis)}: {verdict.verdict} — {_clip(verdict.reasoning)}"
+
+
+def _action(action: Action) -> str:
+    line = f"- {_clip(action.action)} ({_clip(action.target)}) → {_clip(action.expected)}"
+    return f"{line} ([abrir]({action.link}))" if action.link else line
 
 
 def _evidence(evidence: Evidence) -> str:

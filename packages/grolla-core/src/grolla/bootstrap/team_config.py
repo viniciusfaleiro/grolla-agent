@@ -30,6 +30,8 @@ class InvestigationConfig(_Section):
     max_tokens: int = Field(default=300_000, gt=0)
     lookback_minutes: int = Field(default=60, gt=0)
     max_parallel: int = Field(default=3, gt=0)
+    verification_timeout_seconds: int = Field(default=300, gt=0)
+    verification_max_tokens: int = Field(default=150_000, gt=0)
 
 
 class StageConfig(_Section):
@@ -41,7 +43,7 @@ class StageConfig(_Section):
 
 
 class LlmConfig(_Section):
-    stages: dict[Literal["investigation"], StageConfig]
+    stages: dict[Literal["investigation", "verification"], StageConfig]
 
 
 class TelemetryConfig(_Section):
@@ -60,6 +62,12 @@ class ChangeHistoryConfig(_Section):
     service_repo_map: dict[str, RepositoryConfig] = Field(
         default_factory=dict[str, RepositoryConfig]
     )  # só as exceções ao nome do serviço
+
+
+class CloudConfig(_Section):
+    regions: list[str] = Field(min_length=1)
+    # Opcional: serviço -> ARNs ou identificadores, para recursos sem a tag `service=<nome>`.
+    resource_map: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
 
 class TeamConfig(BaseModel):
@@ -81,6 +89,7 @@ class TeamConfig(BaseModel):
     llm: LlmConfig | None = None
     signoz: TelemetryConfig | None = None
     azure_devops: ChangeHistoryConfig | None = None
+    cloud: CloudConfig | None = None  # sem a seção, as ferramentas de nuvem dizem que não há
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -92,6 +101,8 @@ class TeamConfig(BaseModel):
             lookback=timedelta(minutes=self.investigation.lookback_minutes),
             page_url=self.page_url,
             telemetry_url=self.signoz.base_url if self.signoz else None,
+            verification_timeout=timedelta(seconds=self.investigation.verification_timeout_seconds),
+            verification_max_tokens=self.investigation.verification_max_tokens,
         )
 
     def intake_policy(self) -> IntakePolicy:

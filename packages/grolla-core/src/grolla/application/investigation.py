@@ -1,8 +1,8 @@
 """Ferramentas neutras da investigação, o orçamento de tokens e o port do modelo de linguagem.
 
 O modelo de linguagem só investiga por estas ferramentas, que têm nome e parâmetros neutros e
-são implementadas sobre os ports `Telemetry` e `ChangeHistory`. Trocar o fornecedor não muda
-o prompt, os evals nem os cenários.
+são implementadas sobre os ports `Telemetry`, `ChangeHistory` e `CloudInventory`. Trocar o
+fornecedor não muda o prompt, os evals nem os cenários.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -11,10 +11,13 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from grolla.application.clock import Clock
-from grolla.domain.analysis import AnalysisDraft, Evaluation
+from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.incidents import Alert, Incident
 
 STAGE_INVESTIGATION = "investigation"
+STAGE_VERIFICATION = "verification"
+NO_CLOUD = "consulta à nuvem não configurada nesta instância"
+NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
 
@@ -65,6 +68,41 @@ class ChangeHistory(Protocol):
         ...
 
 
+class CloudInventory(Protocol):
+    """Recursos de nuvem do serviço, mudanças recentes neles e alarmes, só leitura.
+
+    Os três levantam ToolUnavailableError quando a nuvem falha (credencial, permissão, rede).
+    Serviço sem recursos não é erro: o resumo diz NO_CLOUD_RESOURCES.
+    """
+
+    async def resources(self, service: str) -> ToolResult:
+        """Recursos do serviço (tag `service=<nome>` ou mapa) e o estado de cada um."""
+        ...
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        """Eventos de auditoria que mudaram os recursos do serviço desde `since`, do mais
+        recente para o mais antigo, sem as leituras puras.
+        """
+        ...
+
+    async def alarms(self, service: str) -> ToolResult:
+        """Alarmes da nuvem em estado de alarme ligados aos recursos do serviço."""
+        ...
+
+
+class NoCloudInventory:
+    """Instância sem a seção `cloud`: as ferramentas de nuvem respondem NO_CLOUD, sem erro."""
+
+    async def resources(self, service: str) -> ToolResult:  # noqa: ARG002 — mesmo port
+        return ToolResult(NO_CLOUD, None)
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+    async def alarms(self, service: str) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     """Definição neutra de uma ferramenta, que o adapter do modelo traduz para o fornecedor."""
@@ -102,8 +140,8 @@ TOOL_SPECS = (
     ),
     _tool(
         "search_logs",
-        "Logs de erro do serviço na janela, opcionalmente filtrados por um texto. "
-        "Devolve as mensagens mais frequentes e quantas vezes apareceram.",
+        "Logs de aviso e de erro do serviço na janela, opcionalmente filtrados por um texto. "
+        "Devolve as mensagens mais frequentes, com o nível e quantas vezes apareceram.",
         text={"type": "string", "description": "Texto a procurar nos logs (opcional)."},
     ),
     _tool(
@@ -119,6 +157,21 @@ TOOL_SPECS = (
         "recent_deploys",
         "Deploys e execuções de pipeline do repositório do serviço na janela, "
         "com horário, versão e autor.",
+    ),
+    _tool(
+        "cloud_resources",
+        "Recursos de nuvem do serviço (bancos gerenciados, máquinas, balanceadores) e o estado "
+        "atual de cada um, com link para o console.",
+    ),
+    _tool(
+        "cloud_changes",
+        "Mudanças recentes nos recursos de nuvem do serviço na janela, pelos eventos de "
+        "auditoria: horário, ação, recurso e autor, da mais recente para a mais antiga.",
+    ),
+    _tool(
+        "cloud_alarms",
+        "Alarmes de monitoramento da nuvem em estado de alarme ligados aos recursos do serviço, "
+        "com nome, motivo e desde quando.",
     ),
 )
 
@@ -137,10 +190,16 @@ class Toolbox:
     """Liga as ferramentas neutras aos ports e registra cada chamada como avaliação."""
 
     def __init__(
-        self, telemetry: Telemetry, changes: ChangeHistory, clock: Clock, lookback: timedelta
+        self,
+        telemetry: Telemetry,
+        changes: ChangeHistory,
+        clock: Clock,
+        lookback: timedelta,
+        cloud: CloudInventory | None = None,
     ) -> None:
         self._telemetry = telemetry
         self._changes = changes
+        self._cloud = cloud or NoCloudInventory()
         self._clock = clock
         self._lookback = lookback
         self._evaluations: list[Evaluation] = []
@@ -206,9 +265,25 @@ class Toolbox:
             return f"traces {kind} de {service}, {window}", lambda: self._telemetry.find_traces(
                 service, only_errors, start, end
             )
-        return f"deploys de {service}, {window}", lambda: self._changes.recent_deploys(
-            service, start
-        )
+        only_service: dict[str, tuple[str, ToolCall]] = {  # ferramentas só com `service`
+            "recent_deploys": (
+                f"deploys de {service}, {window}",
+                lambda: self._changes.recent_deploys(service, start),
+            ),
+            "cloud_resources": (
+                f"recursos de nuvem de {service}",
+                lambda: self._cloud.resources(service),
+            ),
+            "cloud_changes": (
+                f"mudanças na nuvem de {service}, {window}",
+                lambda: self._cloud.changes(service, start),
+            ),
+            "cloud_alarms": (
+                f"alarmes da nuvem de {service}",
+                lambda: self._cloud.alarms(service),
+            ),
+        }
+        return only_service[name]
 
 
 @dataclass(frozen=True)
@@ -277,6 +352,18 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def verify(
+        self,
+        brief: InvestigationBrief,
+        analysis: Analysis,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> VerificationDraft:
+        """Valida cada hipótese da análise inicial até a causa raiz, com as mesmas ferramentas;
+        levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
 
 SYSTEM_PROMPT = """\
 Você é o agente de SRE de plantão de um ambiente de adquirência e cartões. Um alerta acabou de \
@@ -293,6 +380,13 @@ latencia_p99 e vazao). Quando começou? Quanto saiu da linha de base?
 4. Logs: use `search_logs`, filtrando por um texto quando os passos anteriores sugerirem um.
 Se uma dependência aparecer como suspeita, você pode repetir os passos para ela. Faça só as \
 consultas que ajudam a decidir; não repita a mesma consulta.
+5. Infraestrutura: quando logs ou traces apontarem para uma dependência de infraestrutura \
+(banco, fila, rede), consulte `cloud_resources` e `cloud_changes` do serviço para ver o estado \
+dos recursos de nuvem e quem mudou o quê; `cloud_alarms` mostra os alarmes ativos.
+
+Só proponha rollback quando o problema começou depois do deploy, e diga a relação de horário \
+(por exemplo, "erros a partir de 10:02, deploy às 09:58"). Deploy depois do início do problema \
+não é a causa.
 
 Se uma ferramenta responder "não foi possível consultar", siga com as outras e leve isso em \
 conta na confiança.
@@ -314,6 +408,71 @@ atrapalha mais do que ajuda.
 
 Escreva em português, de forma direta, para engenheiros de plantão.
 """
+
+
+VERIFICATION_PROMPT = """\
+Você é o agente de SRE de plantão de um ambiente de adquirência e cartões. A análise inicial \
+de um incidente terminou com hipóteses. Agora você valida cada uma, em detalhe, até chegar à \
+causa raiz.
+
+Você é somente leitura: consulta as ferramentas, interpreta e sugere. Nunca execute, nem \
+prometa executar, nenhuma ação no ambiente; quem decide e age é o time.
+
+Para cada hipótese da análise inicial:
+1. Busque evidência específica que a confirme ou a rejeite, com as ferramentas \
+(`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, `cloud_resources`, \
+`cloud_changes`, `cloud_alarms`). Compare horários: o início do problema, cada deploy e cada \
+mudança nos recursos.
+2. Dê o veredito: confirmada, rejeitada ou inconclusiva, com a justificativa em uma ou duas \
+frases e ao menos uma evidência que uma ferramenta mostrou (números, horários, versões, \
+mensagens), com o link que a ferramenta devolveu quando houver.
+Não invente dados, links nem consultas que você não fez.
+
+Com uma hipótese confirmada:
+- root_cause: a causa raiz numa frase, dizendo o quê, quando e onde (por exemplo, "banco \
+pedidos-db parado manualmente às 21:42").
+- actions: o plano de ações concretas para o humano executar, em ordem, começando pelo que \
+reduz o impacto mais rápido. Cada ação diz o que fazer (action), onde (target) e o efeito \
+esperado (expected), por exemplo "fazer rollback para o build X", "religar o recurso Y" ou \
+"escalar Z". Use o link de uma ferramenta quando houver.
+- Nunca coloque passos de investigação no plano (investigar, verificar, checar, analisar, \
+consultar, confirmar, avaliar, revisar, examinar, observar, acompanhar, monitorar): isso você \
+já fez. Plano assim é recusado.
+- missing: vazio.
+
+Sem nenhuma hipótese confirmada: root_cause sem valor, actions vazio, e em missing diga o que \
+faltou para confirmar (um dado, uma fonte, um acesso). Não apresente ações como se a causa \
+fosse conhecida.
+
+Escreva em português, de forma direta, para engenheiros de plantão.
+"""
+
+
+def verification_text(brief: InvestigationBrief, analysis: Analysis) -> str:
+    """Mensagem da validação: o incidente, a análise inicial (hipóteses e avaliações) e a janela."""
+    incident = brief.incident
+    lines = [
+        f"Incidente: {incident.title}",
+        f"Severidade: {incident.severity.value}",
+        f"Serviços: {', '.join(incident.services)}",
+        f"Detectado em: {incident.detected_at.isoformat()}",
+        f"Agora: {brief.now.isoformat()}",
+        "",
+        f"Resumo da análise inicial: {analysis.summary}",
+        "",
+        "Hipóteses da análise inicial:",
+    ]
+    for hypothesis in analysis.hypotheses:
+        lines.append(f"- {hypothesis.title} (confiança {hypothesis.confidence:.0%})")
+        lines += [
+            f"  Evidência: {e.text}" + (f" ({e.url})" if e.url else "") for e in hypothesis.evidence
+        ]
+    lines += ["", "O que a análise inicial avaliou:"]
+    lines += [f"- {e.tool}: {e.subject} → {e.finding}" for e in analysis.evaluations]
+    if not analysis.evaluations:
+        lines.append("- nenhuma avaliação registrada")
+    lines += ["", "Valide cada hipótese seguindo o roteiro."]
+    return "\n".join(lines)
 
 
 def brief_text(brief: InvestigationBrief) -> str:

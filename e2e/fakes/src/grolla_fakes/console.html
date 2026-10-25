@@ -115,6 +115,14 @@
         <button type="button" data-llm="lenta">Análise lenta</button>
       </div>
       <p class="hint">Vale para as próximas análises. Fora do ar e lenta geram a análise parcial.</p>
+      <h2 style="margin-top:14px">🔎 Validação das hipóteses</h2>
+      <div class="toggle llm" role="group" aria-label="Roteiro da validação no LLM fake">
+        <button type="button" data-verification="completa">Causa raiz confirmada</button>
+        <button type="button" data-verification="fora_do_ar">LLM fora do ar</button>
+        <button type="button" data-verification="lenta">Validação lenta</button>
+        <button type="button" data-verification="inconclusiva">Inconclusiva</button>
+      </div>
+      <p class="hint">Vale para as próximas validações. Fora do ar e lenta geram a validação parcial; inconclusiva termina sem causa raiz.</p>
     </section>
     <section style="margin-top:16px">
       <h2>📋 Alertas disparados</h2>
@@ -174,6 +182,14 @@ document.querySelectorAll("[data-llm]").forEach((b) => b.addEventListener("click
   catch (error) { feedback("não deu para trocar o roteiro do LLM: " + error.message, true); }
 }));
 renderLlm();
+
+let verificationMode = "completa";
+function renderVerification() { document.querySelectorAll("[data-verification]").forEach((b) => b.classList.toggle("on", b.dataset.verification === verificationMode)); }
+document.querySelectorAll("[data-verification]").forEach((b) => b.addEventListener("click", async () => {
+  try { await post("/_control/llm", { verification_mode: b.dataset.verification }); verificationMode = b.dataset.verification; renderVerification(); feedback(`roteiro da validação: ${b.textContent}`); }
+  catch (error) { feedback("não deu para trocar o roteiro da validação: " + error.message, true); }
+}));
+renderVerification();
 
 document.querySelectorAll("[data-teams]").forEach((b) => b.addEventListener("click", async () => {
   await post("/_console/teams", { status: Number(b.dataset.teams) }); refresh();

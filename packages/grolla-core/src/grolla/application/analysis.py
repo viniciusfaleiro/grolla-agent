@@ -1,4 +1,6 @@
-"""Fila e casos de uso da análise inicial: todo pedido termina, concluído ou parcial."""
+"""Fila e casos de uso da análise inicial e da validação: todo pedido termina, concluído ou
+parcial.
+"""
 
 import asyncio
 from collections.abc import Callable, Sequence
@@ -12,6 +14,7 @@ from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import (
     BudgetExceededError,
     ChangeHistory,
+    CloudInventory,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModel,
@@ -24,9 +27,13 @@ from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
     AnalysisStatus,
+    NotConcreteError,
     PartialReason,
+    Verification,
     complete,
     partial,
+    verification_partial,
+    verified,
 )
 from grolla.domain.incidents import (
     EventType,
@@ -65,8 +72,28 @@ class AnalysisQueue(Protocol):
 
         Só grava se o pedido ainda está em andamento. Se já foi encerrado (por exemplo, pelo
         `reap_stuck_analyses` enquanto o worker estava fora), não grava nada: a análise chega
-        uma vez só.
+        uma vez só. Quando a análise tem hipóteses, pede a validação na mesma transação
+        (pendente desde `at`, com o evento `verification_requested` entre os `events`).
         """
+        ...
+
+    async def claim_verification(self, now: datetime) -> AnalysisJob | None:
+        """Pega a validação pendente mais antiga e a marca em andamento; None se não há."""
+        ...
+
+    async def stuck_verifications(self, started_before: datetime) -> list[AnalysisJob]:
+        """Validações em andamento desde antes de `started_before`."""
+        ...
+
+    async def finish_verification(
+        self,
+        verification: Verification,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        """Como `finish`, para a validação: grava tudo numa transação, só se em andamento."""
         ...
 
 
@@ -77,10 +104,13 @@ class AnalysisPolicy:
     lookback: timedelta  # janela das ferramentas
     page_url: Callable[[UUID], str]
     telemetry_url: str | None  # botão "ver na origem" do card de análise
+    verification_timeout: timedelta = timedelta(minutes=5)
+    verification_max_tokens: int = 150_000
 
 
 REAP_GRACE = timedelta(minutes=2)  # folga além do timeout antes de dar a análise por perdida
 NO_HYPOTHESIS = "nenhuma hipótese com evidência suficiente"
+NO_ROOT_CAUSE = "causa raiz não confirmada"
 
 
 async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da investigação
@@ -92,6 +122,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     changes: ChangeHistory,
     clock: Clock,
     policy: AnalysisPolicy,
+    cloud: CloudInventory | None = None,
 ) -> bool:
     """Executa o próximo pedido de análise; False se não havia pedido.
 
@@ -104,7 +135,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     brief = InvestigationBrief(
         incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
     )
-    toolbox = Toolbox(telemetry, changes, clock, policy.lookback)
+    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
     budget = TokenBudget(policy.max_tokens)
     deadline = asyncio.timeout(policy.timeout.total_seconds())
     pending = _running(job)
@@ -160,7 +191,7 @@ def _reason(error: Exception, *, timed_out: bool) -> PartialReason:
         return PartialReason.TIMEOUT
     if isinstance(error, BudgetExceededError):
         return PartialReason.BUDGET
-    if isinstance(error, InvalidAnalysisError):
+    if isinstance(error, InvalidAnalysisError | NotConcreteError):
         return PartialReason.INVALID_RESULT
     return PartialReason.LLM_FAILED  # LanguageModelError e qualquer outra falha
 
@@ -196,10 +227,13 @@ async def _finish(
         page_url=policy.page_url(incident.id),
         analysis=analysis,
     )
-    events = [
-        IncidentEvent(incident.id, now, kind, data),
-        IncidentEvent(incident.id, now, EventType.NOTIFICATION_QUEUED, {"kind": card.kind.value}),
-    ]
+    events = [IncidentEvent(incident.id, now, kind, data)]
+    if analysis.hypotheses:  # a fila cria o pedido da validação na mesma transação
+        requested = {"hypotheses": len(analysis.hypotheses)}
+        events.append(IncidentEvent(incident.id, now, EventType.VERIFICATION_REQUESTED, requested))
+    events.append(
+        IncidentEvent(incident.id, now, EventType.NOTIFICATION_QUEUED, {"kind": card.kind.value})
+    )
     await queue.finish(analysis, events, card, usages, now)
 
 
@@ -210,3 +244,113 @@ def _main_evidence(analysis: Analysis) -> str:
     if analysis.hypotheses:
         return analysis.hypotheses[0].title
     return NO_HYPOTHESIS
+
+
+async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os ports da investigação
+    *,
+    queue: AnalysisQueue,
+    repository: IncidentRepository,
+    model: LanguageModel,
+    telemetry: Telemetry,
+    changes: ChangeHistory,
+    clock: Clock,
+    policy: AnalysisPolicy,
+    cloud: CloudInventory | None = None,
+) -> bool:
+    """Executa a próxima validação pedida; False se não havia. Toda falha vira parcial.
+
+    Plano com passo de investigação (NotConcreteError) é resultado inválido, como um rascunho
+    fora do schema.
+    """
+    job = await queue.claim_verification(clock.now())
+    if job is None:
+        return False
+    incident = await _incident(repository, job.incident_id)
+    analysis = await repository.analysis_of(incident.id)
+    if analysis is None:  # a validação nasce do fim da análise: só com dado corrompido
+        raise LookupError(f"incidente {incident.id} tem validação sem análise inicial")
+    brief = InvestigationBrief(
+        incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
+    )
+    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
+    budget = TokenBudget(policy.verification_max_tokens)
+    deadline = asyncio.timeout(policy.verification_timeout.total_seconds())
+    pending = _running_verification(job)
+    try:
+        async with deadline:
+            draft = await model.verify(brief, analysis, toolbox, budget)
+        verification = verified(pending, draft, toolbox.evaluations, clock.now())
+    except Exception as error:  # qualquer falha vira parcial: o card da causa raiz sempre sai
+        reason = _reason(error, timed_out=deadline.expired())
+        verification = verification_partial(pending, reason, toolbox.evaluations, clock.now())
+    await _finish_verification(queue, incident, verification, budget.usages, policy)
+    return True
+
+
+async def reap_stuck_verifications(
+    queue: AnalysisQueue, repository: IncidentRepository, clock: Clock, policy: AnalysisPolicy
+) -> int:
+    """Encerra como parciais (interrompidas) as validações presas; devolve quantas."""
+    now = clock.now()
+    jobs = await queue.stuck_verifications(now - policy.verification_timeout - REAP_GRACE)
+    for job in jobs:
+        incident = await _incident(repository, job.incident_id)
+        pending = _running_verification(job)
+        verification = verification_partial(pending, PartialReason.INTERRUPTED, (), now)
+        await _finish_verification(queue, incident, verification, (), policy)
+    return len(jobs)
+
+
+def _running_verification(job: AnalysisJob) -> Verification:
+    return Verification(
+        incident_id=job.incident_id,
+        status=AnalysisStatus.RUNNING,
+        requested_at=job.requested_at,
+        started_at=job.started_at,
+        finished_at=None,
+        verdicts=(),
+        root_cause=None,
+        actions=(),
+        missing="",
+        evaluations=(),
+        partial_reason=None,
+    )
+
+
+async def _finish_verification(
+    queue: AnalysisQueue,
+    incident: Incident,
+    verification: Verification,
+    usages: Sequence[LlmUsage],
+    policy: AnalysisPolicy,
+) -> None:
+    """Evento, card da causa raiz e gravação da validação encerrada (concluída ou parcial)."""
+    now = verification.finished_at or verification.requested_at  # sempre preenchido
+    completed = verification.status is AnalysisStatus.COMPLETED
+    reason = verification.partial_reason
+    data = {
+        "status": verification.status.value,
+        "reason": None if reason is None else reason.value,
+        "root_cause": verification.root_cause,
+        "verdicts": len(verification.verdicts),
+        "actions": len(verification.actions),
+        "evaluations": len(verification.evaluations),
+    }
+    kind = EventType.VERIFICATION_COMPLETED if completed else EventType.VERIFICATION_PARTIAL
+    card = Notification(
+        kind=NotificationKind.ROOT_CAUSE,
+        incident_id=incident.id,
+        title=incident.title,
+        severity=incident.severity,
+        services=incident.services,
+        summary=verification.root_cause or NO_ROOT_CAUSE,
+        evidence=verification.actions[0].action if verification.actions else verification.missing,
+        source_url=policy.telemetry_url,
+        page_url=policy.page_url(incident.id),
+        verification=verification,
+    )
+    events = [
+        IncidentEvent(incident.id, now, kind, data),
+        IncidentEvent(incident.id, now, EventType.NOTIFICATION_QUEUED, {"kind": card.kind.value}),
+    ]
+    await queue.finish_verification(verification, events, card, usages, now)

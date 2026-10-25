@@ -16,7 +16,7 @@ from grolla.application.incidents import (
     OutboxItem,
 )
 from grolla.application.investigation import LlmUsage
-from grolla.domain.analysis import Analysis, AnalysisStatus
+from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -54,6 +54,7 @@ class InMemoryIncidentRepository:
         self.links: list[tuple[UUID, Alert]] = []
         self.outbox: list[OutboxEntry] = []
         self.analyses: dict[UUID, Analysis] = {}
+        self.verifications: dict[UUID, Verification] = {}
         self.usages: list[tuple[UUID, LlmUsage, datetime]] = []  # (incidente, uso, quando)
 
     @asynccontextmanager
@@ -65,6 +66,7 @@ class InMemoryIncidentRepository:
             list(self.links),
             list(self.outbox),
             dict(self.analyses),
+            dict(self.verifications),
             list(self.usages),
         )
         try:
@@ -77,6 +79,7 @@ class InMemoryIncidentRepository:
                 self.links,
                 self.outbox,
                 self.analyses,
+                self.verifications,
                 self.usages,
             ) = snapshot
             raise
@@ -90,6 +93,9 @@ class InMemoryIncidentRepository:
 
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         return [alert for owner, alert in self.links if owner == incident_id]
+
+    async def verification_of(self, incident_id: UUID) -> Verification | None:
+        return self.verifications.get(incident_id)
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         return self.analyses.get(incident_id)
@@ -200,9 +206,64 @@ class InMemoryAnalysisQueue:
             return  # já encerrada (pelo reaper ou por outro worker): a análise chega uma vez
         async with self._repository.transaction() as uow:
             self._repository.analyses[analysis.incident_id] = analysis
+            if analysis.hypotheses:
+                self._repository.verifications.setdefault(
+                    analysis.incident_id, _pending_verification(analysis.incident_id, at)
+                )
             await uow.append(events)
             await uow.enqueue(notification, at)
             self._repository.usages.extend((analysis.incident_id, u, at) for u in usages)
+
+    async def claim_verification(self, now: datetime) -> AnalysisJob | None:
+        verifications = self._repository.verifications
+        pending = [v for v in verifications.values() if v.status is AnalysisStatus.PENDING]
+        oldest = min(pending, key=lambda v: v.requested_at, default=None)
+        if oldest is None:
+            return None
+        verifications[oldest.incident_id] = replace(
+            oldest, status=AnalysisStatus.RUNNING, started_at=now
+        )
+        return AnalysisJob(oldest.incident_id, oldest.requested_at, now)
+
+    async def stuck_verifications(self, started_before: datetime) -> list[AnalysisJob]:
+        return [
+            AnalysisJob(v.incident_id, v.requested_at, v.started_at)
+            for v in self._repository.verifications.values()
+            if v.status is AnalysisStatus.RUNNING and v.started_at and v.started_at < started_before
+        ]
+
+    async def finish_verification(
+        self,
+        verification: Verification,
+        events: Sequence[IncidentEvent],
+        notification: Notification,
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        current = self._repository.verifications.get(verification.incident_id)
+        if current is None or current.status is not AnalysisStatus.RUNNING:
+            return  # já encerrada: a validação chega uma vez
+        async with self._repository.transaction() as uow:
+            self._repository.verifications[verification.incident_id] = verification
+            await uow.append(events)
+            await uow.enqueue(notification, at)
+            self._repository.usages.extend((verification.incident_id, u, at) for u in usages)
+
+
+def _pending_verification(incident_id: UUID, at: datetime) -> Verification:
+    return Verification(
+        incident_id=incident_id,
+        status=AnalysisStatus.PENDING,
+        requested_at=at,
+        started_at=None,
+        finished_at=None,
+        verdicts=(),
+        root_cause=None,
+        actions=(),
+        missing="",
+        evaluations=(),
+        partial_reason=None,
+    )
 
 
 class InMemoryNotificationOutbox:
