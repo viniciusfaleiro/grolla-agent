@@ -100,8 +100,12 @@ async def test_completed_analysis_has_real_evaluations_card_and_usage(world: Wor
     events = await world.repository.events_of(incident_id)
     assert [e.type for e in events] == [
         EventType.ANALYSIS_COMPLETED,
+        EventType.VERIFICATION_REQUESTED,
         EventType.NOTIFICATION_QUEUED,
     ]
+    assert events[1].data == {"hypotheses": 2}
+    verification = world.repository.verifications[incident_id]
+    assert verification.status is AnalysisStatus.PENDING
     assert events[0].data == {
         "status": "concluida",
         "reason": None,
@@ -132,6 +136,8 @@ async def test_completed_analysis_without_hypotheses_says_so_on_the_card(world: 
 
     [entry] = world.repository.outbox
     assert entry.notification.evidence == NO_HYPOTHESIS
+    assert world.repository.verifications == {}
+    assert EventType.VERIFICATION_REQUESTED not in [e.type for e in world.repository.events]
 
 
 @pytest.mark.parametrize(

@@ -5,21 +5,28 @@ from typing import Any
 
 import pytest
 from grolla.application.investigation import (
+    NO_CLOUD,
+    NO_CLOUD_RESOURCES,
     NO_REPOSITORY,
     SYSTEM_PROMPT,
     UNAVAILABLE,
+    VERIFICATION_PROMPT,
     BudgetExceededError,
+    CloudInventory,
     InvestigationBrief,
     TokenBudget,
     Toolbox,
     brief_text,
+    verification_text,
 )
-from grolla.domain.analysis import Evaluation
-from grolla.testing.builders import T0, make_alert, make_incident
+from grolla.domain.analysis import AnalysisStatus, Evaluation
+from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.investigation import (
+    CLOUD_TOOLS,
     FAKE_SOURCE_URL,
     FakeChangeHistory,
+    FakeCloudInventory,
     FakeTelemetry,
     fake_usage,
 )
@@ -29,32 +36,42 @@ LOOKBACK = timedelta(minutes=60)
 
 
 def toolbox(
-    telemetry: FakeTelemetry | None = None, changes: FakeChangeHistory | None = None
+    telemetry: FakeTelemetry | None = None,
+    changes: FakeChangeHistory | None = None,
+    cloud: CloudInventory | None = None,
 ) -> Toolbox:
     return Toolbox(
         telemetry or FakeTelemetry(),
         changes or FakeChangeHistory({SERVICE: "1 deploy: 2.4.1 às 09:58 por ana"}),
         FakeClock(T0),
         LOOKBACK,
+        cloud,
     )
 
 
-def test_specs_are_the_four_neutral_tools_with_closed_arguments() -> None:
+def test_specs_are_the_seven_neutral_tools_with_closed_arguments() -> None:
     specs = {spec.name: spec.input_schema for spec in toolbox().specs()}
 
-    assert set(specs) == {"query_metric", "search_logs", "find_traces", "recent_deploys"}
     assert {name: set(schema["properties"]) for name, schema in specs.items()} == {
         "query_metric": {"service", "signal"},
         "search_logs": {"service", "text"},
         "find_traces": {"service", "only_errors"},
         "recent_deploys": {"service"},
+        "cloud_resources": {"service"},
+        "cloud_changes": {"service"},
+        "cloud_alarms": {"service"},
     }
     assert {name: schema["required"] for name, schema in specs.items()} == {
         "query_metric": ["service", "signal"],
         "search_logs": ["service"],
         "find_traces": ["service", "only_errors"],
         "recent_deploys": ["service"],
+        "cloud_resources": ["service"],
+        "cloud_changes": ["service"],
+        "cloud_alarms": ["service"],
     }
+    descriptions = " ".join(spec.description for spec in toolbox().specs())
+    assert "nuvem" in descriptions
     assert all(schema["additionalProperties"] is False for schema in specs.values())
 
 
@@ -234,3 +251,109 @@ def test_system_prompt_follows_the_short_script() -> None:
         "não há causa clara",
     ):
         assert expected in SYSTEM_PROMPT
+
+
+def test_system_prompt_uses_the_cloud_and_relates_rollback_to_the_deploy_time() -> None:
+    for expected in ("cloud_resources", "cloud_changes", "banco, fila, rede", "rollback"):
+        assert expected in SYSTEM_PROMPT
+    assert "começou depois do deploy" in SYSTEM_PROMPT
+
+
+def test_verification_prompt_asks_verdicts_root_cause_and_a_concrete_plan() -> None:
+    for expected in (
+        "confirmada, rejeitada ou inconclusiva",
+        "root_cause",
+        "actions",
+        "missing",
+        "o quê, quando e onde",
+        "fazer rollback para o build X",
+        "religar o recurso Y",
+        "escalar Z",
+        "Nunca coloque passos de investigação",
+        "somente leitura",
+        "cloud_changes",
+    ):
+        assert expected in VERIFICATION_PROMPT
+
+
+def test_verification_text_has_the_services_line_hypotheses_and_evaluations() -> None:
+    incident = make_incident(services=(SERVICE, "capture-api"))
+    analysis = make_analysis(incident.id)
+
+    text = verification_text(InvestigationBrief(incident, (), now=T0), analysis)
+
+    assert f"Serviços: {SERVICE}, capture-api\n" in text
+    assert f"Resumo da análise inicial: {analysis.summary}" in text
+    assert "- Hipótese 1 (confiança 80%)" in text
+    assert "  Evidência: Evidência da hipótese 1 (https://origem.interno/1)" in text
+    assert "  Evidência: Sem link\n" in text
+    assert "- query_metric: taxa_de_erro de capture-api, últimos 60 min → Subiu" in text
+    assert "- search_logs: logs de erro de capture-api, últimos 60 min → não foi" in text
+
+
+def test_verification_text_without_evaluations_says_so() -> None:
+    incident = make_incident()
+    analysis = make_analysis(incident.id, status=AnalysisStatus.PENDING)
+
+    text = verification_text(InvestigationBrief(incident, (), now=T0), analysis)
+
+    assert "- nenhuma avaliação registrada" in text
+
+
+@pytest.mark.parametrize(
+    ("name", "subject", "call"),
+    [
+        ("cloud_resources", f"recursos de nuvem de {SERVICE}", "resources"),
+        ("cloud_changes", f"mudanças na nuvem de {SERVICE}, últimos 60 min", "changes"),
+        ("cloud_alarms", f"alarmes da nuvem de {SERVICE}", "alarms"),
+    ],
+)
+async def test_cloud_tools_call_the_cloud_with_the_service(
+    name: str, subject: str, call: str
+) -> None:
+    cloud = FakeCloudInventory(
+        resources={SERVICE: "banco pedidos-db: stopped"},
+        changes={SERVICE: "21:42 parada do banco"},
+        alarms={SERVICE: "alarme de conexões"},
+    )
+    tools = toolbox(cloud=cloud)
+
+    answer = await tools.call(name, {"service": SERVICE})
+
+    assert answer.endswith(f"Link: https://console.nuvem.interno/{SERVICE}")
+    assert cloud.calls == [(call, SERVICE)]
+    assert tools.evaluations[0].subject == subject
+    assert tools.evaluations[0].ok
+
+
+async def test_cloud_changes_since_the_lookback() -> None:
+    cloud = FakeCloudInventory()
+
+    await toolbox(cloud=cloud).call("cloud_changes", {"service": SERVICE})
+
+    assert cloud.since == [T0 - LOOKBACK]
+
+
+async def test_service_without_cloud_resources_is_an_answer() -> None:
+    tools = toolbox(cloud=FakeCloudInventory())
+
+    assert await tools.call("cloud_resources", {"service": SERVICE}) == NO_CLOUD_RESOURCES
+    assert tools.evaluations[0].ok
+
+
+@pytest.mark.parametrize("name", ["cloud_resources", "cloud_changes", "cloud_alarms"])
+async def test_without_cloud_the_tools_say_it_is_not_configured(name: str) -> None:
+    tools = toolbox()
+
+    assert await tools.call(name, {"service": SERVICE}) == NO_CLOUD
+    assert tools.evaluations[0].ok
+
+
+async def test_cloud_failure_becomes_an_unavailable_evaluation() -> None:
+    tools = toolbox(cloud=FakeCloudInventory(failing=CLOUD_TOOLS))
+
+    answer = await tools.call("cloud_changes", {"service": SERVICE})
+
+    assert answer.startswith(UNAVAILABLE)
+    assert tools.evaluations[0].finding == UNAVAILABLE
+    assert not tools.evaluations[0].ok
