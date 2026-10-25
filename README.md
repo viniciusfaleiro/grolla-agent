@@ -66,6 +66,7 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **Migrações** | Schema versionado por Alembic, aplicado no startup sob advisory lock | `grolla.adapters.postgres.migrate` |
 | **Harness** | Todos os gates num comando só | `make check` |
 | **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |
+| **Console de testes** | Dispara alarmes e mostra os cards do agente como num canal do Teams | `http://localhost:9000/_console` |
 
 > Até o S2: alertas viram incidentes com card no Teams e página. Acionamento do on-call,
 > investigação, war room e post mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
@@ -203,6 +204,14 @@ then:
 ```
 
 Cenário novo é só um YAML novo em `e2e/scenarios/`.
+
+**Testar à mão:** o console de testes do `grolla-fakes` dispara alarmes e mostra os cards do
+agente como num canal do Teams.
+
+```bash
+docker compose --profile e2e --project-name grolla-demo up -d --build --wait
+# http://localhost:9000/_console  ·  incidentes em http://localhost:8000/incidents
+```
 
 ## 🧭 Spec-driven development
 

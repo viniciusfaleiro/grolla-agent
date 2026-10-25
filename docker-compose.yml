@@ -63,6 +63,11 @@ services:
       dockerfile: e2e/fakes/Dockerfile
     image: grolla-fakes:local
     profiles: ["e2e"]
+    environment:
+      # O console de testes (http://localhost:9000/_console) dispara alertas no webhook da api.
+      GROLLA_FAKES_API_URL: http://api:8000
+      GROLLA_FAKES_API_USER: signoz
+      GROLLA_FAKES_API_PASSWORD: segredo-do-e2e
     ports:
       - "9000:9000"
     healthcheck:

@@ -9,47 +9,17 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+
+from grolla_fakes.console import ApiTarget, console_router
+from grolla_fakes.state import FakesState, RecordedRequest, Scenario
 
 CONTROL_PREFIX = "/_control"
 
 
-class ScriptedRoute(BaseModel):
-    method: str
-    path: str
-    status: int = 200
-    body: Any = None
-
-
-class Scenario(BaseModel):
-    routes: list[ScriptedRoute] = []
-
-
-class RecordedRequest(BaseModel):
-    method: str
-    path: str
-    body: Any = None
-
-
-class FakesState:
-    def __init__(self) -> None:
-        self.scenario = Scenario()
-        self.requests: list[RecordedRequest] = []
-
-    def reset(self) -> None:
-        self.scenario = Scenario()
-        self.requests = []
-
-    def find_route(self, method: str, path: str) -> ScriptedRoute | None:
-        for route in self.scenario.routes:
-            if route.method.upper() == method.upper() and route.path == path:
-                return route
-        return None
-
-
-def create_app() -> FastAPI:
+def create_app(api: ApiTarget | None = None) -> FastAPI:
     app = FastAPI(title="grolla-fakes")
     state = FakesState()
+    app.include_router(console_router(state, api or ApiTarget.from_env()))
 
     @app.post(f"{CONTROL_PREFIX}/reset", status_code=204)
     async def reset() -> None:  # pyright: ignore[reportUnusedFunction]
@@ -67,10 +37,13 @@ def create_app() -> FastAPI:
     async def fake(path: str, request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
         raw = await request.body()
         body: Any = await request.json() if raw else None
-        state.requests.append(RecordedRequest(method=request.method, path=f"/{path}", body=body))
         route = state.find_route(request.method, f"/{path}")
+        status = 404 if route is None else route.status
+        state.requests.append(
+            RecordedRequest(method=request.method, path=f"/{path}", body=body, status=status)
+        )
         if route is None:
-            return JSONResponse({"error": "rota fora do roteiro do cenário"}, status_code=404)
-        return JSONResponse(route.body, status_code=route.status)
+            return JSONResponse({"error": "rota fora do roteiro do cenário"}, status_code=status)
+        return JSONResponse(route.body, status_code=status)
 
     return app

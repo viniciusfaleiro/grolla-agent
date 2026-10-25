@@ -410,12 +410,14 @@ version = "0.0.0"
 source = { editable = "e2e/fakes" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "uvicorn" },
 ]
 
