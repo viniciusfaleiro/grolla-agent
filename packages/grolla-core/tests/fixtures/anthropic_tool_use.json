@@ -1,0 +1,30 @@
+{
+  "id": "msg_01ToolUse",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5-5",
+  "content": [
+    {"type": "thinking", "thinking": "", "signature": "EqQBCkYIBxgCKkA"},
+    {
+      "type": "tool_use",
+      "id": "toolu_01Metric",
+      "name": "query_metric",
+      "input": {"service": "authorizer-api", "signal": "taxa_de_erro"}
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01Deploys",
+      "name": "recent_deploys",
+      "input": {"service": "authorizer-api"}
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 2048,
+    "output_tokens": 180,
+    "cache_creation_input_tokens": 1500,
+    "cache_read_input_tokens": 0,
+    "service_tier": "standard"
+  }
+}

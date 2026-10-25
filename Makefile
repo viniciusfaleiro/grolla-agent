@@ -3,7 +3,7 @@ SHELL := /bin/bash
 RUN := uv run
 GITLEAKS_IMAGE := zricethezav/gitleaks:v8.30.1
 
-.PHONY: setup fmt check format-check lint types arch vocabulary test coverage audit secrets spec e2e
+.PHONY: setup fmt check format-check lint types arch vocabulary test coverage audit secrets spec e2e evals
 
 setup: ## ativa os git hooks e instala as dependências
 	git config core.hooksPath hooks
@@ -57,3 +57,6 @@ spec:
 
 e2e: ## sobe o stack com os fakes, roda os cenários e derruba tudo
 	bash scripts/e2e.sh
+
+evals: ## evals da investigação com o modelo real (custa dinheiro; fora do check)
+	$(RUN) python evals/run.py
