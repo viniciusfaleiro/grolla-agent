@@ -33,6 +33,7 @@ def test_default_is_one_deploy_twenty_minutes_ago() -> None:
     started = datetime.fromisoformat(builds[0]["startTime"])
     assert timedelta(minutes=19) < datetime.now(UTC) - started < timedelta(minutes=21)
     assert builds[0]["definition"]["name"] == "authorizer-api-deploy"
+    assert builds[0]["triggerInfo"]["ci.message"] == "Aumenta o pool de conexões"
 
 
 def test_deploy_older_than_min_time_is_left_out() -> None:

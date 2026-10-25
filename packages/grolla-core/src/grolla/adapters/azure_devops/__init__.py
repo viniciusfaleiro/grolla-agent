@@ -4,6 +4,7 @@ O repositório do serviço vem do mapa (só as exceções) ou, sem entrada, é p
 do serviço nos projetos configurados. O resultado da busca fica em memória.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from grolla.application.investigation import NO_REPOSITORY, ToolResult, ToolUnav
 API_VERSION = "7.1"
 TIMEOUT_SECONDS = 20.0
 MAX_BUILDS = 10
+MESSAGE_CHARS = 120
 HTTP_NOT_FOUND = 404
 HTTP_OK = 200
 
@@ -108,7 +110,29 @@ class AzureDevOpsChangeHistory:
             "$top": str(MAX_BUILDS),
         }
         path = f"{quote(repository.project)}/_apis/build/builds"
-        return _validate(_Builds, await self._get(client, path, params)).value
+        builds = _validate(_Builds, await self._get(client, path, params)).value
+        return list(
+            await asyncio.gather(*(self._with_message(client, repository, b) for b in builds))
+        )
+
+    async def _with_message(
+        self, client: httpx2.AsyncClient, repository: _Repository, build: "_Build"
+    ) -> "_Build":
+        """Sem a mensagem na lista, busca a do commit (só dos builds listados).
+
+        Falha nessa busca não derruba os deploys: o build segue sem a mensagem.
+        """
+        if build.message() is not None or not build.source_version:
+            return build
+        path = (
+            f"{quote(repository.project)}/_apis/git/repositories/{quote(repository.id)}"
+            f"/commits/{quote(build.source_version)}"
+        )
+        try:
+            commit = _validate(_Commit, await self._get(client, path, {}, missing_ok=True))
+        except ToolUnavailableError:
+            return build
+        return build.model_copy(update={"source_version_message": commit.comment})
 
     async def _get(
         self,
@@ -180,6 +204,20 @@ class _Build(BaseModel):
     definition: _Named
     requested_for: _Identity | None = Field(default=None, alias="requestedFor")
     links: _Links = Field(default_factory=_Links, alias="_links")
+    trigger_info: dict[str, str] = Field(default_factory=dict[str, str], alias="triggerInfo")
+    source_version_message: str | None = Field(default=None, alias="sourceVersionMessage")
+
+    def message(self) -> str | None:
+        """Primeira linha da mensagem do commit, se o build a trouxe."""
+        text = (self.trigger_info.get("ci.message") or self.source_version_message or "").strip()
+        if not text:
+            return None
+        first = text.splitlines()[0]
+        return first if len(first) <= MESSAGE_CHARS else first[: MESSAGE_CHARS - 1] + "…"
+
+
+class _Commit(BaseModel):
+    comment: str | None = None
 
 
 class _Builds(BaseModel):
@@ -204,6 +242,8 @@ def _line(build: _Build) -> str:
         else _STATUSES.get(build.status, build.status)
     )
     origin = f" ({source})" if source else ""
+    message = build.message()
+    origin += f' "{message}"' if message else ""
     started = _when(build.start_time or build.queue_time)
     return f"{started} {build.definition.name} {build.build_number}{origin} por {author}: {state}"
 
