@@ -47,7 +47,7 @@
   - timeout por chamada.
   Confirmar os nomes e os argumentos das ferramentas no servidor real ou na documentação oficial e versionar as fixtures.
 - [ ] 4.2 Teste que prova a recusa de ferramenta de escrita sem chamar o servidor.
-- [ ] 4.3 `grolla.adapters.azure_devops` como `ChangeHistory`: builds do repositório do mapa desde `since`, PAT, "serviço sem repositório mapeado" e link do pipeline.
+- [ ] 4.3 `grolla.adapters.azure_devops` como `ChangeHistory`: repositório pelo mapa ou, sem entrada, pelo nome do serviço nos `projects` (cache em memória); builds desde `since`, PAT, "serviço sem repositório mapeado" e link do pipeline.
 - [ ] 4.4 Fakes no `grolla-fakes`: servidor MCP do SigNoz em `/signoz/mcp` (lib `mcp`) e a API de builds do Azure DevOps, com roteiros e padrão plausível.
 - [ ] 4.5 Os dois adapters passando nas suítes de contrato; `make check` verde no worktree.
 
@@ -71,7 +71,7 @@
 
 - [ ] 7.1 Juntar os branches dos agentes e resolver conflitos.
 - [ ] 7.2 Code review do todo entregue: consistência entre componentes, duplicação, desvio de contrato, simplicidade, cobertura das specs. Fazer os ajustes que couberem.
-- [ ] 7.3 `deploy/`: variáveis novas no `.env.example`, seções novas no `credenciadora.yaml`, `signoz-mcp-server` no compose se for container próprio, e o passo a passo atualizado (API key Viewer, PAT somente leitura).
+- [ ] 7.3 `deploy/`: variáveis novas no `.env.example`, seções novas no `credenciadora.yaml`, container `signoz-mcp` no compose (tag fixa, rede interna, sem porta publicada), e o passo a passo atualizado (API key Viewer, PAT somente leitura).
 - [ ] 7.4 Registrar no `design.md` os desvios de contrato combinados entre os agentes.
 - [ ] 7.5 Revisar e atualizar os READMEs do pai e de cada componente (features, roadmap e badge de status).
 - [ ] 7.6 Rodar `make e2e` e garantir todos os cenários verdes.

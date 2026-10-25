@@ -19,10 +19,11 @@ O SigNoz já manda o próprio webhook de alerta para o Teams da Credenciadora. P
 - **Página do incidente** ganha a seção de análise: estado, avaliações, hipóteses e plano.
 - **Fornecedores**:
   - **SigNoz via MCP.** O adapter usa só uma lista fechada de ferramentas de leitura. O MCP foi escolhido porque, no futuro, o agente vai criar dashboards.
-  - **Azure DevOps** pela API REST, com token somente leitura, e um mapa serviço → repositório no YAML.
+  - **Azure DevOps** pela API REST, com token somente leitura. O repositório é achado pelo nome do serviço, e um mapa opcional no YAML cobre as exceções.
+  - O servidor MCP do SigNoz roda em container ao lado do agente, com a API key do SigNoz.
   - **Anthropic** (Claude), com o modelo da etapa `investigation` no YAML.
 - **Configuração**:
-  - O YAML ganha as seções `investigation` (tempo e tokens da análise inicial), `llm` (modelos por etapa), `signoz` (URL do MCP e URL base para links) e `azure_devops` (organização e mapa serviço → repositório).
+  - O YAML ganha as seções `investigation` (tempo e tokens da análise inicial), `llm` (modelos por etapa), `signoz` (URL do MCP e URL base para links) e `azure_devops` (organização, projetos e mapa opcional serviço → repositório).
   - Os segredos ficam no ambiente: `GROLLA_ANTHROPIC_API_KEY`, `GROLLA_SIGNOZ_API_KEY` e `GROLLA_AZURE_DEVOPS_TOKEN`.
   - O worker passa a ler o YAML.
 - **Uso do LLM registrado** por chamada (etapa, modelo, tokens) em `llm_usage`.

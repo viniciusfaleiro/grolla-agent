@@ -13,8 +13,12 @@ Cada ferramenta SHALL devolver um resumo compacto e, quando houver, um link para
 - **WHEN** o LLM chama `recent_deploys` para `authorizer-api` nas últimas 6 horas
 - **THEN** recebe a lista de deploys com horário, versão e autor, e o link para o pipeline
 
-#### Scenario: Serviço sem mapeamento
-- **WHEN** o LLM chama `recent_deploys` para um serviço fora do mapa serviço → repositório
+#### Scenario: Repositório achado pelo nome
+- **WHEN** o LLM chama `recent_deploys` para `captura-api`, que não está no mapa, e existe um repositório `captura-api` num dos projetos configurados
+- **THEN** recebe os deploys desse repositório
+
+#### Scenario: Serviço sem repositório
+- **WHEN** o LLM chama `recent_deploys` para um serviço fora do mapa e sem repositório com o mesmo nome nos projetos configurados
 - **THEN** recebe a resposta "serviço sem repositório mapeado" em vez de um erro, e a avaliação registra isso
 
 ### Requirement: Somente leitura nos fornecedores

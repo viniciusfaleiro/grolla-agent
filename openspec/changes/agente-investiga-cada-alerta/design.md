@@ -300,15 +300,17 @@ llm:
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
 signoz:
-  mcp_url: https://signoz-mcp.interno/mcp
+  mcp_url: http://signoz-mcp:8000/mcp  # container ao lado do agente (deploy/compose.yml)
   base_url: https://signoz.interno  # links "Ver no SigNoz"
 azure_devops:
   base_url: https://dev.azure.com/minha-org
-  service_repo_map:
+  projects: [Core]  # onde procurar um repositório com o nome do serviço
+  service_repo_map:  # opcional: só as exceções em que o repositório não tem o nome do serviço
     authorizer-api: { project: Core, repo: authorizer-api }
 ```
 
-- **Ambiente do worker:** `GROLLA_CONFIG_FILE` (o worker passa a ler o YAML), `GROLLA_ANTHROPIC_API_KEY`, `GROLLA_SIGNOZ_API_KEY` e `GROLLA_AZURE_DEVOPS_TOKEN`.
+- **Ambiente do worker:** `GROLLA_CONFIG_FILE` (o worker passa a ler o YAML), `GROLLA_ANTHROPIC_API_KEY` e `GROLLA_AZURE_DEVOPS_TOKEN`.
+- **API key do SigNoz:** `GROLLA_SIGNOZ_API_KEY` no `.env` vai só para o container `signoz-mcp` (como `SIGNOZ_API_KEY`), que fica na rede interna do compose, sem porta publicada. O worker não precisa dela.
 - **Só no e2e:** `GROLLA_ANTHROPIC_BASE_URL`, opcional, aponta o SDK para o fake.
 - **Montagem:** o `prepare_worker()` monta os três adapters, a `AnalysisQueue` e a `AnalysisPolicy`.
 
@@ -354,10 +356,12 @@ azure_devops:
    - O resultado final vem por structured outputs (`output_config.format` com JSON Schema), não por `tool_choice` forçado, que dá 400 no Sonnet/Opus 5.5.
    - O adapter também usa thinking adaptativo, `effort` do YAML e `cache_control` de 1 h no system e nas tools.
 4. **Ferramentas neutras com sinais fixos** (`taxa_de_erro`, `latencia_p99`, `vazao`), em vez de nomes de métrica do SigNoz. *Mais simples considerada:* repassar nomes de métrica livres. Descartada porque prenderia o prompt e os evals ao fornecedor. O adapter traduz o sinal para a consulta do SigNoz.
-5. **SigNoz pelo MCP com lista fechada de ferramentas de leitura.** O adapter chama algo como `signoz_query_metrics` / `signoz_execute_builder_query`, `signoz_search_logs`, `signoz_search_traces` e `signoz_get_service_top_operations`; o agente de integrações confirma os nomes e os argumentos contra o servidor real. *Mais simples considerada:* a API HTTP do SigNoz. Descartada porque o usuário quer o MCP para a criação de dashboards no futuro.
+5. **SigNoz pelo MCP, em container próprio ao lado do agente** (`signoz/signoz-mcp-server` com tag fixa, `TRANSPORT_MODE=http`, endpoint `/mcp`), **com lista fechada de ferramentas de leitura.** O adapter chama algo como `signoz_query_metrics` / `signoz_execute_builder_query`, `signoz_search_logs`, `signoz_search_traces` e `signoz_get_service_top_operations`; o agente de integrações confirma os nomes e os argumentos contra o servidor real. *Mais simples considerada:* a API HTTP do SigNoz. Descartada porque o usuário quer o MCP para a criação de dashboards no futuro.
    - A API key é de papel **Viewer**.
    - A lista fechada impede escrita mesmo que o servidor permita.
-6. **Azure DevOps pela API REST de builds** (`_apis/build/builds`, filtrados pelo repositório do mapa e por `minTime`), com PAT somente leitura. *Mais simples considerada e escolhida:* é uma consulta só; o MCP do Azure DevOps entra quando houver leitura de código (S5).
+6. **Azure DevOps pela API REST de builds** (`_apis/build/builds`, filtrados pelo repositório e por `minTime`), com PAT somente leitura. *Mais simples considerada e escolhida:* é uma consulta só; o MCP do Azure DevOps entra quando houver leitura de código (S5).
+   - **O mapa serviço → repositório é opcional.** Sem entrada, o adapter procura um repositório com o nome do serviço nos `projects` configurados (`_apis/git/repositories/{nome}`) e guarda o resultado em memória. Sem achar, a ferramenta responde "serviço sem repositório mapeado".
+   - *Mais simples considerada:* exigir o mapa completo. Descartada porque a lista é grande e ainda não existe; o mapa guarda só as exceções, como previa a spec de produto.
 7. **Dois laços de worker no mesmo processo.** *Mais simples considerada:* aumentar a concorrência do worker único. Descartada porque as análises ocupariam todos os slots e atrasariam heartbeat e cards. Um segundo container de worker também foi descartado, por ser mais deploy para o mesmo ganho.
 8. **Card "investigando" substitui o "incidente novo"** (mesmo `NotificationKind.INCIDENT_OPENED`, novo conteúdo), em vez de postar dois cards. Menos ruído no canal.
 9. **Análise parcial é o mesmo card, marcado.** *Mais simples considerada e escolhida:* um formato de card só, com o motivo no topo.
@@ -390,14 +394,14 @@ azure_devops:
 
 1. Merge na `master` com `make check` e `make e2e` verdes; bump da versão.
 2. **O usuário faz:**
-   - criar no SigNoz uma API key Viewer e subir (ou apontar) o `signoz-mcp-server` em modo HTTP alcançável pela EC2;
+   - criar no SigNoz uma API key Viewer (o `signoz-mcp-server` sobe junto no `deploy/compose.yml`);
    - gerar o PAT somente leitura do Azure DevOps;
-   - preencher o `.env` e o mapa serviço → repositório em `credenciadora.yaml`.
+   - preencher o `.env` e os `projects` do Azure DevOps em `credenciadora.yaml` (o mapa só para exceções).
 3. Deploy manual seguindo `deploy/README.md`, atualizado. O webhook do SigNoz é apontado para a instância: primeiro num canal de teste, depois no canal do time.
 4. Aceite junto com o S2: alertas reais viram "investigando" e análise útil em até 5 minutos.
 5. Rollback: voltar a versão. Sem LLM, o S2 continua funcionando; a análise sai parcial.
 
 ## Open Questions
 
-- Onde o `signoz-mcp-server` vai rodar: SigNoz Cloud (endpoint hospedado) ou container próprio ao lado do agente na EC2? O design suporta os dois (só muda `signoz.mcp_url`). Se for container próprio, ele entra no `deploy/compose.yml`.
-- Mapa serviço → repositório da Credenciadora: quais serviços e repositórios.
+- **Resolvidas com o usuário:** o `signoz-mcp-server` roda em container ao lado do agente. O mapa serviço → repositório ainda não existe, então o adapter procura o repositório pelo nome do serviço e o mapa guarda só as exceções.
+- **Na integração:** fixar a tag da imagem do `signoz-mcp-server`.
