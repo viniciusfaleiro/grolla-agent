@@ -50,7 +50,7 @@
 - [x] 6.1 Juntar os branches dos agentes e resolver conflitos.
 - [x] 6.2 Fazer o code review do conjunto entregue e os ajustes que couberem.
 - [x] 6.3 `deploy/`: seções `cloud` e de limites, as variáveis `AWS_*` e a política IAM mínima.
-- [ ] 6.4 Laboratório:
+- [x] 6.4 Laboratório:
   - criar o IAM somente leitura;
   - marcar os recursos da pedidos-api com a tag `service=pedidos-api`;
   - repetir os dois cenários.
@@ -59,4 +59,4 @@
 - [x] 6.5 Registrar no `design.md` os desvios de contrato.
 - [x] 6.6 Revisar e atualizar os READMEs do pai e de cada componente.
 - [x] 6.7 Rodar `make e2e` e garantir todos os cenários verdes.
-- [ ] 6.8 Rodar `make fmt && make check` e garantir tudo verde.
+- [x] 6.8 Rodar `make fmt && make check` e garantir tudo verde.
