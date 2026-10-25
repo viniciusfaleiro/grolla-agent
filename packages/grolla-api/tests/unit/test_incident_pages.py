@@ -132,9 +132,7 @@ def test_incident_page_shows_alerts_and_timeline_in_order(
     assert received < page.index("Alerta agrupado") < page.index("Severidade alterada")
 
 
-def test_page_escapes_alert_text(
-    client: TestClient, repository: RepositoryWithAnalyses
-) -> None:
+def test_page_escapes_alert_text(client: TestClient, repository: RepositoryWithAnalyses) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
     repository.links = [(incident.id, make_alert(summary="<script>x</script>"))]
