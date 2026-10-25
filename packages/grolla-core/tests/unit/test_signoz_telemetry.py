@@ -143,15 +143,15 @@ async def test_error_rate_is_a_series_of_percentages(mcp: FakeSignozMcp) -> None
         "aggregation": "count",
         "service": "authorizer-api",
         "requestType": "time_series",
-        "stepInterval": "600",
+        "stepInterval": "60",
         "start": str(int(START.timestamp() * 1000)),
         "end": str(int(END.timestamp() * 1000)),
     }
     assert [arguments for _, arguments in mcp.calls] == [total, {**total, "error": True}]
     assert result.summary == (
-        "taxa de erro de authorizer-api entre 10:00 UTC e 11:00 UTC: 0,4% no início, 7,0% no "
-        "fim, máximo 7,0% às 10:50 UTC. Série a cada 10 min: 0,4% · 0,5% · 0,4% · 3,3% · "
-        "6,8% · 7,0%"
+        "taxa de erro de authorizer-api entre 10:00 UTC e 11:00 UTC: 0,0% no início, 70,0% no "
+        "fim, máximo 70,0% às 10:50 UTC. Mudou às 10:50 UTC, de 0,2% para 70,0%. Últimos 10 "
+        "pontos, a cada 1 min: " + " · ".join(["70,0%"] * 10)
     )
     assert result.url == f"{BASE}/services/authorizer-api"
 
@@ -176,7 +176,8 @@ async def test_latency_is_reported_in_milliseconds(mcp: FakeSignozMcp) -> None:
 
     assert mcp.calls[0][1]["aggregation"] == "p99"
     assert mcp.calls[0][1]["aggregateOn"] == "duration_nano"
-    assert "182 ms no início, 2.398 ms no fim, máximo 2.402 ms às 10:40 UTC" in result.summary
+    assert "182 ms no início, 2.417 ms no fim, máximo 2.417 ms às 10:59 UTC" in result.summary
+    assert "Mudou às 10:50 UTC, de 182 ms para 2.408 ms" in result.summary
 
 
 async def test_throughput_is_calls_per_second(mcp: FakeSignozMcp) -> None:
@@ -186,7 +187,9 @@ async def test_throughput_is_calls_per_second(mcp: FakeSignozMcp) -> None:
 
     assert mcp.calls[0][1]["aggregation"] == "rate"
     assert result.summary.startswith("vazão de authorizer-api")
-    assert "20,1 chamadas/s no início" in result.summary
+    assert "20,0 chamadas/s no início" in result.summary
+    assert "Sem mudança de patamar na janela" in result.summary
+    assert result.summary.count("chamadas/s ·") == 9  # só os últimos 10 pontos
 
 
 async def test_metric_without_data_says_so(mcp: FakeSignozMcp) -> None:
@@ -197,17 +200,47 @@ async def test_metric_without_data_says_so(mcp: FakeSignozMcp) -> None:
     assert result.summary == "sem dados de vazão de authorizer-api entre 10:00 UTC e 11:00 UTC"
 
 
-async def test_logs_are_grouped_by_message(mcp: FakeSignozMcp) -> None:
+async def test_logs_include_warn_grouped_by_message_with_the_level(mcp: FakeSignozMcp) -> None:
     result = await mcp.telemetry().search_logs("authorizer-api", "timeout", START, END)
 
-    assert mcp.calls[0][1]["filter"] == "severity_number >= 17"
+    assert mcp.calls[0][1]["filter"] == "severity_number >= 13"
     assert mcp.calls[0][1]["searchText"] == "timeout"
     assert result.summary == (
-        '38 logs de erro de authorizer-api entre 10:00 UTC e 11:00 UTC com o texto "timeout". '
-        'Mais frequentes: 31x "connection timeout to authorizer-db:5432 after 5000ms '
-        '(pool exhausted)"; 7x "issuer gateway returned 503"'
+        '60 logs WARN ou acima de authorizer-api entre 10:00 UTC e 11:00 UTC com o texto "timeout"'
+        ". Mais frequentes: 31x [ERROR] connection timeout to authorizer-db:5432 after 5000ms "
+        "(pool exhausted); "
+        '22x [WARN] connection to server at "10.0.1.23", port 5432 failed: server closed the '
+        "connection unexpectedly; "
+        "7x [ERROR] issuer gateway returned 503"
     )
     assert result.url == f"{BASE}/logs/logs-explorer"
+
+
+def log(body: str, level: str = "ERROR") -> dict[str, Any]:
+    return {"data": {"body": body, "severity_text": level}}
+
+
+async def test_variations_of_the_same_message_are_one_group_and_only_the_top_five(
+    mcp: FakeSignozMcp,
+) -> None:
+    rows = [
+        log("request 3f2504e0-4f89-11d3-9a0c-0305e82c3301 failed at 0x7ffd5e8c"),
+        log("request 9b2c1d4e-0000-4aaa-8bbb-123456789abc failed at 0x10ab"),
+        log("pid 123456 crashed", "FATAL"),
+        log("pid 987654 crashed", "FATAL"),
+        *(log(f"mensagem única {letter}", "warn") for letter in "abcde"),
+    ]
+    mcp.answers["signoz_search_logs"] = {"data": {"data": {"results": [{"rows": rows}]}}}
+
+    result = await mcp.telemetry().search_logs("authorizer-api", None, START, END)
+
+    top = result.summary.split("Mais frequentes: ")[1].split("; ")
+    assert top[:2] == [
+        "2x [ERROR] request 3f2504e0-4f89-11d3-9a0c-0305e82c3301 failed at 0x7ffd5e8c",
+        "2x [FATAL] pid 123456 crashed",
+    ]
+    assert len(top) == 5
+    assert top[2] == "1x [WARN] mensagem única a"
 
 
 async def test_no_error_logs(mcp: FakeSignozMcp) -> None:
@@ -216,7 +249,9 @@ async def test_no_error_logs(mcp: FakeSignozMcp) -> None:
     result = await mcp.telemetry().search_logs("authorizer-api", None, START, END)
 
     assert "searchText" not in mcp.calls[0][1]
-    assert result.summary == "nenhum log de erro de authorizer-api entre 10:00 UTC e 11:00 UTC"
+    assert result.summary == (
+        "nenhum log WARN ou acima de authorizer-api entre 10:00 UTC e 11:00 UTC"
+    )
 
 
 async def test_error_traces_link_to_a_trace(mcp: FakeSignozMcp) -> None:
