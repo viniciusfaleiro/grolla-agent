@@ -381,6 +381,40 @@ azure_devops:
 | `grolla-web` | Seção de análise na página do incidente e seletor do roteiro do LLM no console do `grolla-fakes` |
 | `grolla-e2e` | Cenários: análise completa, LLM fora do ar (parcial), tempo esgotado (parcial), alerta agrupado não reabre análise, ordem dos cards |
 
+## Desvios de contrato combinados na implementação
+
+Registrados pelo agente pai na integração. O código é a referência.
+
+1. **Argumentos das ferramentas fechados:**
+   - `query_metric {service, signal}`;
+   - `recent_deploys {service}`;
+   - `search_logs {service, text?}`;
+   - `find_traces {service, only_errors}`.
+
+   A janela vem do `lookback` do `Toolbox`, e o `brief_text` traz a linha `Serviços: a, b`.
+2. **`AnalysisQueue.finish` só grava se a análise ainda está `em_andamento`;** caso contrário, não faz nada. Isso evita um segundo card quando o reaper já encerrou a análise.
+3. **`request_analysis` repetido mantém o primeiro pedido** (`ON CONFLICT DO NOTHING`), sem abortar a transação do alerta.
+4. **Acréscimos sem mudança de assinatura:**
+   - `NO_REPOSITORY`, `SIGNALS`, `TOOL_SPECS` e `TokenBudget.total` em `grolla.application.investigation`;
+   - `PARTIAL_REASON_TEXT` em `grolla.domain.analysis`, fonte única do texto do motivo no card, na página e no e2e;
+   - `REAP_GRACE` (2 min) e `NO_HYPOTHESIS` em `grolla.application.analysis`.
+5. **Card de análise:** `source_url` é o `policy.telemetry_url` (botão "Ver no SigNoz"), `summary` é o resumo e `evidence` é a hipótese principal (na parcial, o motivo).
+6. **`transport` opcional** em `ClaudeLanguageModel` e `SignozTelemetry`, só para testes, como no Teams e no Azure DevOps.
+7. **Schema do rascunho com `minItems: 1` nas evidências.** A confiança entre 0 e 1 é validada depois, porque structured outputs não aceita limites numéricos.
+8. **Ferramentas MCP do SigNoz,** conferidas no catálogo real do servidor:
+   - `signoz_aggregate_traces` para os três sinais;
+   - `signoz_search_logs` com `severity_number >= 17`;
+   - `signoz_search_traces`;
+   - `signoz_get_service_top_operations`.
+
+   O adapter não manda chave: ela fica no container do servidor.
+9. **Controle do LLM fake** por `POST /_control/llm {"mode"}` (204). O modo `fora_do_ar` responde 529 com `retry-after-ms`, para o SDK desistir em milissegundos. O SigNoz fake e o Azure DevOps fake usam `/_control/signoz` e `/_control/azure-devops`.
+10. **Code review do agente pai:**
+    - Um link de evidência só fica se veio de uma avaliação real, porque o LLM pode inventar links.
+    - O card do Teams resume a análise (até 8 avaliações, 3 hipóteses, 2 evidências por hipótese, 5 passos e linhas de até 280 caracteres) para caber no limite do Workflow. A página do incidente mostra tudo.
+    - A página e o card usam o mesmo `PARTIAL_REASON_TEXT`.
+    - O console de testes renderiza os links em markdown dos cards.
+
 ## Risks / Trade-offs
 
 - [Nomes e argumentos das ferramentas do MCP do SigNoz diferentes do esperado] → o agente de observabilidade lista as ferramentas do servidor real (`tools/list`) antes de fechar e grava as respostas reais como fixtures. O resto do sistema só vê `Telemetry`.

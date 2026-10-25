@@ -13,66 +13,66 @@
 
 ## 1. grolla-dominio
 
-- [ ] 1.1 `complete` e `partial` (hipóteses ordenadas por confiança) e `decide_firing` com `request_analysis` só em incidente novo; `receive_alerts` chamando `request_analysis` e gravando `analysis_requested`.
-- [ ] 1.2 `Toolbox`: specs das quatro ferramentas com JSON Schema, `call` que nunca levanta (erro vira "não foi possível consultar") e registro das `Evaluation`s.
-- [ ] 1.3 `TokenBudget` e o prompt neutro (`SYSTEM_PROMPT`, `brief_text`) com o roteiro curto do design.
-- [ ] 1.4 `run_next_analysis` (timeout, conversão de cada falha em parcial, card `ANALYSIS_READY`) e `reap_stuck_analyses`.
-- [ ] 1.5 Fakes em `grolla.testing`: `ScriptedLanguageModel` (chama ferramentas e devolve um rascunho roteirizado, falha ou demora), `FakeTelemetry`, `FakeChangeHistory` e `InMemoryAnalysisQueue`, com as suítes de contrato de cada port em `tests/contracts/`. Commit cedo para os outros agentes.
-- [ ] 1.6 Pisos de cobertura; `make check` verde no worktree.
+- [x] 1.1 `complete` e `partial` (hipóteses ordenadas por confiança) e `decide_firing` com `request_analysis` só em incidente novo; `receive_alerts` chamando `request_analysis` e gravando `analysis_requested`.
+- [x] 1.2 `Toolbox`: specs das quatro ferramentas com JSON Schema, `call` que nunca levanta (erro vira "não foi possível consultar") e registro das `Evaluation`s.
+- [x] 1.3 `TokenBudget` e o prompt neutro (`SYSTEM_PROMPT`, `brief_text`) com o roteiro curto do design.
+- [x] 1.4 `run_next_analysis` (timeout, conversão de cada falha em parcial, card `ANALYSIS_READY`) e `reap_stuck_analyses`.
+- [x] 1.5 Fakes em `grolla.testing`: `ScriptedLanguageModel` (chama ferramentas e devolve um rascunho roteirizado, falha ou demora), `FakeTelemetry`, `FakeChangeHistory` e `InMemoryAnalysisQueue`, com as suítes de contrato de cada port em `tests/contracts/`. Commit cedo para os outros agentes.
+- [x] 1.6 Pisos de cobertura; `make check` verde no worktree.
 
 ## 2. grolla-persistencia
 
-- [ ] 2.1 `request_analysis` e `analysis_of` no repositório Postgres.
-- [ ] 2.2 `PostgresAnalysisQueue`: `claim` com `FOR UPDATE SKIP LOCKED`, `stuck` e `finish` numa transação (análise, eventos, outbox e `llm_usage`).
-- [ ] 2.3 Integração com Postgres real passando nas suítes de contrato da fila e do repositório; teste de duas reivindicações simultâneas que não pegam o mesmo pedido.
-- [ ] 2.4 README do `grolla-core` (tabelas novas); `make check` verde no worktree.
+- [x] 2.1 `request_analysis` e `analysis_of` no repositório Postgres.
+- [x] 2.2 `PostgresAnalysisQueue`: `claim` com `FOR UPDATE SKIP LOCKED`, `stuck` e `finish` numa transação (análise, eventos, outbox e `llm_usage`).
+- [x] 2.3 Integração com Postgres real passando nas suítes de contrato da fila e do repositório; teste de duas reivindicações simultâneas que não pegam o mesmo pedido.
+- [x] 2.4 README do `grolla-core` (tabelas novas); `make check` verde no worktree.
 
 ## 3. grolla-integracoes (LLM)
 
-- [ ] 3.1 `grolla.adapters.anthropic`: laço manual de ferramentas assíncrono, structured outputs para o `AnalysisDraft`, `effort` e modelo do YAML, thinking adaptativo, `cache_control` de 1 h, `budget.spend` a cada resposta e erros traduzidos para `LanguageModelError`/`InvalidAnalysisError`. Seguir a documentação do SDK (skill `claude-api`), sem adivinhar a API.
-- [ ] 3.2 Testes do adapter contra a Messages API fake (transporte fake), passando na suíte de contrato de `LanguageModel`.
-- [ ] 3.3 Fake da Messages API no `grolla-fakes` (`/anthropic/v1/messages`) com os modos `completa`, `fora_do_ar` e `lenta`.
-- [ ] 3.4 Card de análise no `grolla.adapters.teams` (resumo, avaliações, hipóteses, plano, parcial, botões).
-- [ ] 3.5 Worker: dois laços do procrastinate (filas `default` e `analysis`), jobs `run_analyses` e `reap_stuck_analyses`; README do worker.
-- [ ] 3.6 `evals/`: três casos roteirizados (deploy ruim, dependência lenta, sem causa clara) com a hipótese esperada e `make evals` com o modelo real; README do `evals/`.
-- [ ] 3.7 `make check` verde no worktree.
+- [x] 3.1 `grolla.adapters.anthropic`: laço manual de ferramentas assíncrono, structured outputs para o `AnalysisDraft`, `effort` e modelo do YAML, thinking adaptativo, `cache_control` de 1 h, `budget.spend` a cada resposta e erros traduzidos para `LanguageModelError`/`InvalidAnalysisError`. Seguir a documentação do SDK (skill `claude-api`), sem adivinhar a API.
+- [x] 3.2 Testes do adapter contra a Messages API fake (transporte fake), passando na suíte de contrato de `LanguageModel`.
+- [x] 3.3 Fake da Messages API no `grolla-fakes` (`/anthropic/v1/messages`) com os modos `completa`, `fora_do_ar` e `lenta`.
+- [x] 3.4 Card de análise no `grolla.adapters.teams` (resumo, avaliações, hipóteses, plano, parcial, botões).
+- [x] 3.5 Worker: dois laços do procrastinate (filas `default` e `analysis`), jobs `run_analyses` e `reap_stuck_analyses`; README do worker.
+- [x] 3.6 `evals/`: três casos roteirizados (deploy ruim, dependência lenta, sem causa clara) com a hipótese esperada e `make evals` com o modelo real; README do `evals/`.
+- [x] 3.7 `make check` verde no worktree.
 
 ## 4. grolla-integracoes (observabilidade)
 
-- [ ] 4.1 `grolla.adapters.signoz` como `Telemetry`:
+- [x] 4.1 `grolla.adapters.signoz` como `Telemetry`:
   - cliente MCP streamable HTTP com o header `SIGNOZ-API-KEY`;
   - lista fechada de ferramentas de leitura;
   - tradução dos sinais neutros;
   - resumo compacto e link do SigNoz;
   - timeout por chamada.
   Confirmar os nomes e os argumentos das ferramentas no servidor real ou na documentação oficial e versionar as fixtures.
-- [ ] 4.2 Teste que prova a recusa de ferramenta de escrita sem chamar o servidor.
-- [ ] 4.3 `grolla.adapters.azure_devops` como `ChangeHistory`: repositório pelo mapa ou, sem entrada, pelo nome do serviço nos `projects` (cache em memória); builds desde `since`, PAT, "serviço sem repositório mapeado" e link do pipeline.
-- [ ] 4.4 Fakes no `grolla-fakes`: servidor MCP do SigNoz em `/signoz/mcp` (lib `mcp`) e a API de builds do Azure DevOps, com roteiros e padrão plausível.
-- [ ] 4.5 Os dois adapters passando nas suítes de contrato; `make check` verde no worktree.
+- [x] 4.2 Teste que prova a recusa de ferramenta de escrita sem chamar o servidor.
+- [x] 4.3 `grolla.adapters.azure_devops` como `ChangeHistory`: repositório pelo mapa ou, sem entrada, pelo nome do serviço nos `projects` (cache em memória); builds desde `since`, PAT, "serviço sem repositório mapeado" e link do pipeline.
+- [x] 4.4 Fakes no `grolla-fakes`: servidor MCP do SigNoz em `/signoz/mcp` (lib `mcp`) e a API de builds do Azure DevOps, com roteiros e padrão plausível.
+- [x] 4.5 Os dois adapters passando nas suítes de contrato; `make check` verde no worktree.
 
 ## 5. grolla-web
 
-- [ ] 5.1 Seção de análise na página do incidente (em andamento, concluída, parcial com motivo, avaliações, hipóteses com links, plano).
-- [ ] 5.2 Console do `grolla-fakes`: seletor do roteiro do LLM fake (completa, fora do ar, lenta), com o card de análise renderizado no canal.
-- [ ] 5.3 Testes; READMEs do `grolla-api` e do `grolla-fakes`; `make check` verde no worktree.
+- [x] 5.1 Seção de análise na página do incidente (em andamento, concluída, parcial com motivo, avaliações, hipóteses com links, plano).
+- [x] 5.2 Console do `grolla-fakes`: seletor do roteiro do LLM fake (completa, fora do ar, lenta), com o card de análise renderizado no canal.
+- [x] 5.3 Testes; READMEs do `grolla-api` e do `grolla-fakes`; `make check` verde no worktree.
 
 ## 6. grolla-e2e
 
-- [ ] 6.1 Cenários:
+- [x] 6.1 Cenários:
   - alerta novo gera "investigando" e depois a análise, nessa ordem;
   - LLM fora do ar gera análise parcial;
   - LLM lento gera análise parcial por tempo esgotado;
   - alerta agrupado não reabre a análise;
   - `llm_usage` gravado.
-- [ ] 6.2 Ajustar os cenários do S2 ao novo texto do card de incidente novo; `make check` verde no worktree.
+- [x] 6.2 Ajustar os cenários do S2 ao novo texto do card de incidente novo; `make check` verde no worktree.
 
 ## 7. Integração (agente pai)
 
-- [ ] 7.1 Juntar os branches dos agentes e resolver conflitos.
-- [ ] 7.2 Code review do todo entregue: consistência entre componentes, duplicação, desvio de contrato, simplicidade, cobertura das specs. Fazer os ajustes que couberem.
-- [ ] 7.3 `deploy/`: variáveis novas no `.env.example`, seções novas no `credenciadora.yaml`, container `signoz-mcp` no compose (tag fixa, rede interna, sem porta publicada), e o passo a passo atualizado (API key Viewer, PAT somente leitura).
-- [ ] 7.4 Registrar no `design.md` os desvios de contrato combinados entre os agentes.
-- [ ] 7.5 Revisar e atualizar os READMEs do pai e de cada componente (features, roadmap e badge de status).
-- [ ] 7.6 Rodar `make e2e` e garantir todos os cenários verdes.
-- [ ] 7.7 Rodar `make fmt && make check` e garantir tudo verde.
+- [x] 7.1 Juntar os branches dos agentes e resolver conflitos.
+- [x] 7.2 Code review do todo entregue: consistência entre componentes, duplicação, desvio de contrato, simplicidade, cobertura das specs. Fazer os ajustes que couberem.
+- [x] 7.3 `deploy/`: variáveis novas no `.env.example`, seções novas no `credenciadora.yaml`, container `signoz-mcp` no compose (tag fixa, rede interna, sem porta publicada), e o passo a passo atualizado (API key Viewer, PAT somente leitura).
+- [x] 7.4 Registrar no `design.md` os desvios de contrato combinados entre os agentes.
+- [x] 7.5 Revisar e atualizar os READMEs do pai e de cada componente (features, roadmap e badge de status).
+- [x] 7.6 Rodar `make e2e` e garantir todos os cenários verdes.
+- [x] 7.7 Rodar `make fmt && make check` e garantir tudo verde.
