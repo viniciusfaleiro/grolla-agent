@@ -1,12 +1,14 @@
 import base64
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from contracts.alert_ingress_contract import AlertIngressContract
 from grolla.adapters.signoz import SignozAlertIngress
-from grolla.application.incidents import InvalidAlertPayloadError
+from grolla.application.incidents import AlertIngress, InvalidAlertPayloadError
 from grolla.domain.incidents import UNKNOWN_SERVICE, AlertStatus
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -24,6 +26,28 @@ def basic(credentials: str) -> dict[str, str]:
 @pytest.fixture
 def ingress() -> SignozAlertIngress:
     return SignozAlertIngress("grolla", "s3nha", SERVICE_LABELS)
+
+
+class TestSignozAlertIngressContract(AlertIngressContract):
+    @pytest.fixture
+    def ingress(self) -> AlertIngress:
+        return SignozAlertIngress("grolla", "s3nha", SERVICE_LABELS)
+
+    @pytest.fixture
+    def valid_payload(self) -> Any:
+        return fixture("signoz_firing.json")
+
+    @pytest.fixture
+    def invalid_payload(self) -> Any:
+        return {"alerts": [{"status": "firing"}]}
+
+    @pytest.fixture
+    def valid_headers(self) -> Mapping[str, str]:
+        return basic("grolla:s3nha")
+
+    @pytest.fixture
+    def invalid_headers(self) -> Mapping[str, str]:
+        return basic("grolla:errada")
 
 
 def test_accepts_the_configured_credentials(ingress: SignozAlertIngress) -> None:

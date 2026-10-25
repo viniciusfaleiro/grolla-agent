@@ -4,8 +4,9 @@ from uuid import UUID
 
 import httpx2
 import pytest
+from contracts.chat_notifier_contract import ChatNotifierContract
 from grolla.adapters.teams import TeamsChatNotifier
-from grolla.application.incidents import NotificationFailedError
+from grolla.application.incidents import ChatNotifier, NotificationFailedError
 from grolla.domain.incidents import Notification, NotificationKind, Severity
 
 URL = "https://chat.interno/workflows/abc?sig=segredo"
@@ -39,6 +40,16 @@ class Recorder:
 
     def body(self) -> dict[str, Any]:
         return json.loads(self.requests[-1].content)
+
+
+class TestTeamsChatNotifierContract(ChatNotifierContract):
+    @pytest.fixture
+    def notifier(self) -> ChatNotifier:
+        return TeamsChatNotifier(URL, httpx2.MockTransport(Recorder()))
+
+    @pytest.fixture
+    def refusing_notifier(self) -> ChatNotifier:
+        return TeamsChatNotifier(URL, httpx2.MockTransport(Recorder(500)))
 
 
 def card_text(body: dict[str, Any]) -> str:
