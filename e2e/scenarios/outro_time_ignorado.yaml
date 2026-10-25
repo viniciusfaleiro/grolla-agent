@@ -1,0 +1,40 @@
+# Alerta fora do filtro do time (team: liquidacao) é aceito pelo webhook, mas não vira incidente
+# nem card.
+name: alerta de outro time é ignorado
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-liquidacao
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no outro-time-api
+              service_name: outro-time-api
+              severity: critical
+              team: liquidacao
+            annotations:
+              summary: Taxa de erro de 9% no outro-time-api
+              description: A taxa de erro HTTP 5xx do outro-time-api está em 9%.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=107
+            fingerprint: e2e-outro-time-1
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'outro-time-api' = ANY(services)
+      count: 0
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [outro-time-api]
+      count: 0

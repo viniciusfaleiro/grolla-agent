@@ -1,0 +1,49 @@
+# O mesmo alerta disparando chega três vezes: um incidente, um alerta recebido e um card só.
+name: reenvio não duplica
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http: &reenvio
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no reenvio-api
+              service_name: reenvio-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no reenvio-api
+              description: O p99 de latência do reenvio-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=102
+            fingerprint: e2e-reenvio-1
+  - http: *reenvio
+  - http: *reenvio
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'reenvio-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: SELECT count(*) FROM alerts WHERE fingerprint = 'e2e-reenvio-1'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events e JOIN incidents i ON i.id = e.incident_id
+        WHERE 'reenvio-api' = ANY(i.services) AND e.type = 'alert_received'
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [reenvio-api]
+      count: 1

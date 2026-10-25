@@ -1,0 +1,78 @@
+# Um incidente P2 recebe um alerta critical (P1) do mesmo serviço: escala, volta para Detectado
+# e gera o card de severidade elevada.
+name: alerta mais grave escala o incidente
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no escala-api
+              service_name: escala-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no escala-api
+              description: O p99 de latência do escala-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=108
+            fingerprint: e2e-escala-1
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no escala-api
+              service_name: escala-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no escala-api
+              description: A taxa de erro HTTP 5xx do escala-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:03:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=109
+            fingerprint: e2e-escala-2
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'escala-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents
+        WHERE 'escala-api' = ANY(services) AND severity = 'P1' AND state = 'detectado'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events e JOIN incidents i ON i.id = e.incident_id
+        WHERE 'escala-api' = ANY(i.services) AND e.type = 'severity_changed'
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [escala-api]
+      count: 2
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [escala-api, P1]
+      count: 1
