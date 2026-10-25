@@ -45,6 +45,8 @@
   .toggle button:first-child { border-radius: 4px 0 0 4px; }
   .toggle button:last-child { border-radius: 0 4px 4px 0; }
   .toggle button.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  .toggle.llm { margin-left: 0; flex-wrap: wrap; }
+  .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   .toggle button.on.fail { background: var(--attention); border-color: var(--attention); }
   .messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 14px; }
   .empty { color: var(--muted); text-align: center; margin: auto; }
@@ -56,7 +58,12 @@
   .msg.refused { opacity: .45; }
   .msg.refused .card { border-style: dashed; }
   .card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; max-width: 640px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-  .card .tb { margin: 4px 0; overflow-wrap: anywhere; }
+  .card .tb { margin: 4px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .card .tb ul { margin: 2px 0; padding-left: 20px; white-space: normal; }
+  .card .container { margin: 6px 0; }
+  .card .container.separator { border-top: 1px solid var(--line); padding-top: 6px; }
+  .card .columns { display: flex; gap: 12px; }
+  .card .columns > div { flex: 1; min-width: 0; }
   .card .tb.bold { font-weight: 600; }
   .card .tb.medium { font-size: 16px; }
   .card .tb.subtle { color: var(--muted); }
@@ -99,6 +106,15 @@
         <button class="primary" type="submit">Disparar</button>
         <div id="feedback" class="feedback" role="status"></div>
       </form>
+    </section>
+    <section style="margin-top:16px">
+      <h2>🤖 Roteiro do LLM fake</h2>
+      <div class="toggle llm" role="group" aria-label="Roteiro do LLM fake">
+        <button type="button" data-llm="completa">Análise completa</button>
+        <button type="button" data-llm="fora_do_ar">LLM fora do ar</button>
+        <button type="button" data-llm="lenta">Análise lenta</button>
+      </div>
+      <p class="hint">Vale para as próximas análises. Fora do ar e lenta geram a análise parcial.</p>
     </section>
     <section style="margin-top:16px">
       <h2>📋 Alertas disparados</h2>
@@ -151,6 +167,14 @@ $("fire").addEventListener("submit", async (event) => {
   } catch (error) { feedback(error.message, true); } finally { button.disabled = false; }
 });
 
+let llmMode = "completa"; // o padrão do fake, que /_control/reset restaura
+function renderLlm() { document.querySelectorAll("[data-llm]").forEach((b) => b.classList.toggle("on", b.dataset.llm === llmMode)); }
+document.querySelectorAll("[data-llm]").forEach((b) => b.addEventListener("click", async () => {
+  try { await post("/_control/llm", { mode: b.dataset.llm }); llmMode = b.dataset.llm; renderLlm(); feedback(`roteiro do LLM: ${b.textContent}`); }
+  catch (error) { feedback("não deu para trocar o roteiro do LLM: " + error.message, true); }
+}));
+renderLlm();
+
 document.querySelectorAll("[data-teams]").forEach((b) => b.addEventListener("click", async () => {
   await post("/_console/teams", { status: Number(b.dataset.teams) }); refresh();
 }));
@@ -175,18 +199,44 @@ function renderAlerts(alerts) {
   }
 }
 
-function renderCard(card) {
-  const box = el("div", "card");
-  for (const item of card.body || []) {
+// Texto do TextBlock: as quebras de linha ficam, e linhas "- item" seguidas viram lista.
+function renderText(div, text) {
+  let list = null;
+  String(text ?? "").split("\n").forEach((line, index) => {
+    if (line.startsWith("- ")) {
+      if (!list) { list = el("ul"); div.append(list); }
+      list.append(el("li", null, line.slice(2)));
+      return;
+    }
+    if (index > 0 && !list) div.append(document.createTextNode("\n"));
+    list = null;
+    div.append(document.createTextNode(line));
+  });
+}
+
+function renderItems(box, items) {
+  for (const item of items || []) {
     if (item.type === "TextBlock") {
       const cls = ["tb", item.weight === "Bolder" && "bold", item.size === "Medium" && "medium", item.isSubtle && "subtle", item.color].filter(Boolean).join(" ");
-      box.append(el("div", cls, item.text));
+      const div = el("div", cls); renderText(div, item.text); box.append(div);
     } else if (item.type === "FactSet") {
       const dl = el("dl");
       for (const f of item.facts || []) dl.append(el("dt", null, f.title), el("dd", null, f.value));
       box.append(dl);
+    } else if (item.type === "Container") {
+      const div = el("div", "container" + (item.separator ? " separator" : ""));
+      renderItems(div, item.items); box.append(div);
+    } else if (item.type === "ColumnSet") {
+      const row = el("div", "columns");
+      for (const column of item.columns || []) { const col = el("div"); renderItems(col, column.items); row.append(col); }
+      box.append(row);
     }
   }
+}
+
+function renderCard(card) {
+  const box = el("div", "card");
+  renderItems(box, card.body);
   const actions = el("div", "actions");
   for (const action of card.actions || []) {
     if (action.type !== "Action.OpenUrl") continue;

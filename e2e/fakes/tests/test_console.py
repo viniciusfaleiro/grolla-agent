@@ -43,6 +43,14 @@ def test_page_opens_with_teams_accepting() -> None:
     assert client.get("/_console/state").json()["teams_status"] == 202
 
 
+def test_page_offers_the_llm_scripts_through_the_control_route() -> None:
+    page = console(FakeApi()).get("/_console").text
+
+    assert '"/_control/llm"' in page
+    for mode in ("completa", "fora_do_ar", "lenta"):
+        assert f'data-llm="{mode}"' in page
+
+
 def test_fired_alert_reaches_the_webhook_in_the_alerting_format() -> None:
     api = FakeApi()
     client = console(api)

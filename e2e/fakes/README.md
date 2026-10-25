@@ -31,7 +31,7 @@ Teams, Spike.sh, MCPs).
 | **Roteiro** | Carrega as rotas e respostas do cenário | `POST /_control/scenario` |
 | **Gravação** | Lista as requisições recebidas, em ordem | `GET /_control/requests` |
 | **Reset** | Limpa roteiro e gravações entre cenários | `POST /_control/reset` |
-| **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker como um canal do Teams e põe o Teams aceitando (202) ou falhando (500) | `GET /_console` |
+| **Console de testes** | Página para testar à mão: dispara alertas no webhook da api como o SigNoz, resolve, mostra os cards do worker (investigando e análise) como um canal do Teams, põe o Teams aceitando (202) ou falhando (500) e escolhe o roteiro do LLM fake (completa, fora do ar, lenta) | `GET /_console` |
 | **Superfície fake** | Qualquer outro método/caminho: grava e responde pelo roteiro | `/{qualquer caminho}` |
 
 ```json
@@ -64,7 +64,14 @@ docker compose --profile e2e --project-name grolla-demo down --volumes
 O console chama a api pelo servidor (`GROLLA_FAKES_API_URL`, `GROLLA_FAKES_API_USER`,
 `GROLLA_FAKES_API_PASSWORD`; os padrões são os do e2e), então o navegador não precisa de CORS
 nem vê a senha. O canal lista o que chegou em `POST /teams/webhook`, com o status que o fake
-respondeu.
+respondeu: o card "investigando" e, depois, o card de análise. O renderer entende `TextBlock`
+(com quebra de linha e linhas `- item` como lista), `FactSet`, `Container`, `ColumnSet` e
+`Action.OpenUrl`.
+
+O seletor **Roteiro do LLM fake** escolhe como o LLM fake responde às próximas análises:
+análise completa (padrão), LLM fora do ar ou análise lenta. Os dois últimos geram a análise
+parcial. O seletor chama `POST /_control/llm {"mode": "completa" | "fora_do_ar" | "lenta"}`,
+e `/_control/reset` volta para `completa`.
 
 ## 🧪 Testes
 
