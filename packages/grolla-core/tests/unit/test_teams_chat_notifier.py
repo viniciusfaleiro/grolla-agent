@@ -447,3 +447,121 @@ def test_partial_validation_on_normalization_says_why() -> None:
 
 def test_normalization_without_validation_has_no_outcome() -> None:
     assert "Causa raiz" not in normalized_card(None)
+
+
+# ---- Ações humanas do war room
+
+
+def human_card(
+    kind: NotificationKind,
+    summary: str,
+    evidence: str = "",
+    verification: Verification | None = None,
+) -> dict[str, Any]:
+    card = replace(
+        notification(kind, source_url=None),
+        summary=summary,
+        evidence=evidence,
+        verification=verification,
+    )
+    return adaptive_card(card)
+
+
+@pytest.mark.parametrize(
+    ("kind", "headline", "summary"),
+    [
+        (NotificationKind.COMMANDER_ASSIGNED, "IC assumiu · P2", "Ana assumiu como IC"),
+        (NotificationKind.SEVERITY_CHANGED_BY_HUMAN, "Severidade alterada · P2", "P1 → P2 por Ana"),
+        (NotificationKind.INCIDENT_MITIGATED, "Incidente mitigado · P2", "Mitigado por Ana"),
+    ],
+)
+def test_short_human_action_cards_cite_the_author(
+    kind: NotificationKind, headline: str, summary: str
+) -> None:
+    card = human_card(kind, summary)
+
+    assert texts(card) == [
+        headline,
+        "Taxa de erro alta no capture-api",
+        "Severidade: P2",
+        "Serviços: capture-api, authorizer-api",
+        summary,
+    ]
+    assert card["actions"] == [
+        {"type": "Action.OpenUrl", "title": "Abrir incidente", "url": "https://grolla/incidents/1"}
+    ]
+
+
+def test_severity_change_card_shows_the_reason_when_given() -> None:
+    card = human_card(
+        NotificationKind.SEVERITY_CHANGED_BY_HUMAN, "P1 → P3 por Ana", "Motivo: só o sandbox"
+    )
+
+    assert texts(card)[-2:] == ["P1 → P3 por Ana", "Motivo: só o sandbox"]
+
+
+RESOLVED_EVIDENCE = (
+    "Motivo: rollback do build .3\nAções do time:\n- rollback do build .3 (Ana)\n- avisei (Bia)"
+)
+
+
+def test_resolved_card_has_duration_author_reason_actions_and_root_cause() -> None:
+    verification = make_verification(UUID(int=1))
+    card = human_card(
+        NotificationKind.INCIDENT_RESOLVED,
+        "Encerrado por Ana · durou 35 min",
+        RESOLVED_EVIDENCE,
+        verification,
+    )
+
+    lines = texts(card)
+    assert lines[0] == "Incidente encerrado · P2"
+    assert "Encerrado por Ana · durou 35 min" in lines
+    assert RESOLVED_EVIDENCE in lines
+    assert lines[-2:] == ["Causa raiz", verification.root_cause]
+
+
+@pytest.mark.parametrize("with_verification", [False, True])
+def test_resolved_card_without_confirmed_cause_has_no_root_cause_section(
+    with_verification: bool,
+) -> None:
+    unconfirmed = replace(make_verification(UUID(int=1)), root_cause=None, actions=())
+    card = human_card(
+        NotificationKind.INCIDENT_RESOLVED,
+        "Encerrado por Ana · durou 35 min",
+        "Motivo: x",
+        unconfirmed if with_verification else None,
+    )
+
+    assert "Causa raiz" not in texts(card)
+
+
+def test_discarded_card_shows_the_reason() -> None:
+    card = human_card(
+        NotificationKind.INCIDENT_DISCARDED, "Descartado por Ana", "Motivo: alerta de teste"
+    )
+
+    lines = texts(card)
+    assert lines[0] == "Incidente descartado · P2"
+    assert lines[-2:] == ["Descartado por Ana", "Motivo: alerta de teste"]
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        NotificationKind.COMMANDER_ASSIGNED,
+        NotificationKind.SEVERITY_CHANGED_BY_HUMAN,
+        NotificationKind.INCIDENT_MITIGATED,
+        NotificationKind.INCIDENT_RESOLVED,
+        NotificationKind.INCIDENT_DISCARDED,
+    ],
+)
+def test_human_action_cards_use_only_elements_the_test_console_renders(
+    kind: NotificationKind,
+) -> None:
+    card = human_card(kind, "resumo", "Motivo: x", make_verification(UUID(int=1)))
+
+    types = {e["type"] for e in card["body"]}
+    types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
+    assert types <= {"TextBlock", "FactSet", "Container"}
+    assert {a["type"] for a in card["actions"]} == {"Action.OpenUrl"}

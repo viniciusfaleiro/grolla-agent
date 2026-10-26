@@ -8,9 +8,10 @@ from typing import Any, cast
 
 import httpx2
 import pytest
-from contracts.language_model_contract import LanguageModelContract
+from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
+    CHAT_PROMPT,
     SYSTEM_PROMPT,
     VERIFICATION_PROMPT,
     BudgetExceededError,
@@ -35,6 +36,7 @@ from grolla.domain.analysis import (
     Verdict,
     VerificationDraft,
 )
+from grolla.domain.chat import ChatDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 
@@ -527,3 +529,117 @@ async def test_verification_outside_the_schema_is_invalid(draft: object) -> None
 async def test_verification_refusal_becomes_language_model_error() -> None:
     with pytest.raises(LanguageModelError, match="recusou"):
         await verify(ScriptedApi(ok(final("", stop_reason="refusal"))))
+
+
+# ---- Chat do war room
+
+CHAT_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=4000, effort="low")
+CONTEXT = "Incidente: Taxa de erro alta\nServiços: authorizer-api"
+QUESTION = "o rollback resolveu?"
+
+
+def chatter(handler: Handler) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(
+        "chave",
+        SETTINGS,
+        base_url="http://fake/anthropic",
+        transport=httpx2.MockTransport(handler),
+        chat=CHAT_SETTINGS,
+    )
+
+
+async def reply(
+    handler: Handler, toolbox: Toolbox | None = None, budget: TokenBudget | None = None
+) -> ChatDraft:
+    return await chatter(handler).reply(
+        brief(), CONTEXT, QUESTION, toolbox or RecordingToolbox(), budget or RecordingBudget()
+    )
+
+
+class TestClaudeChatReplyContract(ChatReplyContract):
+    @pytest.fixture
+    def replying_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return chatter(ScriptedApi(tool_use, ok(final({"reply": "Os erros pararam às 10:20."}))))
+
+    @pytest.fixture
+    def failing_replier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return chatter(ScriptedApi(response, response, response))
+
+
+async def test_reply_runs_the_tools_and_returns_the_text() -> None:
+    answer = {"reply": "  Sim: a taxa de erro voltou a 0,4% depois do rollback.  "}
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(answer)))
+    toolbox = RecordingToolbox()
+
+    draft = await reply(api, toolbox)
+
+    assert draft == ChatDraft(text="Sim: a taxa de erro voltou a 0,4% depois do rollback.")
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+    assert len(api.bodies) == 2
+
+
+async def test_reply_request_uses_the_chat_prompt_schema_and_stage_settings() -> None:
+    api = ScriptedApi(ok(final({"reply": "ok"})))
+    budget = RecordingBudget()
+
+    await reply(api, budget=budget)
+
+    [body] = api.bodies
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["max_tokens"] == 4000
+    assert body["output_config"]["effort"] == "low"
+    assert body["output_config"]["format"] == {
+        "type": "json_schema",
+        "schema": {
+            "type": "object",
+            "properties": {"reply": {"type": "string"}},
+            "required": ["reply"],
+            "additionalProperties": False,
+        },
+    }
+    assert body["system"][0]["text"] == CHAT_PROMPT
+    assert body["messages"] == [{"role": "user", "content": f"{CONTEXT}\n\nPergunta: {QUESTION}"}]
+    assert [usage.stage for usage in budget.spent] == ["warroom_chat"]
+
+
+async def test_reply_without_its_own_stage_inherits_the_investigation_settings() -> None:
+    api = ScriptedApi(ok(final({"reply": "ok"})))
+
+    await claude(api).reply(brief(), CONTEXT, QUESTION, RecordingToolbox(), RecordingBudget())
+
+    assert api.bodies[0]["model"] == "claude-sonnet-5-5"
+    assert api.bodies[0]["output_config"]["effort"] == "medium"
+
+
+async def test_reply_budget_exceeded_stops_the_loop() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final({"reply": "ok"})))
+    toolbox = RecordingToolbox()
+
+    with pytest.raises(BudgetExceededError):
+        await reply(api, toolbox, RecordingBudget(fail_at=1))
+
+    assert toolbox.calls == []
+
+
+async def test_reply_api_error_becomes_language_model_error() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await reply(ScriptedApi(response, response, response))
+
+
+async def test_reply_refusal_becomes_language_model_error() -> None:
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await reply(ScriptedApi(ok(final("", stop_reason="refusal"))))
+
+
+@pytest.mark.parametrize(
+    "answer", ["não é json", {"reply": 1}, {"reply": "ok", "extra": 1}, {}, {"reply": "  "}]
+)
+async def test_reply_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError, match="resposta do chat"):
+        await reply(ScriptedApi(ok(final(answer))))

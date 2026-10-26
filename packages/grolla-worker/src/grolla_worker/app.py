@@ -5,6 +5,7 @@ from grolla.application.analysis import (
     run_next_analysis,
     run_next_verification,
 )
+from grolla.application.chat import reap_stuck_replies, run_next_reply
 from grolla.application.incidents import deliver_notifications
 from grolla.bootstrap import WorkerContainer
 
@@ -19,6 +20,7 @@ ANALYSIS_QUEUE = "analysis"
 DELIVERY_CRON = "* * * * * */5"
 ANALYSES_CRON = "* * * * * */5"
 VERIFICATIONS_CRON = "* * * * * */5"
+REPLIES_CRON = "* * * * * */2"  # quem pergunta no chat está olhando a página
 REAPER_CRON = "* * * * *"
 
 
@@ -101,5 +103,33 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     )
     async def reap_verifications(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await reap_stuck_verifications(*reaper_ports)
+
+    # As respostas do chat do war room: mesma fila e mesmas regras das análises.
+    @app.periodic(cron=REPLIES_CRON)
+    @app.task(name="run_replies", queue=ANALYSIS_QUEUE, queueing_lock="run_replies")
+    async def replies(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_reply(
+            queue=container.chat_queue,
+            repository=container.repository,
+            model=container.model,
+            telemetry=container.telemetry,
+            changes=container.changes,
+            cloud=container.cloud,
+            clock=container.clock,
+            policy=container.analysis,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_replies",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_replies",
+        lock="reap_stuck_replies",
+    )
+    async def reap_replies(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_replies(
+            container.chat_queue, container.repository, container.clock, container.analysis
+        )
 
     return app
