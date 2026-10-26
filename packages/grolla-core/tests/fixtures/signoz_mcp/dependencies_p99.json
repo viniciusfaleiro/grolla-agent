@@ -1,0 +1,74 @@
+{
+  "status": "success",
+  "data": {
+    "type": "scalar",
+    "meta": {
+      "rowsScanned": 469695,
+      "bytesScanned": 79859724,
+      "durationMs": 79,
+      "stepIntervals": {
+        "A": 285
+      }
+    },
+    "data": {
+      "results": [
+        {
+          "queryName": "A",
+          "columns": [
+            {
+              "name": "peer.service",
+              "queryName": "A",
+              "aggregationIndex": 0,
+              "meta": {},
+              "columnType": "group"
+            },
+            {
+              "name": "db.system",
+              "queryName": "A",
+              "aggregationIndex": 0,
+              "meta": {},
+              "columnType": "group"
+            },
+            {
+              "name": "db.name",
+              "queryName": "A",
+              "aggregationIndex": 0,
+              "meta": {},
+              "columnType": "group"
+            },
+            {
+              "name": "server.address",
+              "queryName": "A",
+              "aggregationIndex": 0,
+              "meta": {},
+              "columnType": "group"
+            },
+            {
+              "name": "__result_0",
+              "queryName": "A",
+              "aggregationIndex": 0,
+              "meta": {},
+              "columnType": "aggregation"
+            }
+          ],
+          "data": [
+            [
+              null,
+              "postgresql",
+              "pedidos",
+              null,
+              5001708766.03
+            ],
+            [
+              null,
+              null,
+              null,
+              "api.bandeira.example.com",
+              820000000
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}

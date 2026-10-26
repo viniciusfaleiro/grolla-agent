@@ -14,7 +14,7 @@ from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs] —
     EndpointConnectionError,
 )
 from botocore.stub import Stubber  # pyright: ignore[reportMissingTypeStubs] — sem stubs
-from contracts.cloud_inventory_contract import CloudInventoryContract
+from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
 from grolla.adapters.aws import READ_OPERATIONS, AwsCloudInventory
 from grolla.application.investigation import CloudInventory, ToolUnavailableError
 
@@ -103,6 +103,15 @@ class LabSession:
             ]
         },
         "describe_instances": {"Reservations": []},
+        "describe_load_balancers": {  # sem a tag: vai para o grupo "sem serviço"
+            "LoadBalancers": [
+                {
+                    "LoadBalancerArn": LB_ARN,
+                    "LoadBalancerName": "pedidos-lb",
+                    "State": {"Code": "active"},
+                }
+            ]
+        },
         "lookup_events": {"Events": []},
         "describe_alarms": {"MetricAlarms": []},
     }
@@ -110,7 +119,13 @@ class LabSession:
     def client(self, service: str, region_name: str, config: Any) -> Any:  # noqa: ARG002
         return self
 
-    def get_resources(self, TagFilters: list[dict[str, Any]]) -> Any:  # noqa: N803 — API da AWS
+    def get_resources(
+        self,
+        TagFilters: list[dict[str, Any]] | None = None,  # noqa: N803 — API da AWS
+        **_arguments: Any,
+    ) -> Any:
+        if TagFilters is None:  # visão geral: tudo que tem tag
+            return TAGGED
         return TAGGED if TagFilters[0]["Values"] == ["pedidos-api"] else NOTHING_TAGGED
 
     def __getattr__(self, operation: str) -> Any:
@@ -121,6 +136,16 @@ class LabSession:
 
 
 class TestAwsCloudInventoryContract(CloudInventoryContract):
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=LabSession())
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=UnreachableSession())
+
+
+class TestAwsCloudOverviewContract(CloudOverviewContract):
     @pytest.fixture
     def cloud(self) -> CloudInventory:
         return AwsCloudInventory([REGION], {}, session=LabSession())
@@ -424,3 +449,137 @@ def test_only_read_operations_are_allowed() -> None:
 def test_operation_outside_the_list_is_refused(session: StubbedSession) -> None:
     with pytest.raises(ToolUnavailableError, match="fora da lista de leitura"):
         inventory(session).call("rds", REGION, "stop_db_instance")
+
+
+# ---- Visão geral: tudo das regiões, agrupado pela tag `service`
+
+SG_ARN = f"arn:aws:ec2:{REGION}:{ACCOUNT}:security-group/sg-0a1b2c3d4e5f60718"
+PAGE = {"ResourcesPerPage": 100}
+
+
+def stub_overview_describes(session: StubbedSession) -> None:
+    session.stub("rds").add_response(
+        "describe_db_instances",
+        {
+            "DBInstances": [
+                {
+                    "DBInstanceIdentifier": "grolla-lab-db",
+                    "DBInstanceArn": DB_ARN,
+                    "DBInstanceStatus": "stopped",
+                    "Engine": "postgres",
+                    "TagList": [{"Key": "service", "Value": "pedidos-api"}],
+                },
+                {
+                    "DBInstanceIdentifier": "compartilhado-db",
+                    "DBInstanceStatus": "available",
+                    "Engine": "postgres",
+                },
+            ]
+        },
+        {},
+    )
+    session.stub("ec2").add_response(
+        "describe_instances",
+        {
+            "Reservations": [
+                {
+                    "Instances": [
+                        {
+                            "InstanceId": "i-0def690e1aea64498",
+                            "InstanceType": "t3.micro",
+                            "State": {"Code": 16, "Name": "running"},
+                        }
+                    ]
+                }
+            ]
+        },
+        {},
+    )
+    session.stub("elbv2").add_response(
+        "describe_load_balancers",
+        {
+            "LoadBalancers": [
+                {
+                    "LoadBalancerArn": LB_ARN,
+                    "LoadBalancerName": "pedidos-lb",
+                    "Type": "application",
+                    "State": {"Code": "active"},
+                }
+            ]
+        },
+        {},
+    )
+
+
+async def test_overview_groups_by_service_and_kind_with_the_untagged_group(
+    session: StubbedSession,
+) -> None:
+    tagging = session.stub("resourcegroupstaggingapi")
+    first_page = {
+        "ResourceTagMappingList": [
+            {"ResourceARN": EC2_ARN, "Tags": [{"Key": "service", "Value": "pedidos-api"}]},
+        ],
+        "PaginationToken": "pagina-2",
+    }
+    second_page = {
+        "ResourceTagMappingList": [
+            {"ResourceARN": DB_ARN, "Tags": [{"Key": "service", "Value": "pedidos-api"}]},
+            {"ResourceARN": SG_ARN, "Tags": [{"Key": "Name", "Value": "lab"}]},
+        ],
+        "PaginationToken": "",
+    }
+    tagging.add_response("get_resources", first_page, PAGE)
+    tagging.add_response("get_resources", second_page, {**PAGE, "PaginationToken": "pagina-2"})
+    stub_overview_describes(session)
+
+    result = await inventory(session).overview()
+
+    assert result.summary == (
+        f"5 recurso(s) de nuvem em {REGION}, pela tag service. "
+        f"pedidos-api: máquina EC2 i-0def690e1aea64498 (t3.micro) em {REGION}: running; "
+        f"banco RDS grolla-lab-db (postgres) em {REGION}: stopped. "
+        f"sem serviço: balanceador ELB pedidos-lb (application) em {REGION}: active; "
+        f"recurso {SG_ARN} em {REGION}; "
+        f"banco RDS compartilhado-db (postgres) em {REGION}: available"
+    )
+    assert result.url == (
+        f"https://{REGION}.console.aws.amazon.com/resource-groups/tag-editor/"
+        f"find-resources?region={REGION}"
+    )
+    session.assert_no_pending()
+
+
+async def test_overview_of_an_empty_account(session: StubbedSession) -> None:
+    session.stub("resourcegroupstaggingapi").add_response("get_resources", NOTHING_TAGGED, PAGE)
+    session.stub("rds").add_response("describe_db_instances", {"DBInstances": []}, {})
+    session.stub("ec2").add_response("describe_instances", {"Reservations": []}, {})
+    session.stub("elbv2").add_response("describe_load_balancers", {"LoadBalancers": []}, {})
+
+    result = await inventory(session).overview()
+
+    assert result.summary == f"nenhum recurso de nuvem encontrado em {REGION}"
+
+
+async def test_overview_shows_at_most_the_limit(session: StubbedSession) -> None:
+    many: dict[str, Any] = {
+        "ResourceTagMappingList": [
+            {"ResourceARN": f"arn:aws:sns:{REGION}:{ACCOUNT}:topico-{i:03}", "Tags": []}
+            for i in range(205)
+        ]
+    }
+    session.stub("resourcegroupstaggingapi").add_response("get_resources", many, PAGE)
+    session.stub("rds").add_response("describe_db_instances", {"DBInstances": []}, {})
+    session.stub("ec2").add_response("describe_instances", {"Reservations": []}, {})
+    session.stub("elbv2").add_response("describe_load_balancers", {"LoadBalancers": []}, {})
+
+    result = await inventory(session).overview()
+
+    assert result.summary.startswith(f"205 recurso(s) de nuvem em {REGION} (mostrando 200)")
+    assert result.summary.count("topico-") == 200
+
+
+async def test_overview_with_the_cloud_refusing_is_unavailable() -> None:
+    cloud = AwsCloudInventory([REGION], {}, session=UnreachableSession())
+
+    with pytest.raises(ToolUnavailableError, match="EndpointConnectionError"):
+        await cloud.overview()

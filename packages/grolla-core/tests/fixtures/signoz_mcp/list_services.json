@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "avgDuration": 67466604.96685247,
+      "callRate": 0.1394249053359128,
+      "dataWarning": {
+        "topLevelOps": [
+          "overflow_operation",
+          "POST /pedidos",
+          "GET /pedidos",
+          "GET /health",
+          "CREATE"
+        ]
+      },
+      "errorRate": 30.594165085388994,
+      "fourXXRate": 0,
+      "num4XX": 0,
+      "numCalls": 84320,
+      "numErrors": 25797,
+      "p99": 5001748428.99,
+      "serviceName": "pedidos-api",
+      "webUrl": "http://signoz:8080/services/pedidos-api"
+    },
+    {
+      "avgDuration": 169300234.06242433,
+      "callRate": 0.8604494270549135,
+      "dataWarning": {
+        "topLevelOps": [
+          "overflow_operation",
+          "lets-go"
+        ]
+      },
+      "errorRate": 2.1622909676501902,
+      "fourXXRate": 0,
+      "num4XX": 0,
+      "numCalls": 520374,
+      "numErrors": 11252,
+      "p99": 2400000000,
+      "serviceName": "authorizer-api",
+      "webUrl": "http://signoz:8080/services/authorizer-api"
+    },
+    {
+      "avgDuration": 120000000,
+      "callRate": 0.8418373927278139,
+      "dataWarning": {
+        "topLevelOps": [
+          "overflow_operation",
+          "lets-go"
+        ]
+      },
+      "errorRate": 0,
+      "fourXXRate": 0,
+      "num4XX": 0,
+      "numCalls": 509118,
+      "numErrors": 0,
+      "p99": 120000000,
+      "serviceName": "captura-api",
+      "webUrl": "http://signoz:8080/services/captura-api"
+    }
+  ],
+  "pagination": {
+    "total": 3,
+    "offset": 0,
+    "limit": 50,
+    "hasMore": false,
+    "nextOffset": -1
+  }
+}

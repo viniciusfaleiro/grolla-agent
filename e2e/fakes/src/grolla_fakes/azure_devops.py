@@ -2,8 +2,9 @@
 
 Sem roteiro, todo repositório existe (em qualquer projeto) e tem 1 deploy bem-sucedido há
 20 min, com a mensagem do commit em `triggerInfo`, coerente com a história padrão do MCP fake
-do SigNoz. O roteiro (`POST /_control/azure-devops`) limita os repositórios, fixa os builds ou
-faz a API falhar.
+do SigNoz. Os repositórios estão no branch `main` e têm na raiz um `README.md` (que cita o
+banco `<serviço sem -api>-db`) e um `azure-pipelines.yml`, pela Git Items API. O roteiro
+(`POST /_control/azure-devops`) limita os repositórios, fixa os builds ou faz a API falhar.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -45,11 +46,32 @@ class AzureDevOpsFake:
             project: str, repo: str, request: Request
         ) -> JSONResponse:
             known = self.script.repositories is None or repo in self.script.repositories
-            body = {"id": repo, "name": repo, "project": {"name": project}}
+            body = {
+                "id": repo,
+                "name": repo,
+                "project": {"name": project},
+                "defaultBranch": "refs/heads/main",
+            }
             if not known:
                 body = {"message": f"TF401019: o repositório {repo} não existe"}
             status = 200 if known else 404
             return self._answer(request, body, status)
+
+        @router.get(PREFIX + "/git/repositories/{repo}/items")
+        async def items(  # pyright: ignore[reportUnusedFunction]
+            repo: str, request: Request
+        ) -> JSONResponse:
+            path = request.query_params.get("path", "/")
+            if "recursionLevel" in request.query_params:
+                listing = [{"path": "/", "isFolder": True, "gitObjectType": "tree"}]
+                listing += [{"path": f"/{name}", "gitObjectType": "blob"} for name in _files(repo)]
+                listing.append({"path": "/src", "isFolder": True, "gitObjectType": "tree"})
+                return self._answer(request, {"count": len(listing), "value": listing}, 200)
+            content = _files(repo).get(path.lstrip("/"))
+            if content is None:
+                return self._answer(request, {"message": f"TF401174: {path} não existe"}, 404)
+            item = {"path": path, "gitObjectType": "blob", "content": content}
+            return self._answer(request, item, 200)
 
         @router.get(PREFIX + "/build/builds")
         async def builds(  # pyright: ignore[reportUnusedFunction]
@@ -104,6 +126,20 @@ def _deploy(org: str, project: str, repo: str, started: datetime) -> dict[str, A
             }
         },
     }
+
+
+def _files(repo: str) -> dict[str, str]:
+    """Os arquivos da raiz de todo repositório: o README e o pipeline."""
+    database = repo.removesuffix("-api")
+    readme = (
+        f"# {repo}\n\n"
+        f"Serviço {repo} da Credenciadora. Guarda os dados no PostgreSQL `{database}-db` "
+        "(pool de 20 conexões) e sobe por pipeline a cada merge na main.\n\n"
+        "## Como investigar\n\n"
+        "- Erros de conexão com o banco costumam ser o pool esgotado depois de deploy.\n"
+    )
+    pipeline = f"trigger:\n  - main\nstages:\n  - stage: deploy\n    displayName: {repo}-deploy\n"
+    return {"README.md": readme, "azure-pipelines.yml": pipeline}
 
 
 def _iso(moment: datetime) -> str:

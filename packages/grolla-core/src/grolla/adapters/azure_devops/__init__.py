@@ -1,7 +1,11 @@
-"""Azure DevOps: deploys recentes pela API REST de builds, com token somente leitura.
+"""Azure DevOps: deploys recentes pela API REST de builds e arquivos do repositório pela Git
+Items API, com token somente leitura.
 
 O repositório do serviço vem do mapa (só as exceções) ou, sem entrada, é procurado pelo nome
 do serviço nos projetos configurados. O resultado da busca fica em memória.
+
+`read_file` lê no branch padrão do repositório: um arquivo vem com o conteúdo, cortado em
+READ_LIMIT caracteres; o caminho vazio ou de pasta devolve a listagem de um nível.
 """
 
 import asyncio
@@ -14,7 +18,14 @@ from urllib.parse import quote
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
 
-from grolla.application.investigation import NO_REPOSITORY, ToolResult, ToolUnavailableError
+from grolla.application.investigation import (
+    BINARY_FILE,
+    NO_REPOSITORY,
+    READ_LIMIT,
+    TRUNCATED,
+    ToolResult,
+    ToolUnavailableError,
+)
 
 API_VERSION = "7.1"
 TIMEOUT_SECONDS = 20.0
@@ -22,6 +33,7 @@ MAX_BUILDS = 10
 MESSAGE_CHARS = 120
 HTTP_NOT_FOUND = 404
 HTTP_OK = 200
+MAX_ENTRIES = 200  # itens de uma listagem de pasta que vão para o modelo
 
 _RESULTS = {
     "succeeded": "sucesso",
@@ -48,6 +60,7 @@ class _Repository:
     project: str
     name: str
     id: str
+    branch: str | None  # branch padrão, sem `refs/heads/`; None em repositório vazio
 
 
 class AzureDevOpsChangeHistory:
@@ -68,11 +81,7 @@ class AzureDevOpsChangeHistory:
 
     async def recent_deploys(self, service: str, since: datetime) -> ToolResult:
         try:
-            async with httpx2.AsyncClient(
-                transport=self._transport,
-                timeout=TIMEOUT_SECONDS,
-                auth=httpx2.BasicAuth("", self._token),  # PAT em Basic, usuário vazio
-            ) as client:
+            async with self._http() as client:
                 repository = await self._repository(client, service)
                 if repository is None:
                     return ToolResult(f"{service}: {NO_REPOSITORY}", None)
@@ -82,7 +91,88 @@ class AzureDevOpsChangeHistory:
         return self._summary(repository, builds, since)
 
     async def read_file(self, service: str, path: str) -> ToolResult:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+        try:
+            async with self._http() as client:
+                repository = await self._repository(client, service)
+                if repository is None:
+                    return ToolResult(f"{service}: {NO_REPOSITORY}", None)
+                wanted = "/" + path.strip().strip("/")
+                item = None
+                if wanted != "/":
+                    item = await self._items(client, repository, wanted, file=True)
+                    if item is None:
+                        return ToolResult(
+                            f"{wanted} não existe em {repository.name} "
+                            f"(branch {repository.branch or 'padrão'})",
+                            self._web(repository, "/"),
+                        )
+                if item is None or _validate(_Item, item).is_folder:
+                    listing = await self._items(client, repository, wanted, file=False)
+                    return self._listing(repository, wanted, _validate(_Items, listing).value)
+        except httpx2.HTTPError as error:
+            raise ToolUnavailableError(f"falha de rede: {type(error).__name__}") from error
+        return self._file(repository, wanted, _validate(_Item, item))
+
+    def _http(self) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            transport=self._transport,
+            timeout=TIMEOUT_SECONDS,
+            auth=httpx2.BasicAuth("", self._token),  # PAT em Basic, usuário vazio
+        )
+
+    async def _items(
+        self, client: httpx2.AsyncClient, repository: _Repository, path: str, *, file: bool
+    ) -> Any:
+        """Git Items API no branch padrão: o arquivo com o conteúdo, ou a listagem da pasta."""
+        params = {"path": path, "$format": "json"}
+        if file:
+            params |= {"includeContent": "true", "includeContentMetadata": "true"}
+        else:
+            params["recursionLevel"] = "OneLevel"
+        if repository.branch:
+            params |= {
+                "versionDescriptor.version": repository.branch,
+                "versionDescriptor.versionType": "branch",
+            }
+        return await self._get(
+            client,
+            f"{quote(repository.project)}/_apis/git/repositories/{quote(repository.id)}/items",
+            params,
+            missing_ok=True,
+        )
+
+    def _file(self, repository: _Repository, path: str, item: "_Item") -> ToolResult:
+        url = self._web(repository, path)
+        where = f"{path} de {repository.name}"
+        content = item.content or ""
+        if (item.metadata and item.metadata.is_binary) or "\x00" in content:
+            return ToolResult(f"{where}: {BINARY_FILE}", url)
+        if len(content) > READ_LIMIT:
+            cut = f" ({TRUNCATED}: os primeiros {READ_LIMIT} de {len(content)} caracteres)"
+            return ToolResult(f"{where}{cut}:\n{content[:READ_LIMIT]}", url)
+        return ToolResult(f"{where}:\n{content}", url)
+
+    def _listing(self, repository: _Repository, path: str, items: list["_Item"]) -> ToolResult:
+        prefix = path.rstrip("/") + "/"
+        names = [
+            item.path.removeprefix(prefix) + ("/" if item.is_folder else "")
+            for item in items
+            if item.path.rstrip("/") != path.rstrip("/")  # a própria pasta vem na lista
+        ]
+        where = f"{path} de {repository.name}"
+        if not names:
+            return ToolResult(f"{where} está vazia", self._web(repository, path))
+        shown = ", ".join(sorted(names)[:MAX_ENTRIES])
+        more = f" e mais {len(names) - MAX_ENTRIES}" if len(names) > MAX_ENTRIES else ""
+        summary = f"{len(names)} item(ns) em {where} (pastas terminam em /): {shown}{more}"
+        return ToolResult(summary, self._web(repository, path))
+
+    def _web(self, repository: _Repository, path: str) -> str:
+        url = (
+            f"{self._base_url}/{quote(repository.project)}/_git/{quote(repository.name)}"
+            f"?path={quote(path)}"
+        )
+        return f"{url}&version=GB{quote(repository.branch)}" if repository.branch else url
 
     async def _repository(self, client: httpx2.AsyncClient, service: str) -> _Repository | None:
         if service in self._repositories:
@@ -95,7 +185,8 @@ class AzureDevOpsChangeHistory:
             response = await self._get(client, path, {}, missing_ok=True)
             if response is not None:
                 repo = _validate(_Repo, response)
-                found = _Repository(candidate.project, repo.name, repo.id)
+                branch = (repo.default_branch or "").removeprefix("refs/heads/") or None
+                found = _Repository(candidate.project, repo.name, repo.id, branch)
                 break
         self._repositories[service] = found
         return found
@@ -178,6 +269,22 @@ class AzureDevOpsChangeHistory:
 class _Repo(BaseModel):
     id: str
     name: str
+    default_branch: str | None = Field(default=None, alias="defaultBranch")
+
+
+class _Metadata(BaseModel):
+    is_binary: bool = Field(default=False, alias="isBinary")
+
+
+class _Item(BaseModel):
+    path: str
+    is_folder: bool = Field(default=False, alias="isFolder")
+    content: str | None = None
+    metadata: _Metadata | None = Field(default=None, alias="contentMetadata")
+
+
+class _Items(BaseModel):
+    value: list[_Item]
 
 
 class _Href(BaseModel):

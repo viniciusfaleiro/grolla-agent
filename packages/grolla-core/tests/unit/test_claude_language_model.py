@@ -5,21 +5,33 @@ from collections.abc import Callable, Mapping
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
+from uuid import UUID
 
 import httpx2
 import pytest
-from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
+from contracts.language_model_contract import (
+    ChatReplyContract,
+    LanguageModelContract,
+    MemoryModelContract,
+)
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    LEARNING_PROMPT,
+    STUDY_PROMPT,
+    SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
     VERIFICATION_PROMPT,
+    AlertRule,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModel,
     LanguageModelError,
+    LearningBrief,
     LlmUsage,
+    ServiceStudyBrief,
+    SynthesisBrief,
     TokenBudget,
     Toolbox,
     ToolSpec,
@@ -30,13 +42,23 @@ from grolla.domain.analysis import (
     Action,
     Analysis,
     AnalysisDraft,
+    Evaluation,
     Evidence,
     Hypothesis,
     HypothesisVerdict,
+    SeenBeforeDraft,
     Verdict,
     VerificationDraft,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.memory import (
+    ENVIRONMENT,
+    DossierDraft,
+    LearningDraft,
+    MemoryContext,
+    SubjectKind,
+    SynthesisDraft,
+)
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 
@@ -238,6 +260,7 @@ async def test_request_uses_the_stage_settings_structured_output_and_cache() -> 
         "summary",
         "hypotheses",
         "plan",
+        "seen_before",
     ]
     assert "tool_choice" not in body
     assert body["system"] == [
@@ -688,3 +711,313 @@ async def test_investigation_does_not_wrap_up_early() -> None:
     await claude(api).investigate(brief(), RecordingToolbox(), budget)
 
     assert all("tool_choice" not in body for body in api.bodies)
+
+
+# ---- "Já vi isso" na análise
+
+EPISODE_INCIDENT = UUID("0193a3a0-7c1e-7000-8000-000000000001")
+
+
+def analysis_with(seen_before: object) -> dict[str, Any]:
+    body = json.loads(fixture("anthropic_final.json")["content"][-1]["text"])
+    return final({**body, "seen_before": seen_before})
+
+
+async def test_analysis_points_a_past_incident_from_the_memory() -> None:
+    reason = "mesmo erro de pool depois de deploy com migration"
+    seen = {"incident_id": str(EPISODE_INCIDENT), "reason": f" {reason} "}
+
+    draft = await investigate(ScriptedApi(ok(analysis_with(seen))))
+
+    assert draft.seen_before == SeenBeforeDraft(EPISODE_INCIDENT, reason)
+
+
+@pytest.mark.parametrize(
+    "seen",
+    [
+        None,
+        {"incident_id": "não-é-uuid", "reason": "x"},
+        {"incident_id": str(UUID(int=1)), "reason": " "},
+    ],
+)
+async def test_analysis_without_a_valid_reference_has_no_seen_before(seen: object) -> None:
+    draft = await investigate(ScriptedApi(ok(analysis_with(seen))))
+
+    assert draft.seen_before is None
+    assert draft.hypotheses  # o resto da análise continua valendo
+
+
+# ---- Memória: aprender, estudar um serviço e sintetizar o ambiente
+
+LEARNING_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=8000, effort="low")
+STUDY_SETTINGS = ModelSettings(model="claude-opus-5-5", max_tokens=32000, effort="high")
+RULE = AlertRule(
+    name="Erros 5xx na pedidos-api",
+    condition="count() de spans acima de 20",
+    severity="critical",
+    labels={"team": "credenciadora"},
+    service="pedidos-api",
+    url=None,
+)
+
+
+@pytest.fixture(autouse=True)
+def memory_texts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """As mensagens são do grolla-dominio: aqui o adapter só precisa entregá-las."""
+
+    def learning(brief: LearningBrief) -> str:
+        return f"aprender {brief.incident.title}"
+
+    def study(brief: ServiceStudyBrief) -> str:
+        return f"estudar {brief.service}"
+
+    def synthesis(brief: SynthesisBrief) -> str:
+        return f"sintetizar {brief.cloud}"
+
+    module = "grolla.adapters.anthropic"
+    monkeypatch.setattr(f"{module}.learning_text", learning)
+    monkeypatch.setattr(f"{module}.study_text", study)
+    monkeypatch.setattr(f"{module}.synthesis_text", synthesis)
+
+
+def memory_model(handler: Handler, **stages: ModelSettings) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(
+        "chave",
+        SETTINGS,
+        base_url="http://fake/anthropic",
+        transport=httpx2.MockTransport(handler),
+        **stages,
+    )
+
+
+def learning_brief() -> LearningBrief:
+    return LearningBrief(make_incident(services=("pedidos-api",)), (), MemoryContext(), now=T0)
+
+
+def study_brief() -> ServiceStudyBrief:
+    return ServiceStudyBrief("pedidos-api", (RULE,), MemoryContext(), now=T0)
+
+
+def synthesis_brief() -> SynthesisBrief:
+    return SynthesisBrief((RULE,), (), MemoryContext(), cloud="2 recursos", now=T0)
+
+
+LEARNED = {
+    "episode_title": " pedidos-api com 5xx ",
+    "episode_body": "Pool de conexões esgotado depois do deploy 1.4.2; rollback resolveu.",
+    "noise": False,
+    "dossiers": [
+        {"subject": "pedidos-api", "subject_kind": "servico", "body": "Dossiê novo."},
+        {"subject": "pedidos-db", "subject_kind": "integracao", "body": "Banco do serviço."},
+        {"subject": " ", "subject_kind": "integracao", "body": "sem assunto: descartado"},
+    ],
+}
+
+
+async def test_learn_writes_the_episode_and_the_dossiers_in_one_call_without_tools() -> None:
+    api = ScriptedApi(ok(final(LEARNED)))
+    budget = RecordingBudget()
+
+    draft = await memory_model(api, learning=LEARNING_SETTINGS).learn(learning_brief(), budget)
+
+    assert draft == LearningDraft(
+        episode_title="pedidos-api com 5xx",
+        episode_body="Pool de conexões esgotado depois do deploy 1.4.2; rollback resolveu.",
+        noise=False,
+        dossiers=(
+            DossierDraft("pedidos-api", SubjectKind.SERVICE, "Dossiê novo."),
+            DossierDraft("pedidos-db", SubjectKind.INTEGRATION, "Banco do serviço."),
+        ),
+    )
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["output_config"]["effort"] == "low"
+    assert body["output_config"]["format"]["schema"]["required"] == [
+        "episode_title",
+        "episode_body",
+        "noise",
+        "dossiers",
+    ]
+    assert body["system"][0]["text"] == LEARNING_PROMPT
+    assert body["messages"] == [
+        {"role": "user", "content": f"aprender {learning_brief().incident.title}"}
+    ]
+    assert [usage.stage for usage in budget.spent] == ["learning"]
+
+
+@pytest.mark.parametrize(
+    "learned",
+    [
+        "não é json",
+        {**LEARNED, "noise": "talvez"},
+        {**LEARNED, "episode_title": "  "},
+        {**LEARNED, "dossiers": [{"subject": "x", "subject_kind": "ambiente", "body": "y"}]},
+    ],
+)
+async def test_learning_outside_the_schema_is_invalid(learned: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await memory_model(ScriptedApi(ok(final(learned)))).learn(
+            learning_brief(), RecordingBudget()
+        )
+
+
+async def test_learning_api_error_and_refusal_become_language_model_error() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await memory_model(ScriptedApi(response, response, response)).learn(
+            learning_brief(), RecordingBudget()
+        )
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await memory_model(ScriptedApi(ok(final("", stop_reason="refusal")))).learn(
+            learning_brief(), RecordingBudget()
+        )
+
+
+async def test_learning_budget_exceeded_raises() -> None:
+    with pytest.raises(BudgetExceededError):
+        await memory_model(ScriptedApi(ok(final(LEARNED)))).learn(
+            learning_brief(), RecordingBudget(fail_at=1)
+        )
+
+
+class StudyToolbox(RecordingToolbox):
+    """As avaliações que o toolbox real gravaria: só os links devolvidos viram fonte."""
+
+    @property
+    def evaluations(self) -> tuple[Evaluation, ...]:
+        readme = "https://dev.azure.com/org/Core/_git/pedidos-api?path=/README.md"
+        return (
+            Evaluation("read_file", "README.md", "# pedidos-api", readme, ok=True),
+            Evaluation("query_metric", "vazão", "20 chamadas/s", "https://signoz/x", ok=True),
+            Evaluation("read_file", "README.md", "# pedidos-api", readme, ok=True),
+            Evaluation("cloud_resources", "nuvem", "não foi possível", None, ok=False),
+        )
+
+
+async def test_study_service_runs_the_tools_and_returns_the_dossier_with_the_links() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final({"dossier": " Dossiê. "})))
+    toolbox = StudyToolbox()
+    budget = RecordingBudget()
+
+    draft = await memory_model(api, study=STUDY_SETTINGS).study_service(
+        study_brief(), toolbox, budget
+    )
+
+    assert draft == DossierDraft(
+        "pedidos-api",
+        SubjectKind.SERVICE,
+        "Dossiê.",
+        ("https://dev.azure.com/org/Core/_git/pedidos-api?path=/README.md", "https://signoz/x"),
+    )
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+    first = api.bodies[0]
+    assert first["model"] == "claude-opus-5-5"
+    assert first["system"][0]["text"] == STUDY_PROMPT
+    assert first["messages"][0] == {"role": "user", "content": "estudar pedidos-api"}
+    assert first["output_config"]["format"]["schema"]["required"] == ["dossier"]
+    assert [usage.stage for usage in budget.spent] == ["study", "study"]
+
+
+async def test_study_with_the_budget_ending_writes_the_dossier_with_what_it_has() -> None:
+    tool_use, answer = fixture("anthropic_tool_use.json"), final({"dossier": "Parcial."})
+    budget = TokenBudget(limit=tokens_of(tool_use) + tokens_of(answer) + 10)
+    api = ScriptedApi(ok(tool_use), ok(answer))
+
+    draft = await memory_model(api).study_service(study_brief(), RecordingToolbox(), budget)
+
+    assert draft.body == "Parcial."
+    assert api.bodies[-1]["tool_choice"] == {"type": "none"}
+
+
+@pytest.mark.parametrize("answer", ["não é json", {"dossier": "  "}, {"body": "x"}])
+async def test_study_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await memory_model(ScriptedApi(ok(final(answer)))).study_service(
+            study_brief(), RecordingToolbox(), RecordingBudget()
+        )
+
+
+async def test_study_api_error_becomes_language_model_error() -> None:
+    with pytest.raises(LanguageModelError, match="400"):
+        await memory_model(ScriptedApi(httpx2.Response(400, json={}))).study_service(
+            study_brief(), RecordingToolbox(), RecordingBudget()
+        )
+
+
+SYNTHESIZED = {
+    "environment": " Ambiente da Credenciadora. ",
+    "integrations": [
+        {"subject": "pedidos-db", "body": "Banco chamado pela pedidos-api."},
+        {"subject": "", "body": "descartado"},
+    ],
+}
+
+
+async def test_synthesize_writes_the_environment_and_the_integrations_without_tools() -> None:
+    api = ScriptedApi(ok(final(SYNTHESIZED)))
+    budget = RecordingBudget()
+
+    draft = await memory_model(api, study=STUDY_SETTINGS).synthesize(synthesis_brief(), budget)
+
+    assert draft == SynthesisDraft(
+        environment=DossierDraft(
+            ENVIRONMENT, SubjectKind.ENVIRONMENT, "Ambiente da Credenciadora."
+        ),
+        integrations=(
+            DossierDraft("pedidos-db", SubjectKind.INTEGRATION, "Banco chamado pela pedidos-api."),
+        ),
+    )
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-opus-5-5"
+    assert body["system"][0]["text"] == SYNTHESIS_PROMPT
+    assert body["messages"][0]["content"] == "sintetizar 2 recursos"
+    assert [usage.stage for usage in budget.spent] == ["study"]
+
+
+@pytest.mark.parametrize("answer", ["não é json", {**SYNTHESIZED, "environment": " "}])
+async def test_synthesis_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await memory_model(ScriptedApi(ok(final(answer)))).synthesize(
+            synthesis_brief(), RecordingBudget()
+        )
+
+
+async def test_synthesis_api_error_becomes_language_model_error() -> None:
+    with pytest.raises(LanguageModelError, match="400"):
+        await memory_model(ScriptedApi(httpx2.Response(400, json={}))).synthesize(
+            synthesis_brief(), RecordingBudget()
+        )
+
+
+def memory_api(request: httpx2.Request) -> httpx2.Response:
+    """Responde pela etapa, reconhecida pelo schema: o estudo pede ferramentas antes."""
+    body = json.loads(request.content)
+    required = body["output_config"]["format"]["schema"]["required"]
+    if "episode_title" in required:
+        return ok(final(LEARNED))
+    if "environment" in required:
+        return ok(final(SYNTHESIZED))
+    answered = any(
+        block.get("type") == "tool_result"
+        for message in body["messages"]
+        if isinstance(message["content"], list)
+        for block in message["content"]
+    )
+    return ok(final({"dossier": "Dossiê."}) if answered else fixture("anthropic_tool_use.json"))
+
+
+class TestClaudeMemoryModelContract(MemoryModelContract):
+    @pytest.fixture
+    def memory_model(self) -> LanguageModel:
+        return memory_model(memory_api)
+
+    @pytest.fixture
+    def failing_memory_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        )
