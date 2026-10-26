@@ -147,3 +147,50 @@ async def test_calls_are_recorded_and_unknown_tools_fail() -> None:
             "status": 500,
         }
     ]
+
+
+async def test_default_alert_rule_is_of_the_team_with_its_condition() -> None:
+    app = create_app()
+
+    listing = payload(await call(app, "signoz_list_alert_rules", {"limit": "1000"}))
+    [rule] = listing["data"]
+    definition = payload(await call(app, "signoz_get_alert", {"id": rule["ruleId"]}))["data"]
+
+    assert rule["alert"] == "Taxa de erro alta no estudo-api"
+    assert rule["labels"]["service_name"] == "estudo-api"
+    assert rule["labels"]["team"] == "credenciadora"
+    assert listing["pagination"]["hasMore"] is False
+    assert definition["id"] == rule["ruleId"]
+    assert definition["condition"]["target"] == 20
+    assert definition["evalWindow"] == "5m0s"
+
+
+async def test_active_services_include_the_studied_one() -> None:
+    listing = payload(await call(create_app(), "signoz_list_services", window()))
+
+    assert "estudo-api" in [s["serviceName"] for s in listing["data"]]
+
+
+async def test_dependencies_are_the_service_database() -> None:
+    app = create_app()
+    base = {
+        "service": "estudo-api",
+        "groupBy": "peer.service, db.system, db.name, server.address",
+        "requestType": "scalar",
+        **window(),
+    }
+
+    calls = payload(await call(app, "signoz_aggregate_traces", {**base, "aggregation": "count"}))
+    failed = payload(
+        await call(app, "signoz_aggregate_traces", {**base, "aggregation": "count", "error": True})
+    )
+
+    [result] = calls["data"]["data"]["results"]
+    assert [c["name"] for c in result["columns"]][:4] == [
+        "peer.service",
+        "db.system",
+        "db.name",
+        "server.address",
+    ]
+    assert result["data"] == [["estudo-db", "postgresql", "estudo", None, 4200]]
+    assert failed["data"]["data"]["results"][0]["data"][0][-1] == 12
