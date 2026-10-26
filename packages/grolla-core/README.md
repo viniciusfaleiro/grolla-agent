@@ -46,6 +46,7 @@ os deployables só montam o processo.
 | **Repositório de incidentes** | Unidade de trabalho transacional, deduplicação de alertas, log de eventos e projeção | `grolla.adapters.postgres.PostgresIncidentRepository` |
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
+| **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL). O incidente novo é o card "Estou investigando", que lista o que vai ser checado. O card de análise traz o resumo e as seções "O que avaliei", "Hipóteses" (com confiança e evidência) e "Plano proposto", além dos botões "Abrir incidente" e "Ver no SigNoz". A análise parcial ("Análise parcial") diz o motivo logo abaixo do título; a com hipóteses avisa "Estou validando as hipóteses; a causa raiz vem em seguida.". O card da validação abre com "Causa raiz · P1", "Causa raiz não confirmada · P1" ou "Validação parcial · P1" (com "Motivo: …" logo abaixo) e traz as seções "Causa raiz", "Hipóteses" (`- <hipótese>: confirmada/rejeitada/inconclusiva — <justificativa>`), "Plano de ação" (`- <ação> (<alvo>) → <efeito>`, com link quando houver) e "O que faltou", só com o botão "Abrir incidente". O card "Incidente normalizado" fecha a história: duração ("Normalizado: durou 32 min") e o desfecho da validação (causa raiz e "Plano de ação sugerido", causa não confirmada com o que faltou, ou validação em andamento) | `grolla.adapters.teams.TeamsChatNotifier` |
@@ -77,6 +78,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0002`: incidentes, log de eventos, alertas recebidos e outbox (abaixo).
 - `0003`: fila e resultado das análises iniciais e uso do modelo de linguagem (abaixo).
 - `0004`: fila e resultado da validação das hipóteses até a causa raiz (abaixo).
+- `0005`: war room: IC e horários do incidente e o chat com o agente (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -101,18 +103,38 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 |---|---|---|
 | `verifications` | A validação das hipóteses de cada incidente, com a mesma forma da `analyses`: é a fila (`pendente` → `em_andamento`) e a projeção do resultado (`concluida`/`parcial`), com `verdicts`, `actions` e `evaluations` em `jsonb`, a `root_cause`, o que faltou (`missing`) e o `partial_reason` | `incident_id` é a chave: **uma validação por incidente**; índices parciais nos pendentes e nos em andamento |
 
+### War room (0005)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `incidents` (colunas novas) | `commander` e os horários `handling_at` (TTA), `mitigated_at` (TTM) e `resolved_at` (TTR, encerrado ou descartado) | nulos nos incidentes antigos |
+| `chat_messages` | Mensagens do chat, em ordem de `at` e `id`, com `evaluations` em `jsonb` nas do agente. A pergunta de uma pessoa leva `reply_status` (`pendente` → `em_andamento` → `respondida`/`falhou`) e é a fila; a resposta do agente aponta a pergunta em `reply_to` | índice parcial nas pendentes |
+
 ### Repositórios
 
 - `PostgresIncidentRepository.transaction()` abre **uma transação** e entrega a unidade de
   trabalho (`register_alert`, `active_incidents`, `incident_firing`, `save`, `append`,
-  `link_alert`, `enqueue`): commit ao sair sem erro, rollback em exceção. Assim o evento, a
+  `link_alert`, `enqueue`, `incident_for_update`, `add_message`, `request_analysis`): commit ao sair sem erro, rollback em exceção. Assim o evento, a
   projeção e o card na outbox são gravados juntos ou nada é gravado.
 - `register_alert` é um `INSERT … ON CONFLICT DO NOTHING RETURNING id`: devolve `False` para um
   reenvio, mesmo com dois processos.
 - `active_incidents` segura um advisory lock por serviço e `FOR UPDATE` nos candidatos, e
   `incident_firing` trava o incidente: webhooks simultâneos do mesmo serviço não abrem dois
   incidentes, e resoluções simultâneas não perdem a atualização de `firing`
-  (`tests/integration/test_postgres_concurrency.py`).
+  (`tests/integration/test_postgres_concurrency.py`). Só entram incidentes em `OPEN_STATES`:
+  depois de encerrado ou descartado, um alerta novo abre outro incidente.
+- `incident_for_update` lê o incidente com `FOR UPDATE`: duas ações simultâneas no war room
+  ficam em fila, e a segunda decide sobre o estado já gravado pela primeira
+  (`tests/integration/test_postgres_war_room.py`).
+- `add_message` grava a mensagem e a devolve com o `id` do banco; com `wants_reply`, ela entra
+  na fila como `pendente`. `chat_of` devolve o chat em ordem de `at` e `id`.
+- `PostgresChatQueue.claim` marca `em_andamento` a pergunta pendente mais antiga, com
+  `started_at` e `FOR UPDATE SKIP LOCKED`, e `stuck` lista as em andamento desde antes do limite.
+  `answer` grava numa transação a resposta (com `reply_to`), o desfecho na pergunta
+  (`reply.reply_status`: `falhou`, ou `respondida` quando vem `None`/`respondida`), os eventos e o
+  `llm_usage`. Só grava se a pergunta ainda está `em_andamento`: sai uma resposta só por pergunta.
+  `chat_tokens` soma todos os tokens (entrada, saída e cache) do incidente na etapa
+  `warroom_chat`.
 - `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
   esperando retentativa segura os seguintes do mesmo incidente, para a ordem por incidente;
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou
@@ -165,7 +187,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py · analysis.py
   application/     clock.py · incidents.py · investigation.py · analysis.py
-  adapters/        system_clock/ · postgres/ (database, incidents, analysis, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/
+  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py · investigation.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/
