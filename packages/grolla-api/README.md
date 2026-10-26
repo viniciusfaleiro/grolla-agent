@@ -21,7 +21,9 @@ O processo que precisa responder rápido, sempre: é por ele que os alertas cheg
 autentica e traduz o webhook pelo port `AlertIngress`, chama o caso de uso `receive_alerts` e
 renderiza as páginas (Jinja2 + HTMX e um `war-room.js` pequeno, servidos como estáticos) a partir do
 `IncidentRepository`. No war room, as ações e as mensagens viram chamadas aos casos de uso `act`
-e `ask` da `grolla.application.war_room`; a api só lê o form e o autor e devolve o fragmento. Não tem regra de
+e `ask` da `grolla.application.war_room`; na página da memória, aos casos de uso da
+`grolla.application.memory`, lendo do `MemoryStore`, do `StudyQueue` e do `LearningQueue`. A api
+só lê o form e o autor e devolve o fragmento ou recarrega a página. Não tem regra de
 negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
 `grolla-core`; no startup aplica as migrações pendentes e monta as dependências pelo `bootstrap`.
 
@@ -38,6 +40,10 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Ações do war room** | Forms HTMX: `assume`, `severity` (`severidade`), `record` (`texto`), `discard-hypothesis` (`titulo`, `motivo`; um botão por hipótese da análise), `mitigate`, `reopen`, `resolve` e `discard` (`motivo`). `200` com o fragmento do cabeçalho e das ações; `401` "informe seu nome" sem cookie; `422` com a mensagem do `InvalidActionError`; `404` para ação ou incidente inexistente. Os erros voltam com `HX-Retarget` para a área de erro do form | `POST /incidents/{id}/actions/{acao}` |
 | **Chat com o agente** | Painel de mensagens fixo ao lado: as suas mensagens à direita, as dos outros à esquerda e o Grolla com o avatar do mascote; a resposta do agente com markdown mínimo e seguro (parágrafos, listas, negrito, links) e as consultas recolhidas; "Grolla está investigando…" enquanto responde; sugestões de pergunta com um clique no chat vazio; Enter envia, Shift+Enter quebra a linha e a conversa rola sozinha até a mensagem nova. O envio (`texto`) responde `200` com a conversa atualizada, `401` sem cookie, `422` texto vazio, `404` incidente inexistente | `POST /incidents/{id}/chat` |
 | **Polling (3 s)** | Fragmentos do chat e da timeline com `hx-trigger="every 3s"`. A URL carrega a versão vista (`?visto=`): sem nada novo, `204` e o HTMX não troca nada (um `<details>` aberto continua aberto) | `GET /incidents/{id}/chat` · `GET /incidents/{id}/timeline` |
+| **"Já vi isso"** | Na análise do incidente, quando ela aponta um caso parecido da memória: "Já vi isso: <título> (dd/mm)" com o link para o incidente passado e o motivo da semelhança | `GET /incidents/{id}` |
+| **Memória do Grolla** | Link "Memória" na barra. O dossiê do ambiente em destaque (markdown seguro, com as seções como títulos), os assuntos por tipo (ambiente, serviços, integrações) com registros, última atualização e último estudo, o estado da última rodada de estudo (modo, quem pediu, quando, status, tokens; serviços estudados, pendentes por orçamento e falhos com o motivo), os aprendizados que falharam com o link do incidente e "ensinar sobre outro assunto" (`?assunto=` redireciona para a página dele). Estado vazio "Ainda não estudei o ambiente"; sem `memory.study` no YAML, diz que o estudo está desligado e esconde os botões | `GET /memoria` |
+| **Assunto da memória** | Dossiê, episódios (link do incidente, marca de ruído) e notas, cada um com o selo aprendido/confirmado, a fonte com link (incidente, chat, links consultados pelo estudo, pessoa) e as datas; esquecidos esmaecidos. Com nome: editar, confirmar (só aprendido), esquecer e o formulário "adicionar conhecimento", que funciona em assunto sem dossiê (escolhe serviço ou integração). O histórico de versões carrega ao abrir, com "restaurar esta versão" | `GET /memoria/{assunto}` · `GET /memoria/registros/{id}/versoes` |
+| **Escrita na memória** | Forms HTMX sobre os casos de uso `add_note` (`texto`, `tipo` só em assunto novo), `edit_memory` (`texto`), `confirm_memory`, `forget_memory`, `restore_memory` (`versao`, ISO) e `request_study` (`FULL` em estudar; `RELEARN` em reaprender, que exige `confirmar=sim` e mostra num popover o que é esquecido e o que fica). Sucesso: `204` com `HX-Redirect` para a página (HTMX) ou `303` (form comum). `401` "informe seu nome" sem cookie, `422` com a mensagem do `InvalidMemoryError`, `409` se já há estudo na fila, `404` para registro inexistente; os erros voltam com `HX-Retarget` para a área de erro do registro, da nota ou do estudo | `POST /memoria/{assunto}/notas` · `POST /memoria/registros/{id}[/confirmar\|/esquecer\|/restaurar]` · `POST /memoria/estudar` · `POST /memoria/reaprender` |
 | **Estáticos** | HTMX 2.0.4 (sem build; `htmx-config` faz as respostas `4xx` também aparecerem), `war-room.css` (tokens de cor e tipografia, tema escuro), `war-room.js` (Enter envia, caixa cresce, rolagem) e o mascote | `GET /static/…` |
 
 ## ⚡ Como rodar
@@ -69,7 +75,8 @@ uv run pytest packages/grolla-api
 ```
 
 - `tests/unit/` — `create_app` recebe `Services` (checagem de banco, heartbeat e os ports), montado
-  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas e war room testadas com `TestClient`,
+  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room e memória (com os
+  casos de uso reais sobre os fakes da memória) testadas com `TestClient`,
   sem banco e sem rede; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — `/health` contra Postgres real (Testcontainers).
 
@@ -77,9 +84,10 @@ uv run pytest packages/grolla-api
 
 ```
 src/grolla_api/
-  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, autor)
-  war_room.py  apresentação do war room: rótulos, ciclo, ação em destaque, durações, markdown seguro do chat, leitura do form e do cookie
-  templates/ páginas Jinja2 (base, lista, incidente) e fragmentos _war_room, _chat, _chat_messages, _timeline
+  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, autor)
+  war_room.py  apresentação do war room: rótulos, ciclo, ação em destaque, durações, markdown seguro, leitura do form e do cookie
+  memory_pages.py  apresentação da memória: rótulos, assuntos por tipo, fontes com link, progresso do estudo
+  templates/ páginas Jinja2 (base, lista, incidente, memory, memory_subject) e fragmentos _war_room, _chat, _chat_messages, _timeline, _memory_versions
   static/    htmx.min.js · war-room.css · war-room.js · grolla.svg · grolla-avatar.svg
   main.py    entrypoint `grolla-api`: settings → migrações → uvicorn
 tests/       unit/ · integration/

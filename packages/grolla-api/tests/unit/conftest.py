@@ -5,6 +5,7 @@ from grolla.application.incidents import IntakePolicy
 from grolla.domain.incidents import Severity, SeverityPolicy
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import FakeAlertIngress, InMemoryIncidentRepository
+from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
 from grolla_api.app import Services
 
 
@@ -31,4 +32,8 @@ def services() -> Services:
             page_url=lambda incident_id: f"http://grolla.interno/incidents/{incident_id}",
         ),
         clock=FakeClock(),
+        memory=InMemoryMemoryStore(),
+        studies=InMemoryStudyQueue(),
+        learning_queue=InMemoryLearningQueue(),
+        study_enabled=True,
     )

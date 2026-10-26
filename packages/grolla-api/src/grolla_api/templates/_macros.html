@@ -18,4 +18,17 @@
 {% endmacro %}
 {% macro when(at) %}<time datetime="{{ at.isoformat() }}">{{ at.strftime("%d/%m/%Y %H:%M UTC") }}</time>{% endmacro %}
 {% macro hhmm(at) %}<time datetime="{{ at.isoformat() }}" title="{{ at.strftime('%d/%m/%Y %H:%M:%S UTC') }}">{{ at.strftime("%H:%M") }}</time>{% endmacro %}
+{% macro day(at) %}<time datetime="{{ at.isoformat() }}" title="{{ at.strftime('%d/%m/%Y %H:%M UTC') }}">{{ at.strftime("%d/%m/%Y") }}</time>{% endmacro %}
+{% macro join(back_to, why) %}
+<div class="panel join">
+  <h2>Como o time te chama?</h2>
+  <p class="muted">{{ why }}</p>
+  <form method="post" action="/author">
+    <input type="hidden" name="voltar" value="{{ back_to }}">
+    <label class="visually-hidden" for="nome">Seu nome</label>
+    <input id="nome" name="nome" required maxlength="60" placeholder="Seu nome" autocomplete="name">
+    <button class="button-primary">Entrar</button>
+  </form>
+</div>
+{% endmacro %}
 {% macro avatar(name) %}{% if name == agent_author %}<span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>{% else %}<span class="avatar" aria-hidden="true">{{ initials(name) }}</span>{% endif %}{% endmacro %}

@@ -16,6 +16,10 @@ def services_from(container: ApiContainer) -> Services:
         repository=container.repository,
         intake=container.intake,
         clock=container.clock,
+        memory=container.memory,
+        studies=container.studies,
+        learning_queue=container.learning_queue,
+        study_enabled=container.config.memory_policy().study is not None,
     )
 
 

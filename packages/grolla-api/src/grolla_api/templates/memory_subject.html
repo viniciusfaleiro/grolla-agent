@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import when, day, join %}
+{% block title %}{{ subject }} · Memória{% endblock %}
+
+{% macro record(item, rows=4, show_title=true) %}
+{% set source_label, links = source_of(item) %}
+<article class="record{% if not item.active %} record-forgotten{% endif %}" id="registro-{{ item.id }}">
+  <header class="record-head">
+    {% if show_title %}<h3>{{ item.title }}</h3>{% endif %}
+    <span class="badge badge-{{ item.confidence }}">{{ item.confidence }}</span>
+    {% if item.noise %}<span class="badge badge-noise">ruído</span>{% endif %}
+    {% if not item.active %}<span class="badge badge-forgotten">esquecido</span>{% endif %}
+  </header>
+  <div class="rich record-body">{{ rich_text(item.body) }}</div>
+  <p class="record-meta">
+    <span>Fonte: {{ source_label }}{% for link in links %} · <a href="{{ link.url }}"{% if link.url.startswith("http") %} target="_blank" rel="noopener"{% endif %}>{{ link.label }}</a>{% endfor %}</span>
+    <span>criado em {{ day(item.created_at) }}{% if item.updated_at != item.created_at %}, atualizado {{ when(item.updated_at) }}{% endif %}</span>
+  </p>
+  {% if author %}
+  <div class="record-actions">
+    {% if item.active and item.confidence == "aprendido" %}
+    <form hx-post="/memoria/registros/{{ item.id }}/confirmar"><button title="Você confere que está certo; o Grolla passa a tratar como fato do time">Confirmar</button></form>
+    {% endif %}
+    <details class="record-edit">
+      <summary>Editar</summary>
+      <form class="edit-form" hx-post="/memoria/registros/{{ item.id }}">
+        <label class="visually-hidden" for="texto-{{ item.id }}">Texto</label>
+        <textarea id="texto-{{ item.id }}" name="texto" required rows="{{ rows }}">{{ item.body }}</textarea>
+        <div class="row"><button class="button-primary">Salvar</button></div>
+      </form>
+    </details>
+    {% if item.active %}
+    <form hx-post="/memoria/registros/{{ item.id }}/esquecer" hx-confirm="Esquecer este registro? O Grolla deixa de usá-lo, mas ele fica no histórico e pode voltar.">
+      <button class="button-quiet button-danger">Esquecer</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  <details class="versions" hx-get="/memoria/registros/{{ item.id }}/versoes" hx-trigger="toggle once" hx-target="find .versions-list">
+    <summary>Histórico de versões</summary>
+    <div class="versions-list"><p class="muted">Carregando…</p></div>
+  </details>
+  <div id="erro-{{ item.id }}" class="error" role="alert"></div>
+</article>
+{% endmacro %}
+
+{% block content %}
+<nav class="crumbs" aria-label="Caminho"><a href="/memoria">Memória</a> <span aria-hidden="true">/</span></nav>
+<div class="list-head">
+  <h1>{{ subject }}</h1>
+  {% if kind %}<span class="chip">{{ subject_kind_names[kind] }}</span>{% endif %}
+</div>
+
+{% if not author %}{{ join(back_to, "Seu nome fica nas notas e nas correções que você fizer.") }}{% endif %}
+
+<div class="memory-grid">
+  <div class="memory-main">
+    <section class="panel" id="dossie">
+      <h2>Dossiê</h2>
+      {% for item in records.dossiers %}
+      {{ record(item, rows=18, show_title=false) }}
+      {% else %}
+      <p class="muted">Ainda não há dossiê de {{ subject }}. O estudo do ambiente escreve um; enquanto isso, as notas que o time adicionar já entram nas investigações.</p>
+      {% endfor %}
+    </section>
+
+    <section class="panel" id="episodios">
+      <h2>Episódios</h2>
+      {% for item in records.episodes %}
+      {{ record(item, rows=8) }}
+      {% else %}
+      <p class="muted">Nenhum incidente encerrado deste assunto ainda. Cada incidente resolvido ou descartado vira um episódio aqui.</p>
+      {% endfor %}
+    </section>
+  </div>
+
+  <aside class="memory-side">
+    <section class="panel" id="notas">
+      <h2>Notas</h2>
+      {% if author %}
+      <form class="note-form" hx-post="{{ page_url }}/notas">
+        <label for="nova-nota">Adicionar conhecimento</label>
+        <textarea id="nova-nota" name="texto" required rows="3" placeholder="ex.: depende do autorizador e do Redis de sessão"></textarea>
+        {% if kind is none %}
+        <label for="tipo">{{ subject }} é</label>
+        <select id="tipo" name="tipo">
+          {% for value, label in new_subject_kinds.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        {% endif %}
+        <p class="hint muted">Entra confirmada, com você como fonte, e vale já na próxima investigação.</p>
+        <div class="row"><button class="button-primary">Guardar nota</button></div>
+        <div id="erro-nota" class="error" role="alert"></div>
+      </form>
+      {% endif %}
+      {% for item in records.notes %}
+      {{ record(item, rows=3, show_title=false) }}
+      {% else %}
+      <p class="muted">Nenhuma nota ainda.</p>
+      {% endfor %}
+    </section>
+  </aside>
+</div>
+{% endblock %}
