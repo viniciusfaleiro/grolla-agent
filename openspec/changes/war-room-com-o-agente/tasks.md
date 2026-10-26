@@ -48,11 +48,11 @@
 
 - [x] 6.1 Juntar os branches e resolver conflitos.
 - [x] 6.2 Fazer o code review do todo entregue, com os ajustes que couberem.
-- [ ] 6.3 Laboratório:
+- [x] 6.3 Laboratório:
   - repetir o cenário "banco fora";
   - perguntar no chat "o banco já voltou?" depois de religar o RDS;
   - assumir, mitigar e encerrar pelo war room.
 - [x] 6.4 Registrar no `design.md` os desvios de contrato.
-- [ ] 6.5 Revisar e atualizar os READMEs do pai e de cada componente.
-- [ ] 6.6 Rodar `make e2e` e garantir todos os cenários verdes.
-- [ ] 6.7 Rodar `make fmt && make check` e garantir tudo verde.
+- [x] 6.5 Revisar e atualizar os READMEs do pai e de cada componente.
+- [x] 6.6 Rodar `make e2e` e garantir todos os cenários verdes.
+- [x] 6.7 Rodar `make fmt && make check` e garantir tudo verde.
