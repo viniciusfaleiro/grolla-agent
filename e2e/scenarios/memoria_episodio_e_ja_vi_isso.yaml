@@ -1,0 +1,91 @@
+# Ana encerra pelo war room um incidente do lembra-api; o worker aprende com ele e grava o
+# episódio do serviço, com o link do incidente. O mesmo alerta volta depois do encerramento e
+# abre um incidente novo: a análise reconhece o caso ("Já vi isso") e aponta o anterior, na
+# página do incidente e no card do Teams.
+name: incidente encerrado vira episódio e o repetido mostra "Já vi isso"
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Taxa de erro alta no lembra-api
+              service_name: lembra-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 6,1% no lembra-api
+              description: A taxa de erro HTTP 5xx do lembra-api está em 6,1% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=140
+            fingerprint: e2e-lembra-1
+  - capture:
+      name: anterior
+      sql: SELECT id FROM incidents WHERE 'lembra-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{anterior}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{anterior}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.1 resolveu }
+      status: 200
+  # O aprendizado roda a cada 10 s; o episódio precisa existir antes do alerta repetido.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'episodio' AND active
+        AND subject = 'lembra-api' AND incident_id = '{anterior}'
+        AND source_kind = 'incidente' AND NOT noise
+      at_least: 1
+      timeout_seconds: 90
+  - expect_page:
+      service: api
+      path: /memoria/lembra-api
+      contains: [lembra-api, "/incidents/{anterior}"]
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - <<: *alerta
+            startsAt: "2026-01-01T11:00:00Z"
+            fingerprint: e2e-lembra-2
+  - capture:
+      name: repetido
+      sql: SELECT id FROM incidents WHERE 'lembra-api' = ANY(services) AND id <> '{anterior}'
+then:
+  - expect_page:
+      service: api
+      path: /incidents/{repetido}
+      contains: [Já vi isso, "/incidents/{anterior}"]
+      timeout_seconds: 90
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [lembra-api, Já vi isso]
+      count: 1
+      timeout_seconds: 60
