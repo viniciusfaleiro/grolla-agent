@@ -1,0 +1,77 @@
+{# Cabeçalho e ações; é o fragmento devolvido pelas rotas de ação. #}
+{% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
+<section id="war-room">
+<header class="war-room-header">
+  {% if verification and verification.root_cause %}
+  <p class="root-cause"><strong>Causa raiz:</strong> {{ verification.root_cause }}</p>
+  {% endif %}
+  <dl class="header-grid">
+    <div><dt>Estado</dt><dd class="state">{{ header.state }}</dd></div>
+    <div><dt>Severidade</dt><dd class="sev">{{ incident.severity }}</dd></div>
+    <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
+    <div><dt>IC</dt><dd class="commander">{{ incident.commander or "—" }}</dd></div>
+    <div><dt>TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
+    <div><dt>TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
+    <div><dt>TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
+  </dl>
+</header>
+
+<div id="war-room-error" role="alert"></div>
+
+{% if author and header.actions %}
+<div class="actions" hx-target="#war-room" hx-swap="outerHTML">
+  {% if "assume" in header.actions %}
+  <form hx-post="{{ base }}assume"><button>Assumir como IC</button></form>
+  {% endif %}
+  {% if "mitigate" in header.actions %}
+  <form hx-post="{{ base }}mitigate"><button>Marcar mitigado</button></form>
+  {% endif %}
+  {% if "reopen" in header.actions %}
+  <form hx-post="{{ base }}reopen"><button>Reabrir</button></form>
+  {% endif %}
+  {% if "severity" in header.actions %}
+  <form hx-post="{{ base }}severity">
+    <label>Severidade
+      <select name="severidade">
+        {% for severity in severities %}
+        <option value="{{ severity }}"{% if severity == incident.severity %} selected{% endif %}>{{ severity }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button>Mudar severidade</button>
+  </form>
+  {% endif %}
+  {% if "record" in header.actions %}
+  <form hx-post="{{ base }}record">
+    <label>O que foi feito <input name="texto" required placeholder="fiz rollback do build .3"></label>
+    <button>Registrar ação</button>
+  </form>
+  {% endif %}
+  {% if "discard-hypothesis" in header.actions and analysis and analysis.hypotheses %}
+  <details class="discard-hypotheses">
+    <summary>Descartar uma hipótese</summary>
+    {% for hypothesis in analysis.hypotheses %}
+    <form hx-post="{{ base }}discard-hypothesis">
+      <input type="hidden" name="titulo" value="{{ hypothesis.title }}">
+      <strong>{{ hypothesis.title }}</strong>
+      <label>Motivo <input name="motivo" required></label>
+      <button>Descartar hipótese</button>
+    </form>
+    {% endfor %}
+  </details>
+  {% endif %}
+  {% if "resolve" in header.actions %}
+  <form hx-post="{{ base }}resolve">
+    <label>Motivo do encerramento <input name="motivo" required></label>
+    <button>Encerrar</button>
+  </form>
+  {% endif %}
+  {% if "discard" in header.actions %}
+  <form hx-post="{{ base }}discard">
+    <label>Por que é falso positivo <input name="motivo" required></label>
+    <button>Descartar incidente</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+</section>

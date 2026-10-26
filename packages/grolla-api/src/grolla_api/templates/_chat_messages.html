@@ -1,0 +1,28 @@
+{# Mensagens do chat; o polling só troca este bloco quando a versão muda. #}
+{% from "_macros.html" import evaluations_table, when %}
+<div id="chat-messages"
+     hx-get="/incidents/{{ incident.id }}/chat?visto={{ chat_version }}"
+     hx-trigger="every 3s" hx-swap="outerHTML">
+{% if messages %}
+<ol class="chat">
+  {% for message in messages %}
+  <li class="message{% if is_agent(message) %} message-agent{% endif %}">
+    <strong class="author">{{ message.author }}</strong>
+    <span class="muted">{{ when(message.at) }}</span>
+    <p>{{ message.text }}</p>
+    {% if message.evaluations %}
+    <details>
+      <summary>Consultas feitas ({{ message.evaluations | length }})</summary>
+      {{ evaluations_table(message.evaluations) }}
+    </details>
+    {% endif %}
+  </li>
+  {% if is_waiting(message) %}
+  <li class="message message-agent thinking">agente pensando…</li>
+  {% endif %}
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Nenhuma mensagem. Pergunte ao agente ou peça que ele investigue algo.</p>
+{% endif %}
+</div>

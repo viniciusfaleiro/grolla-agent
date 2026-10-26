@@ -1,0 +1,24 @@
+{# Timeline com o autor; o polling só troca este bloco quando chega evento. #}
+{% from "_macros.html" import when %}
+<div id="timeline"
+     hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
+     hx-trigger="every 3s" hx-swap="outerHTML">
+{% if events %}
+<ol>
+  {% for event in events %}
+  <li>
+    <strong>{{ when(event.at) }}</strong> ·
+    {{ event_labels.get(event.type, event.type) }}
+    <span class="author">por {{ event.author }}</span>
+    {% if event.data %}
+    <ul class="muted">
+      {% for key, value in event.data.items() %}<li>{{ key }}: {{ value }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Nenhum evento.</p>
+{% endif %}
+</div>

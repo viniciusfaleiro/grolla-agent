@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{# Erros 4xx também são trocados na página: é assim que a recusa de uma ação aparece. #}
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"4..","swap":true,"error":true},{"code":"...","swap":false}]}'>
 <title>{% block title %}Incidentes{% endblock %} · agent-grolla</title>
+<script src="/static/htmx.min.js"></script>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
   table { border-collapse: collapse; width: 100%; }
@@ -15,6 +18,18 @@
   .verdict-confirmed { color: #237b4b; }
   .verdict-rejected { color: #c4314b; }
   .verdict-inconclusive { color: #666; }
+  .header-grid { display: flex; flex-wrap: wrap; gap: .5rem 2rem; }
+  .header-grid dt { font-size: .8rem; color: #666; }
+  .header-grid dd { margin: 0; font-weight: bold; }
+  .actions form, .author-form { margin: .4rem 0; }
+  .error { color: #c4314b; font-weight: bold; }
+  .chat { list-style: none; padding: 0; }
+  .message { padding: .4rem .8rem; margin: .4rem 0; border-left: 4px solid #ddd; }
+  .message p { margin: .2rem 0; white-space: pre-wrap; }
+  .message-agent { background: #eef4fb; border-left-color: #2b6cb0; }
+  .thinking { color: #666; font-style: italic; }
+  .author { color: #444; }
+  textarea { width: 100%; }
 </style>
 </head>
 <body>
