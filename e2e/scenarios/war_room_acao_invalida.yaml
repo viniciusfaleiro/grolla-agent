@@ -1,0 +1,63 @@
+# Ação inválida para o estado é recusada com 422 e não muda nada: mitigar um incidente que
+# ninguém assumiu, e encerrar sem motivo.
+name: war room recusa ação inválida
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no invalida-api
+              service_name: invalida-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no invalida-api
+              description: O p99 de latência do invalida-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=131
+            fingerprint: e2e-invalida-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'invalida-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/mitigate
+      cookies: { grolla_author: Ana }
+      status: 422
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: "" }
+      status: 422
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{incidente}'
+        AND state IN ('detectado', 'informado') AND mitigated_at IS NULL AND resolved_at IS NULL
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type IN ('incident_mitigated', 'incident_resolved')
+      count: 0
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [invalida-api, Incidente mitigado]
+      count: 0

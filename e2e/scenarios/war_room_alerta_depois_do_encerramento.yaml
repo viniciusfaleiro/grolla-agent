@@ -1,0 +1,76 @@
+# Incidente encerrado não recebe alertas: depois que Ana encerra o incidente do reaberto-api, um
+# alerta novo do mesmo serviço abre outro incidente, com o seu próprio card "investigando".
+name: alerta depois do encerramento abre incidente novo
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Latência alta no reaberto-api
+              service_name: reaberto-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no reaberto-api
+              description: O p99 de latência do reaberto-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=135
+            fingerprint: e2e-reaberto-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'reaberto-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: "pico isolado, já normalizou" }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - <<: *alerta
+            startsAt: "2026-01-01T10:05:00Z"
+            fingerprint: e2e-reaberto-2
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'reaberto-api' = ANY(services)
+      count: 2
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{incidente}' AND state = 'resolvido'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE 'reaberto-api' = ANY(services)
+        AND id <> '{incidente}' AND state NOT IN ('resolvido', 'descartado')
+        AND resolved_at IS NULL
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [reaberto-api, Estou investigando]
+      count: 2
+      timeout_seconds: 60
