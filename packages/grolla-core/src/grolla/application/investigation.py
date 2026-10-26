@@ -681,3 +681,27 @@ def brief_text(brief: InvestigationBrief) -> str:
         lines.append("- nenhum alerta registrado")
     lines += ["", "Faça a análise inicial seguindo o roteiro."]
     return "\n".join(lines)
+
+
+# ---- Memória viva: prompts e mensagens das etapas `learning` e `study` ----
+# Contrato da memória viva: os textos e os corpos são do grolla-dominio; o adapter do modelo só
+# os usa, como faz com SYSTEM_PROMPT e brief_text.
+
+LEARNING_PROMPT = ""  # episódio + dossiês reescritos a partir do log de um incidente encerrado
+STUDY_PROMPT = ""  # estudo de um serviço com as ferramentas, resultando no dossiê dele
+SYNTHESIS_PROMPT = ""  # dossiê do ambiente e das integrações a partir dos dossiês dos serviços
+
+
+def learning_text(brief: LearningBrief) -> str:
+    """Mensagem do aprendizado: o incidente, o log de eventos e a memória atual."""
+    raise NotImplementedError
+
+
+def study_text(brief: ServiceStudyBrief) -> str:
+    """Mensagem do estudo de um serviço: o serviço, as regras de alerta e a memória atual."""
+    raise NotImplementedError
+
+
+def synthesis_text(brief: SynthesisBrief) -> str:
+    """Mensagem da síntese: regras, dossiês dos serviços, visão da nuvem e memória atual."""
+    raise NotImplementedError
