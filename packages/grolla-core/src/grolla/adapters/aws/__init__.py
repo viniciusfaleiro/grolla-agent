@@ -6,6 +6,10 @@ lista fechada; as credenciais vêm da cadeia padrão do SDK (ambiente ou role da
 Os recursos do serviço são os marcados com a tag `service=<nome>` (Resource Groups Tagging API)
 mais os do `resource_map`. O estado vem de uma chamada de describe por tipo encontrado: banco
 RDS, máquina EC2 e balanceador ELBv2. Outros tipos aparecem só com o ARN.
+
+A visão geral (`overview`) junta, em cada região, todos os recursos com tag (Tagging API,
+paginada) e todos os bancos, máquinas e balanceadores dos describes, mesmo os sem nenhuma tag,
+agrupados pela tag `service` (ou "sem serviço") e pelo tipo.
 """
 
 import asyncio
@@ -40,6 +44,9 @@ READ_OPERATIONS = frozenset(
 )
 
 SERVICE_TAG = "service"
+NO_SERVICE = "sem serviço"  # grupo da visão geral dos recursos sem a tag
+MAX_OVERVIEW = 200  # recursos da visão geral que vão para o modelo
+PAGE_SIZE = 100  # máximo da Tagging API por página
 MAX_CHANGES = 20
 EVENTS_PER_RESOURCE = 50
 MAX_ALARMS = 100
@@ -70,6 +77,18 @@ class _State:
     detail: str  # motor, tipo da máquina ou do balanceador
 
 
+_Key = tuple[str, str, str]  # região, tipo e identificador curto
+
+
+@dataclass(frozen=True)
+class _Seen:
+    """Um recurso da visão geral: com a tag `service` (ou sem) e o estado, se o tipo tem."""
+
+    resource: _Resource
+    service: str | None
+    state: _State | None
+
+
 class AwsCloudInventory:
     def __init__(
         self,
@@ -93,7 +112,7 @@ class AwsCloudInventory:
         return await self._run(lambda: self._alarms(service))
 
     async def overview(self) -> ToolResult:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+        return await self._run(self._overview)
 
     async def _run(self, query: Callable[[], ToolResult]) -> ToolResult:
         try:
@@ -174,6 +193,93 @@ class AwsCloudInventory:
         if not lines:
             return ToolResult(f"nenhum alarme ativo nos recursos de {service}", url)
         return ToolResult(f"{len(lines)} alarme(s) ativo(s) de {service}: " + "; ".join(lines), url)
+
+    def _overview(self) -> ToolResult:
+        found: dict[_Key, _Seen] = {}
+        for region in self._regions:
+            tagged = self._all_tagged(region)
+            found |= self._described(region)
+            for resource, service in tagged:
+                key = (resource.region, resource.kind, resource.name)
+                described = found.get(key)
+                if described is None:
+                    found[key] = _Seen(resource, service, None)
+                else:  # o describe já trouxe o estado; a tag vale da Tagging API
+                    found[key] = _Seen(
+                        described.resource, service or described.service, described.state
+                    )
+        regions = ", ".join(self._regions)
+        if not found:
+            return ToolResult(f"nenhum recurso de nuvem encontrado em {regions}", None)
+        groups: dict[str, list[_Seen]] = {}
+        for seen in found.values():
+            groups.setdefault(seen.service or NO_SERVICE, []).append(seen)
+        order = sorted(groups, key=lambda name: (name == NO_SERVICE, name))
+        shown = 0
+        parts: list[str] = []
+        for name in order:
+            items = sorted(groups[name], key=lambda s: (s.resource.kind, s.resource.name))
+            items = items[: max(MAX_OVERVIEW - shown, 0)]
+            shown += len(items)
+            if items:
+                parts.append(
+                    f"{name}: " + "; ".join(_state_line(s.resource, s.state) for s in items)
+                )
+        more = f" (mostrando {MAX_OVERVIEW})" if len(found) > MAX_OVERVIEW else ""
+        region = self._regions[0]
+        url = (
+            f"https://{region}.console.aws.amazon.com/resource-groups/tag-editor/"
+            f"find-resources?region={region}"
+        )
+        summary = (
+            f"{len(found)} recurso(s) de nuvem em {regions}{more}, pela tag {SERVICE_TAG}. "
+            + ". ".join(parts)
+        )
+        return ToolResult(summary, url)
+
+    def _all_tagged(self, region: str) -> list[tuple["_Resource", str | None]]:
+        """Todos os recursos com alguma tag na região e o valor da tag `service`, se houver."""
+        tagged: list[tuple[_Resource, str | None]] = []
+        token = ""
+        while True:
+            arguments: dict[str, Any] = {"ResourcesPerPage": PAGE_SIZE}
+            if token:
+                arguments["PaginationToken"] = token
+            answer = self.call("resourcegroupstaggingapi", region, "get_resources", **arguments)
+            for mapping in answer["ResourceTagMappingList"]:
+                tags = {t["Key"]: t["Value"] for t in mapping.get("Tags", [])}
+                tagged.append((_parse(mapping["ResourceARN"], region), tags.get(SERVICE_TAG)))
+            token = answer.get("PaginationToken") or ""
+            if not token:
+                return tagged
+
+    def _described(self, region: str) -> "dict[_Key, _Seen]":
+        """Bancos, máquinas e balanceadores da região com o estado, inclusive os sem tag."""
+        seen: dict[_Key, _Seen] = {}
+
+        def add(kind: str, name: str, arn: str | None, state: _State, tags: Any = ()) -> None:
+            service = next((t["Value"] for t in tags if t.get("Key") == SERVICE_TAG), None)
+            seen[(region, kind, name)] = _Seen(
+                _Resource(region, kind, name, arn, name), service, state
+            )
+
+        for db in self.call("rds", region, "describe_db_instances")["DBInstances"]:
+            state = _State(db["DBInstanceStatus"], db.get("Engine", ""))
+            add(
+                "rds",
+                db["DBInstanceIdentifier"],
+                db.get("DBInstanceArn"),
+                state,
+                db.get("TagList", []),
+            )
+        for reservation in self.call("ec2", region, "describe_instances")["Reservations"]:
+            for i in reservation["Instances"]:
+                state = _State(i["State"]["Name"], i.get("InstanceType", ""))
+                add("ec2", i["InstanceId"], None, state, i.get("Tags", []))
+        for lb in self.call("elbv2", region, "describe_load_balancers")["LoadBalancers"]:
+            state = _State(lb["State"]["Code"], lb.get("Type", ""))
+            add("elb", lb["LoadBalancerName"], lb.get("LoadBalancerArn"), state)
+        return seen
 
     # ---- Descoberta e estado
 
@@ -277,12 +383,16 @@ def _grouped(found: Iterable[_Resource]) -> dict[tuple[str, str], list[_Resource
 
 
 def _resource_line(resource: _Resource, state: _State | None) -> str:
-    detail = f" ({state.detail})" if state and state.detail else ""
-    line = f"{resource.label()}{detail} em {resource.region}"
-    if state is not None:
-        line += f": {state.state}"
+    line = _state_line(resource, state)
     console = _console(resource)
     return f"{line} [console: {console}]" if console else line
+
+
+def _state_line(resource: _Resource, state: _State | None) -> str:
+    """'banco RDS grolla-lab-db (postgres) em us-east-1: stopped'."""
+    detail = f" ({state.detail})" if state and state.detail else ""
+    line = f"{resource.label()}{detail} em {resource.region}"
+    return f"{line}: {state.state}" if state is not None else line
 
 
 def _console(resource: _Resource) -> str | None:
