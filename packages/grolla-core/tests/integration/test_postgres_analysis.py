@@ -31,6 +31,7 @@ from grolla.domain.analysis import (
     Evidence,
     Hypothesis,
     PartialReason,
+    SeenBefore,
 )
 from grolla.domain.incidents import EventType, IncidentEvent, NotificationKind
 from grolla.testing.builders import T0, make_incident, make_notification
@@ -282,6 +283,32 @@ async def test_finish_writes_analysis_events_card_and_usage_together(
     assert [tuple(row) for row in rows] == [
         ("investigation", "modelo-x", 1200, 300, 800, 100, FINISHED)
     ] * 2
+
+
+@pytest.mark.usefixtures("clean")
+async def test_finish_keeps_seen_before_in_the_analysis_and_in_the_card(
+    repository: PostgresIncidentRepository,
+    queue: PostgresAnalysisQueue,
+    database: PostgresDatabase,
+) -> None:
+    incident_id = await requested(repository)
+    await queue.claim(STARTED)
+    seen = SeenBefore(uuid4(), "pedidos-api com 5xx após deploy", T0, "mesmo erro de pool")
+    analysis = replace(completed(incident_id), seen_before=seen)
+    card = make_notification(incident_id, NotificationKind.ANALYSIS_READY, analysis=analysis)
+
+    await queue.finish(analysis, [], card, [], FINISHED)
+
+    stored = await repository.analysis_of(incident_id)
+    assert stored is not None
+    assert stored.seen_before == seen
+    [item] = [
+        item
+        for item in await PostgresNotificationOutbox(database).due(FINISHED, 10_000)
+        if item.notification.incident_id == incident_id
+    ]
+    assert item.notification.analysis is not None
+    assert item.notification.analysis.seen_before == seen
 
 
 @pytest.mark.usefixtures("clean")

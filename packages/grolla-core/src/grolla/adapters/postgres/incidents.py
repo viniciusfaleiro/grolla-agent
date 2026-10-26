@@ -22,6 +22,7 @@ from grolla.domain.analysis import (
     Hypothesis,
     HypothesisVerdict,
     PartialReason,
+    SeenBefore,
     Verdict,
     Verification,
 )
@@ -230,7 +231,30 @@ def _analysis_data(analysis: Analysis) -> dict[str, Any]:
         "partial_reason": None
         if analysis.partial_reason is None
         else analysis.partial_reason.value,
+        "seen_before": seen_before_data(analysis.seen_before),
     }
+
+
+def seen_before_data(seen: SeenBefore | None) -> dict[str, str] | None:
+    if seen is None:
+        return None
+    return {
+        "incident_id": str(seen.incident_id),
+        "title": seen.title,
+        "at": seen.at.isoformat(),
+        "reason": seen.reason,
+    }
+
+
+def _seen_before(data: Mapping[str, Any] | None) -> SeenBefore | None:
+    if data is None:
+        return None
+    return SeenBefore(
+        incident_id=UUID(data["incident_id"]),
+        title=data["title"],
+        at=datetime.fromisoformat(data["at"]),
+        reason=data["reason"],
+    )
 
 
 def _analysis(data: Mapping[str, Any]) -> Analysis:
@@ -247,6 +271,7 @@ def _analysis(data: Mapping[str, Any]) -> Analysis:
         hypotheses=_hypotheses(data["hypotheses"]),
         plan=tuple(data["plan"]),
         partial_reason=None if reason is None else PartialReason(reason),
+        seen_before=_seen_before(data.get("seen_before")),  # cards antigos da outbox não têm
     )
 
 

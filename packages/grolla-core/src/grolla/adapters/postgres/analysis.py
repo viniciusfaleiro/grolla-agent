@@ -19,6 +19,7 @@ from grolla.adapters.postgres.incidents import (
     actions_data,
     evaluations_data,
     hypotheses_data,
+    seen_before_data,
     verdicts_data,
 )
 from grolla.application.analysis import AnalysisJob
@@ -160,7 +161,7 @@ class PostgresAnalysisQueue:
                     " finished_at = :finished_at, summary = :summary,"
                     " evaluations = CAST(:evaluations AS jsonb),"
                     " hypotheses = CAST(:hypotheses AS jsonb), plan = CAST(:plan AS jsonb),"
-                    " partial_reason = :partial_reason"
+                    " partial_reason = :partial_reason, seen_before = CAST(:seen_before AS jsonb)"
                     " WHERE incident_id = :incident_id AND status = :running"
                 ),
                 {
@@ -174,6 +175,7 @@ class PostgresAnalysisQueue:
                     "hypotheses": json.dumps(hypotheses_data(analysis.hypotheses)),
                     "plan": json.dumps(list(analysis.plan)),
                     "partial_reason": _reason(analysis.partial_reason),
+                    "seen_before": json.dumps(seen_before_data(analysis.seen_before)),
                 },
             )
             if updated.rowcount == 0:

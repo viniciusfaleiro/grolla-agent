@@ -441,6 +441,49 @@ e ambiente e 300 para integração. O contexto da análise fica previsível: com
 
 O agente pai faz o contrato, a config, o bootstrap, os evals, o roadmap e a integração.
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo (grolla-dominio):**
+- `memory_for` fica em `grolla.application.memory_store`, porque `application.memory` importa
+  `application.analysis` e a análise precisa da memória.
+- `run_next_analysis`, `run_next_verification` e `run_next_reply` recebem `memory=` (keyword),
+  e o helper `analysis.investigation_brief` monta o brief.
+- `chat_context(..., memory=)`.
+- A síntese grava o uso como um `ServiceStudy("ambiente", ...)`, então `services()` mostra também
+  quando a síntese rodou.
+- Constantes `TRUNCATED`, `BINARY_FILE` e `SHARED_RESOURCES` ("sem serviço"), e as seções dos
+  dossiês, no `application.investigation`.
+- Nota num assunto sem dossiê é gravada como serviço, a menos que a página diga o tipo.
+- O estudo só repete a síntese quando algum dossiê de serviço mudou ou não há dossiê do
+  ambiente.
+- A rodada presa vence após `STUDY_STALE`, de 2 h.
+
+**Persistência:**
+- `memories.incident_id` não tem FK: o episódio é registro da memória e as suítes de contrato
+  usam ids soltos.
+- Índice único `study_runs_one_pending`: uma só rodada pendente, mesmo com pedidos simultâneos.
+- `study_runs` não tem a coluna `tokens`: o valor é a soma do `llm_usage` da rodada (coluna
+  `study_run_id`), e uma rodada em andamento já mostra o parcial.
+
+**Integrações:**
+- `alert_rules` omite as regras desligadas.
+- As fontes do estudo de um serviço são os links das avaliações, nunca links escritos pelo
+  modelo.
+- `SignozTelemetry` recebe os `service_labels` do YAML.
+- O link "Já vi isso" no Teams troca o id do `page_url` do card pelo do incidente passado.
+
+**Code review do pai:** o contrato não previa onde guardar o "já vi isso". A migração 0006
+ganhou `analyses.seen_before jsonb`, e a análise da outbox também o carrega (antes, a página e
+o card perdiam a referência; o cenário e2e pegou). Teste de integração cobre os dois.
+
+**Web:**
+- Sucesso devolve 303 para a página, ou 204 com `HX-Redirect` no HTMX.
+- Sem autor: 401. Erro de domínio: 422. Estudo já na fila: 409.
+- Reaprender exige `confirmar=sim`.
+- `/memoria?assunto=x` leva para `/memoria/x`.
+- Sem `memory.study`, a página diz que o estudo está desligado e esconde os botões.
+- `rich_text` passou a tratar `#` e `##` como título de seção.
+
 ## Risks / Trade-offs
 
 - [Agente aprende algo errado e repete] → cada registro mostra confiança e fonte; o time

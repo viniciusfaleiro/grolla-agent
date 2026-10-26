@@ -92,6 +92,9 @@ def upgrade() -> None:
             reason text
         );
 
+        -- "Já vi isso" da análise: o incidente passado que a memória reconheceu.
+        ALTER TABLE analyses ADD COLUMN seen_before jsonb;
+
         -- O uso do LLM do estudo não é de um incidente: aponta a rodada.
         -- Os tokens da rodada são a soma desse uso.
         ALTER TABLE llm_usage ADD COLUMN study_run_id bigint REFERENCES study_runs (id);
