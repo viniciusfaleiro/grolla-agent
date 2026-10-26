@@ -8,9 +8,10 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.change_history_contract import ChangeHistoryContract
+from contracts.change_history_contract import ChangeHistoryContract, RepositoryFilesContract
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.application.investigation import (
+    BINARY_FILE,
     NO_REPOSITORY,
     READ_LIMIT,
     ChangeHistory,
@@ -83,6 +84,24 @@ class TestAzureDevOpsChangeHistoryContract(ChangeHistoryContract):
     @pytest.fixture
     def changes(self) -> ChangeHistory:
         return FakeAzureDevOps().history()
+
+    @pytest.fixture
+    def unavailable_changes(self) -> ChangeHistory:
+        fake = FakeAzureDevOps()
+        fake.status = 503
+        return fake.history()
+
+
+class TestAzureDevOpsRepositoryFilesContract(RepositoryFilesContract):
+    @pytest.fixture
+    def changes(self, large_path: str, binary_path: str) -> ChangeHistory:
+        fake = FakeAzureDevOps()
+        fake.files[f"/{large_path}"] = {"path": f"/{large_path}", "content": "x" * 30_000}
+        fake.files[f"/{binary_path}"] = {
+            "path": f"/{binary_path}",
+            "contentMetadata": {"isBinary": True},
+        }
+        return fake.history()
 
     @pytest.fixture
     def unavailable_changes(self) -> ChangeHistory:
@@ -370,7 +389,7 @@ async def test_large_file_is_cut_and_says_so() -> None:
 
     header, _, content = result.summary.partition(":\n")
     assert header == (
-        f"/big.md de authorizer-api (cortado: os primeiros {READ_LIMIT} de "
+        f"/big.md de authorizer-api (arquivo cortado: os primeiros {READ_LIMIT} de "
         f"{READ_LIMIT + 10} caracteres)"
     )
     assert content == "x" * READ_LIMIT
@@ -389,7 +408,7 @@ async def test_binary_file_is_refused_with_a_warning(item: dict[str, Any]) -> No
 
     result = await fake.history().read_file("authorizer-api", "logo.png")
 
-    assert result.summary == "/logo.png de authorizer-api é um arquivo binário: não li o conteúdo"
+    assert result.summary == f"/logo.png de authorizer-api: {BINARY_FILE}"
 
 
 async def test_missing_file_is_an_answer() -> None:

@@ -14,7 +14,7 @@ from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs] —
     EndpointConnectionError,
 )
 from botocore.stub import Stubber  # pyright: ignore[reportMissingTypeStubs] — sem stubs
-from contracts.cloud_inventory_contract import CloudInventoryContract
+from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
 from grolla.adapters.aws import READ_OPERATIONS, AwsCloudInventory
 from grolla.application.investigation import CloudInventory, ToolUnavailableError
 
@@ -103,7 +103,15 @@ class LabSession:
             ]
         },
         "describe_instances": {"Reservations": []},
-        "describe_load_balancers": {"LoadBalancers": []},
+        "describe_load_balancers": {  # sem a tag: vai para o grupo "sem serviço"
+            "LoadBalancers": [
+                {
+                    "LoadBalancerArn": LB_ARN,
+                    "LoadBalancerName": "pedidos-lb",
+                    "State": {"Code": "active"},
+                }
+            ]
+        },
         "lookup_events": {"Events": []},
         "describe_alarms": {"MetricAlarms": []},
     }
@@ -128,6 +136,16 @@ class LabSession:
 
 
 class TestAwsCloudInventoryContract(CloudInventoryContract):
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=LabSession())
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return AwsCloudInventory([REGION], {}, session=UnreachableSession())
+
+
+class TestAwsCloudOverviewContract(CloudOverviewContract):
     @pytest.fixture
     def cloud(self) -> CloudInventory:
         return AwsCloudInventory([REGION], {}, session=LabSession())

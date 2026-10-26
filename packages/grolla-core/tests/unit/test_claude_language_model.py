@@ -9,7 +9,11 @@ from uuid import UUID
 
 import httpx2
 import pytest
-from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
+from contracts.language_model_contract import (
+    ChatReplyContract,
+    LanguageModelContract,
+    MemoryModelContract,
+)
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
@@ -986,4 +990,34 @@ async def test_synthesis_api_error_becomes_language_model_error() -> None:
     with pytest.raises(LanguageModelError, match="400"):
         await memory_model(ScriptedApi(httpx2.Response(400, json={}))).synthesize(
             synthesis_brief(), RecordingBudget()
+        )
+
+
+def memory_api(request: httpx2.Request) -> httpx2.Response:
+    """Responde pela etapa, reconhecida pelo schema: o estudo pede ferramentas antes."""
+    body = json.loads(request.content)
+    required = body["output_config"]["format"]["schema"]["required"]
+    if "episode_title" in required:
+        return ok(final(LEARNED))
+    if "environment" in required:
+        return ok(final(SYNTHESIZED))
+    answered = any(
+        block.get("type") == "tool_result"
+        for message in body["messages"]
+        if isinstance(message["content"], list)
+        for block in message["content"]
+    )
+    return ok(final({"dossier": "Dossiê."}) if answered else fixture("anthropic_tool_use.json"))
+
+
+class TestClaudeMemoryModelContract(MemoryModelContract):
+    @pytest.fixture
+    def memory_model(self) -> LanguageModel:
+        return memory_model(memory_api)
+
+    @pytest.fixture
+    def failing_memory_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
         )

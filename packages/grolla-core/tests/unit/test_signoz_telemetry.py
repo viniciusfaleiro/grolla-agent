@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.telemetry_contract import TelemetryContract
+from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
 from grolla.adapters.signoz.telemetry import READ_TOOLS, SignozTelemetry
 from grolla.application.investigation import NO_DEPENDENCIES, Telemetry, ToolUnavailableError
 from grolla.domain.incidents import UNKNOWN_SERVICE
@@ -22,6 +22,7 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "signoz_mcp"
 URL = "http://signoz-mcp:8000/mcp"
 BASE = "https://signoz.interno"
+QUIET = "servico-sem-traces"  # sem spans de saída
 START = datetime(2026, 10, 25, 10, 0, tzinfo=UTC)
 END = START + timedelta(hours=1)
 
@@ -39,6 +40,8 @@ def span_counts(arguments: dict[str, Any]) -> Any:
     Com `groupBy` é a agregação das dependências (escalar, por campo de destino).
     """
     if arguments.get("groupBy"):
+        if arguments["service"] == QUIET:
+            return fixture("dependencies_empty")
         if arguments["aggregation"] == "p99":
             return fixture("dependencies_p99")
         return fixture("dependencies_errors" if arguments.get("error") else "dependencies_count")
@@ -128,6 +131,21 @@ class TestSignozTelemetryContract(TelemetryContract):
     def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
         mcp.failing = True
         return mcp.telemetry()
+
+
+class TestSignozEnvironmentTelemetryContract(EnvironmentTelemetryContract):
+    @pytest.fixture
+    def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.failing = True
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def quiet_service(self) -> str:
+        return QUIET
 
 
 def schema(tool: str) -> dict[str, Any]:

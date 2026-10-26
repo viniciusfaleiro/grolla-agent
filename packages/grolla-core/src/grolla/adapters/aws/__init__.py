@@ -29,7 +29,12 @@ from botocore.exceptions import (  # pyright: ignore[reportMissingTypeStubs] —
     ClientError,
 )
 
-from grolla.application.investigation import NO_CLOUD_RESOURCES, ToolResult, ToolUnavailableError
+from grolla.application.investigation import (
+    NO_CLOUD_RESOURCES,
+    SHARED_RESOURCES,
+    ToolResult,
+    ToolUnavailableError,
+)
 
 # Lista fechada: só estas operações de leitura saem daqui, mesmo que a credencial permita mais.
 READ_OPERATIONS = frozenset(
@@ -44,7 +49,6 @@ READ_OPERATIONS = frozenset(
 )
 
 SERVICE_TAG = "service"
-NO_SERVICE = "sem serviço"  # grupo da visão geral dos recursos sem a tag
 MAX_OVERVIEW = 200  # recursos da visão geral que vão para o modelo
 PAGE_SIZE = 100  # máximo da Tagging API por página
 MAX_CHANGES = 20
@@ -213,8 +217,8 @@ class AwsCloudInventory:
             return ToolResult(f"nenhum recurso de nuvem encontrado em {regions}", None)
         groups: dict[str, list[_Seen]] = {}
         for seen in found.values():
-            groups.setdefault(seen.service or NO_SERVICE, []).append(seen)
-        order = sorted(groups, key=lambda name: (name == NO_SERVICE, name))
+            groups.setdefault(seen.service or SHARED_RESOURCES, []).append(seen)
+        order = sorted(groups, key=lambda name: (name == SHARED_RESOURCES, name))
         shown = 0
         parts: list[str] = []
         for name in order:

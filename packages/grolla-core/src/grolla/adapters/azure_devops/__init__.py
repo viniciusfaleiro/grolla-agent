@@ -19,8 +19,10 @@ import httpx2
 from pydantic import BaseModel, Field, ValidationError
 
 from grolla.application.investigation import (
+    BINARY_FILE,
     NO_REPOSITORY,
     READ_LIMIT,
+    TRUNCATED,
     ToolResult,
     ToolUnavailableError,
 )
@@ -144,9 +146,9 @@ class AzureDevOpsChangeHistory:
         where = f"{path} de {repository.name}"
         content = item.content or ""
         if (item.metadata and item.metadata.is_binary) or "\x00" in content:
-            return ToolResult(f"{where} é um arquivo binário: não li o conteúdo", url)
+            return ToolResult(f"{where}: {BINARY_FILE}", url)
         if len(content) > READ_LIMIT:
-            cut = f" (cortado: os primeiros {READ_LIMIT} de {len(content)} caracteres)"
+            cut = f" ({TRUNCATED}: os primeiros {READ_LIMIT} de {len(content)} caracteres)"
             return ToolResult(f"{where}{cut}:\n{content[:READ_LIMIT]}", url)
         return ToolResult(f"{where}:\n{content}", url)
 
