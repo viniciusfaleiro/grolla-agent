@@ -2,15 +2,22 @@
 
 import pytest
 from contracts.analysis_queue_contract import AnalysisQueueContract, VerificationQueueContract
-from contracts.change_history_contract import ChangeHistoryContract
+from contracts.change_history_contract import ChangeHistoryContract, RepositoryFilesContract
 from contracts.chat_queue_contract import ChatQueueContract, WarRoomRepositoryContract
-from contracts.cloud_inventory_contract import CloudInventoryContract
-from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
-from contracts.telemetry_contract import TelemetryContract
+from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
+from contracts.language_model_contract import (
+    SERVICE,
+    ChatReplyContract,
+    LanguageModelContract,
+    MemoryModelContract,
+)
+from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
 from grolla.application.analysis import AnalysisQueue
 from grolla.application.chat import ChatQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
+    READ_LIMIT,
+    AlertRule,
     ChangeHistory,
     CloudInventory,
     InvalidAnalysisError,
@@ -156,3 +163,56 @@ class TestInMemoryVerificationQueueContract(VerificationQueueContract):
     def outbox(self, repository: IncidentRepository) -> NotificationOutbox:
         assert isinstance(repository, InMemoryIncidentRepository)
         return InMemoryNotificationOutbox(repository)
+
+
+class TestFakeEnvironmentTelemetryContract(EnvironmentTelemetryContract):
+    @pytest.fixture
+    def telemetry(self, service: str) -> Telemetry:
+        rule = AlertRule("Taxa de erro alta", "erro > 5%", "critical", {}, service, None)
+        return FakeTelemetry(
+            rules=[rule],
+            services=[service],
+            dependencies={service: "banco grolla-lab-db: 1200 chamadas, 0% de erro, p99 12 ms"},
+        )
+
+    @pytest.fixture
+    def unavailable_telemetry(self) -> Telemetry:
+        return FakeTelemetry(failing={"alert_rules", "active_services", "dependencies"})
+
+
+class TestFakeRepositoryFilesContract(RepositoryFilesContract):
+    @pytest.fixture
+    def changes(self, service: str, large_path: str, binary_path: str) -> ChangeHistory:
+        files = {
+            "README.md": "# authorizer-api\nAutoriza transações.",
+            large_path: "x" * (READ_LIMIT + 10),
+            binary_path: "\x89PNG\x00\x00",
+        }
+        return FakeChangeHistory(files={service: files})
+
+    @pytest.fixture
+    def unavailable_changes(self) -> ChangeHistory:
+        return FakeChangeHistory(unavailable=True)
+
+
+class TestFakeCloudOverviewContract(CloudOverviewContract):
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        return FakeCloudInventory()
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return FakeCloudInventory(failing=CLOUD_TOOLS)
+
+
+class TestScriptedLanguageModelMemoryContract(MemoryModelContract):
+    @pytest.fixture
+    def memory_model(self) -> LanguageModel:
+        return ScriptedLanguageModel(study_calls=TOOLS)
+
+    @pytest.fixture
+    def failing_memory_model(self) -> LanguageModel:
+        error = LanguageModelError("API fora do ar")
+        return ScriptedLanguageModel(
+            learning_error=error, study_errors={SERVICE: error}, synthesis_error=error
+        )

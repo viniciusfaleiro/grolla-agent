@@ -16,6 +16,8 @@ from grolla.domain.incidents import (
 )
 from grolla.domain.war_room import HumanAction, InvalidActionError, decide_action
 
+CLOSING_EVENTS = frozenset({EventType.INCIDENT_RESOLVED, EventType.INCIDENT_DISCARDED})
+
 
 class IncidentNotFoundError(LookupError):
     """O incidente da ação não existe."""
@@ -43,6 +45,8 @@ async def act(  # noqa: PLR0913 — a ação precisa de quem, o quê, onde e qua
         updated = decision.incident or incident  # toda ação devolve o incidente
         await uow.save(updated)
         await uow.append(decision.events)
+        if any(e.type in CLOSING_EVENTS for e in decision.events):
+            await uow.request_learning(incident_id, now)  # o incidente encerrado vira memória
         for notification in decision.notifications:
             if notification.kind is NotificationKind.INCIDENT_RESOLVED:
                 notification = await _closing_card(repository, notification)  # noqa: PLW2901

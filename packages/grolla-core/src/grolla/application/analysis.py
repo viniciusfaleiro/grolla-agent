@@ -23,6 +23,7 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
 )
+from grolla.application.memory_store import MemoryStore, memory_for
 from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
@@ -126,19 +127,19 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     clock: Clock,
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
+    memory: MemoryStore | None = None,
 ) -> bool:
     """Executa o próximo pedido de análise; False se não havia pedido.
 
-    Qualquer falha da investigação vira análise parcial: o card de análise sempre sai.
+    Qualquer falha da investigação vira análise parcial: o card de análise sempre sai. Com a
+    `memory`, o modelo recebe a memória do incidente e pode apontar "já vi isso".
     """
     job = await queue.claim(clock.now())
     if job is None:
         return False
     incident = await _incident(repository, job.incident_id)
-    brief = InvestigationBrief(
-        incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
-    )
-    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
+    brief = await investigation_brief(repository, memory, incident, clock)
+    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud, memory=memory)
     budget = TokenBudget(policy.max_tokens)
     deadline = asyncio.timeout(policy.timeout.total_seconds())
     pending = _running(job)
@@ -149,9 +150,19 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
         reason = failure_reason(error, timed_out=deadline.expired())
         analysis = partial(pending, reason, toolbox.evaluations, clock.now())
     else:
-        analysis = complete(pending, draft, toolbox.evaluations, clock.now())
+        episodes = brief.memory.episodes
+        analysis = complete(pending, draft, toolbox.evaluations, clock.now(), episodes)
     await _finish(queue, incident, analysis, budget.usages, policy)
     return True
+
+
+async def investigation_brief(
+    repository: IncidentRepository, memory: MemoryStore | None, incident: Incident, clock: Clock
+) -> InvestigationBrief:
+    """O incidente, os alertas e a memória sobre ele."""
+    alerts = tuple(await repository.alerts_of(incident.id))
+    context = await memory_for(memory, incident, alerts)
+    return InvestigationBrief(incident, alerts, now=clock.now(), memory=context)
 
 
 async def reap_stuck_analyses(
@@ -260,6 +271,7 @@ async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os port
     clock: Clock,
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
+    memory: MemoryStore | None = None,
 ) -> bool:
     """Executa a próxima validação pedida; False se não havia. Toda falha vira parcial.
 
@@ -273,10 +285,8 @@ async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os port
     analysis = await repository.analysis_of(incident.id)
     if analysis is None:  # a validação nasce do fim da análise: só com dado corrompido
         raise LookupError(f"incidente {incident.id} tem validação sem análise inicial")
-    brief = InvestigationBrief(
-        incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
-    )
-    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
+    brief = await investigation_brief(repository, memory, incident, clock)
+    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud, memory=memory)
     budget = TokenBudget(policy.verification_max_tokens)
     deadline = asyncio.timeout(policy.verification_timeout.total_seconds())
     pending = _running_verification(job)

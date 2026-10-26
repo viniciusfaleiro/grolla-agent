@@ -118,7 +118,6 @@ def complete(
     que nenhuma ferramenta devolveu pode ter sido inventado. Pelo mesmo motivo, "já vi isso"
     só é mantido se aponta um dos `episodes` entregues ao modelo.
     """
-    del episodes  # contrato da memória viva: a checagem é do grolla-dominio
     known = {e.url for e in evaluations if e.url}
     hypotheses = (
         replace(
@@ -136,7 +135,17 @@ def complete(
         hypotheses=tuple(sorted(hypotheses, key=lambda h: h.confidence, reverse=True)),
         plan=draft.plan,
         partial_reason=None,
+        seen_before=_seen_before(draft.seen_before, episodes),
     )
+
+
+def _seen_before(draft: SeenBeforeDraft | None, episodes: Sequence[Memory]) -> SeenBefore | None:
+    if draft is None:
+        return None
+    episode = next((e for e in episodes if e.incident_id == draft.incident_id), None)
+    if episode is None:
+        return None
+    return SeenBefore(draft.incident_id, episode.title, episode.created_at, draft.reason)
 
 
 def partial(
