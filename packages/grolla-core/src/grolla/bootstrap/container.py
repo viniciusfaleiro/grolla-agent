@@ -141,7 +141,9 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             learning=_model_settings(config.llm.stages.get(STAGE_LEARNING)),
             study=_model_settings(config.llm.stages.get(STAGE_STUDY)),
         ),
-        telemetry=SignozTelemetry(config.signoz.mcp_url, config.signoz.base_url),
+        telemetry=SignozTelemetry(
+            config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
+        ),
         changes=AzureDevOpsChangeHistory(
             changes.base_url,
             settings.azure_devops_token.get_secret_value(),
