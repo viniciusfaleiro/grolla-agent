@@ -10,7 +10,9 @@ from datetime import timedelta
 
 import pytest
 from grolla.application.investigation import (
+    NO_DEPENDENCIES,
     SIGNALS,
+    AlertRule,
     Signal,
     Telemetry,
     ToolResult,
@@ -67,3 +69,69 @@ class TelemetryContract:
             await unavailable_telemetry.search_logs(service, None, START, T0)
         with pytest.raises(ToolUnavailableError):
             await unavailable_telemetry.find_traces(service, True, START, T0)
+
+
+class EnvironmentTelemetryContract:
+    """As leituras do estudo do ambiente: regras de alerta, serviços ativos e dependências.
+
+    Fica fora de `TelemetryContract` para o adapter ganhar a suíte quando implementar. O
+    adapter sobrescreve `telemetry` (a fonte conhece ao menos uma regra de alerta e o `service`
+    ativo, com dependências), `quiet_service` (sem spans de saída na janela) e
+    `unavailable_telemetry`.
+    """
+
+    @pytest.fixture
+    def telemetry(self) -> Telemetry:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def unavailable_telemetry(self) -> Telemetry:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def service(self) -> str:
+        return "pedidos-api"
+
+    @pytest.fixture
+    def quiet_service(self) -> str:
+        return "servico-sem-traces"
+
+    async def test_alert_rules_are_readable(self, telemetry: Telemetry) -> None:
+        rules = await telemetry.alert_rules()
+
+        assert rules
+        for rule in rules:
+            assert isinstance(rule, AlertRule)
+            assert rule.name.strip()
+            assert rule.service.strip()
+            assert rule.url is None or rule.url.startswith("http")
+
+    async def test_active_services_include_the_service(
+        self, telemetry: Telemetry, service: str
+    ) -> None:
+        assert service in await telemetry.active_services(START)
+
+    async def test_dependencies_return_a_compact_summary(
+        self, telemetry: Telemetry, service: str
+    ) -> None:
+        result = await telemetry.dependencies(service, START, T0)
+
+        assert_compact(result)
+        assert NO_DEPENDENCIES not in result.summary
+
+    async def test_service_without_outgoing_spans_is_an_answer_not_an_error(
+        self, telemetry: Telemetry, quiet_service: str
+    ) -> None:
+        result = await telemetry.dependencies(quiet_service, START, T0)
+
+        assert NO_DEPENDENCIES in result.summary
+
+    async def test_unavailable_source_raises_tool_unavailable(
+        self, unavailable_telemetry: Telemetry, service: str
+    ) -> None:
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_telemetry.alert_rules()
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_telemetry.active_services(START)
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_telemetry.dependencies(service, START, T0)
