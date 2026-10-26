@@ -27,7 +27,7 @@ def upgrade() -> None:
             source_kind text NOT NULL,
             source_author text NOT NULL,
             source_ref text,
-            incident_id uuid REFERENCES incidents (id),
+            incident_id uuid,  -- sem FK: o episódio é registro da memória, não do incidente
             active boolean NOT NULL DEFAULT true,
             consolidated boolean NOT NULL DEFAULT false,
             noise boolean NOT NULL DEFAULT false,

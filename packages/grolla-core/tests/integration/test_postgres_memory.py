@@ -12,6 +12,9 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.learning_queue_contract import LearningQueueContract
+from contracts.memory_store_contract import MemoryStoreContract
+from contracts.study_queue_contract import StudyQueueContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -21,15 +24,18 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import STAGE_LEARNING, STAGE_STUDY, LlmUsage
 from grolla.application.memory import (
     LEARNING_ATTEMPTS,
     LearningFailure,
+    LearningQueue,
     ServiceStudy,
     StudyMode,
+    StudyQueue,
     StudyStatus,
 )
-from grolla.application.memory_store import SubjectSummary
+from grolla.application.memory_store import MemoryStore, SubjectSummary
 from grolla.domain.memory import (
     AGENT_AUTHOR,
     ENVIRONMENT,
@@ -137,6 +143,28 @@ def learnings(database: PostgresDatabase) -> PostgresLearningQueue:
 @pytest.fixture
 def studies(database: PostgresDatabase) -> PostgresStudyQueue:
     return PostgresStudyQueue(database)
+
+
+class TestPostgresMemoryStoreContract(MemoryStoreContract):
+    @pytest.fixture
+    def memory(self, database: PostgresDatabase) -> MemoryStore:
+        return PostgresMemoryStore(database)
+
+
+class TestPostgresLearningQueueContract(LearningQueueContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def queue(self, database: PostgresDatabase) -> LearningQueue:
+        return PostgresLearningQueue(database)
+
+
+class TestPostgresStudyQueueContract(StudyQueueContract):
+    @pytest.fixture
+    def studies(self, database: PostgresDatabase) -> StudyQueue:
+        return PostgresStudyQueue(database)
 
 
 async def saved(store: PostgresMemoryStore, *memories: Memory) -> None:
