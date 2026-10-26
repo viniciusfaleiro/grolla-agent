@@ -8,7 +8,9 @@ from grolla.adapters.postgres import PostgresDatabase
 from grolla.application.clock import Clock
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
 from grolla.application.investigation import NoCloudInventory
+from grolla.application.memory import STUDY_AUTHOR_SYSTEM, StudyMode
 from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
+from grolla.bootstrap.team_config import MemoryConfig, StudyConfig
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
@@ -24,8 +26,10 @@ from grolla_worker.app import (
     ANALYSIS_QUEUE,
     DEFAULT_QUEUE,
     DELIVERY_CRON,
+    LEARNINGS_CRON,
     REAPER_CRON,
     REPLIES_CRON,
+    STUDIES_CRON,
     VERIFICATIONS_CRON,
     build_app,
 )
@@ -42,10 +46,14 @@ DATABASE_URL = "postgresql://grolla:grolla@localhost:5433/grolla"  # nunca é co
 
 
 @pytest.fixture
-async def container() -> AsyncIterator[WorkerContainer]:
+def config() -> TeamConfig:
+    return TeamConfig(team="t", page_base_url="http://grolla")
+
+
+@pytest.fixture
+async def container(config: TeamConfig) -> AsyncIterator[WorkerContainer]:
     database = PostgresDatabase(DATABASE_URL)
     repository = InMemoryIncidentRepository()
-    config = TeamConfig(team="t", page_base_url="http://grolla")
     yield WorkerContainer(
         settings=WorkerSettings(
             database_url=DATABASE_URL,
@@ -68,7 +76,7 @@ async def container() -> AsyncIterator[WorkerContainer]:
         cloud=NoCloudInventory(),
         analysis=config.analysis_policy(),
         memory=InMemoryMemoryStore(),
-        learning_queue=InMemoryLearningQueue(),
+        learning_queue=InMemoryLearningQueue(repository),
         studies=InMemoryStudyQueue(),
         memory_policy=config.memory_policy(),
     )
@@ -120,6 +128,10 @@ def test_heartbeat_and_delivery_run_in_the_default_queue_and_analyses_in_their_o
         "reap_stuck_verifications": ANALYSIS_QUEUE,
         "run_replies": ANALYSIS_QUEUE,
         "reap_stuck_replies": ANALYSIS_QUEUE,
+        "run_learnings": ANALYSIS_QUEUE,
+        "reap_stuck_learnings": ANALYSIS_QUEUE,
+        "run_studies": ANALYSIS_QUEUE,
+        "reap_stuck_studies": ANALYSIS_QUEUE,
     }
 
 
@@ -162,6 +174,7 @@ async def test_analyses_job_drains_the_queue_with_the_container_ports(
         "cloud": container.cloud,
         "clock": container.clock,
         "policy": container.analysis,
+        "memory": container.memory,
     }
 
 
@@ -223,6 +236,7 @@ async def test_verifications_job_drains_the_queue_with_the_container_ports(
         "cloud": container.cloud,
         "clock": container.clock,
         "policy": container.analysis,
+        "memory": container.memory,
     }
 
 
@@ -285,6 +299,7 @@ async def test_replies_job_drains_the_chat_queue_with_the_container_ports(
         "cloud": container.cloud,
         "clock": container.clock,
         "policy": container.analysis,
+        "memory": container.memory,
     }
 
 
@@ -305,3 +320,136 @@ async def test_reply_reaper_reaps_with_the_container_policy(
     assert calls == [
         (container.chat_queue, container.repository, container.clock, container.analysis)
     ]
+
+
+def test_learnings_run_every_ten_seconds_and_their_reaper_once_a_minute(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    learnings = app.tasks["run_learnings"]
+    assert learnings.queueing_lock == "run_learnings"
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_learnings", "")].cron == LEARNINGS_CRON == "* * * * * */10"
+    assert app.tasks["reap_stuck_learnings"].lock == "reap_stuck_learnings"
+    assert periodic[("reap_stuck_learnings", "")].cron == REAPER_CRON
+
+
+async def test_learnings_job_drains_the_queue_with_the_container_ports(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_learning", run_next)
+    app = registered(container)
+
+    await app.tasks["run_learnings"].func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "queue": container.learning_queue,
+        "memory": container.memory,
+        "repository": container.repository,
+        "model": container.model,
+        "clock": container.clock,
+        "policy": container.memory_policy,
+    }
+
+
+async def test_reapers_of_the_memory_use_the_container_policy(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_learnings", reap)
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_studies", reap)
+    app = registered(container)
+
+    await app.tasks["reap_stuck_learnings"].func(timestamp=0)
+    await app.tasks["reap_stuck_studies"].func(timestamp=0)
+
+    assert calls == [
+        (container.learning_queue, container.clock, container.memory_policy),
+        (container.studies, container.clock, container.memory_policy),
+    ]
+
+
+def test_studies_run_one_round_at_a_time_every_minute(container: WorkerContainer) -> None:
+    app = registered(container)
+
+    studies = app.tasks["run_studies"]
+    assert studies.queueing_lock == "run_studies"
+    assert studies.lock == "run_studies"
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_studies", "")].cron == STUDIES_CRON == "* * * * *"
+
+
+async def test_studies_job_drains_the_rounds_with_the_container_ports(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_study", run_next)
+    app = registered(container)
+
+    await app.tasks["run_studies"].func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "studies": container.studies,
+        "memory": container.memory,
+        "model": container.model,
+        "telemetry": container.telemetry,
+        "changes": container.changes,
+        "cloud": container.cloud,
+        "clock": container.clock,
+        "policy": container.memory_policy,
+    }
+
+
+def test_daily_study_is_not_scheduled_without_the_study_section(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    assert "schedule_daily_study" not in app.tasks
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        TeamConfig(
+            team="t",
+            page_base_url="http://grolla",
+            memory=MemoryConfig(study=StudyConfig(cron="30 5 * * *")),
+        )
+    ],
+)
+async def test_daily_study_is_scheduled_on_the_yaml_cron_and_asks_for_a_daily_round(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    task = app.tasks["schedule_daily_study"]
+    assert task.queue == DEFAULT_QUEUE
+    assert app.periodic_registry.periodic_tasks[("schedule_daily_study", "")].cron == "30 5 * * *"
+
+    await task.func(timestamp=0)
+
+    studies = container.studies
+    assert isinstance(studies, InMemoryStudyQueue)
+    assert [(r.mode, r.author) for r in studies.runs] == [(StudyMode.DAILY, STUDY_AUTHOR_SYSTEM)]
