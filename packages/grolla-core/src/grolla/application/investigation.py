@@ -326,6 +326,10 @@ class TokenBudget:
         )
 
     @property
+    def remaining(self) -> int:
+        return self._limit - self.total
+
+    @property
     def usages(self) -> tuple[LlmUsage, ...]:
         return tuple(self._usages)
 

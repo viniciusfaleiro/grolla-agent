@@ -96,7 +96,7 @@ def test_empty_list_says_there_is_nothing(client: TestClient) -> None:
     response = client.get("/incidents")
 
     assert response.status_code == 200
-    assert "Nenhum incidente registrado" in response.text
+    assert "Nenhum incidente por aqui" in response.text
 
 
 def test_incident_page_shows_alerts_and_timeline_in_order(
@@ -154,7 +154,7 @@ def test_completed_analysis_shows_summary_evaluations_hypotheses_and_plan(
 
     assert "análise concluída" in page
     assert "Erro subiu logo depois do deploy 1.4.2" in page
-    assert "O que avaliei" in page
+    assert "O que o Grolla consultou" in page
     assert "taxa_de_erro de autorizador, últimos 60 min" in page
     assert "subiu de 0,2% para 7% às 10:02" in page
     assert 'href="https://observabilidade.interno/metrica/1"' in page
@@ -182,7 +182,7 @@ def test_analysis_not_finished_shows_in_progress(
     page = client.get(f"/incidents/{incident.id}").text
 
     assert "análise em andamento" in page
-    assert "O que avaliei" not in page
+    assert "O que o Grolla consultou" not in page
     assert "Plano proposto" not in page
 
 
@@ -204,8 +204,8 @@ def test_partial_analysis_shows_the_reason_in_portuguese(
     assert "análise parcial" in page
     assert "tempo esgotado" in page
     assert "tempo_esgotado" not in page
-    assert "O que avaliei" in page
-    assert "Hipóteses" not in page
+    assert "O que o Grolla consultou" in page
+    assert 'class="hypotheses"' not in page
 
 
 def test_incident_without_analysis_says_so(
@@ -313,23 +313,23 @@ def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
 ) -> None:
     page = page_with(client, repository, make_verification(uuid4()))
 
-    validation = page.index("<h2>Validação</h2>")
-    assert page.index("<h2>Análise</h2>") < validation < page.index("<h2>Alertas</h2>")
+    validation = page.index("<h2>Validação das hipóteses</h2>")
+    analysis = page.index("<h2>Análise do Grolla</h2>")
+    assert analysis < validation < page.index("<h2>Alertas</h2>")
     assert "validação concluída" in page
-    assert page.index(ROOT_CAUSE) < page.index("<h2>Análise</h2>")  # resumo perto do título
-    assert page.count(ROOT_CAUSE) == 2
-    assert "Veredito por hipótese" in page
+    assert page.index(ROOT_CAUSE) < analysis  # em destaque, perto do título
+    assert page.count(ROOT_CAUSE) == 1
     assert "confirmada" in page
     assert "rejeitada" in page
     assert "inconclusiva" in page
     assert "O deploy é um revert e saiu 10 min antes do problema." in page
     assert 'href="https://nuvem.interno/auditoria/1"' in page
-    assert "Plano de ação" in page
+    assert "Plano de ação sugerido" in page
     assert "Religar o banco grolla-lab-db" in page
     assert "RDS grolla-lab-db" in page
     assert "Conexões voltam e a taxa de erro cai para o normal" in page
     assert 'href="https://nuvem.interno/rds/grolla-lab-db"' in page
-    assert "O que avaliei na validação" in page
+    assert "O que o Grolla consultou na validação" in page
     assert "StopDBInstance em grolla-lab-db às 10:00" in page
     assert "não confirmada" not in page
 
@@ -389,7 +389,7 @@ def test_partial_verification_shows_the_reason_in_portuguese(
     assert "LLM indisponível" in page
     assert "falha_do_llm" not in page
     assert "Causa raiz não confirmada" in page
-    assert "O que avaliei na validação" in page
+    assert "O que o Grolla consultou na validação" in page
 
 
 def test_incident_without_verification_says_so(

@@ -9,7 +9,7 @@ from typing import Any, cast
 import httpx2
 import pytest
 from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
-from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
+from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
     SYSTEM_PROMPT,
@@ -643,3 +643,48 @@ async def test_reply_refusal_becomes_language_model_error() -> None:
 async def test_reply_outside_the_schema_is_invalid(answer: object) -> None:
     with pytest.raises(InvalidAnalysisError, match="resposta do chat"):
         await reply(ScriptedApi(ok(final(answer))))
+
+
+def tokens_of(body: dict[str, Any]) -> int:
+    usage = body["usage"]
+    return (
+        usage["input_tokens"]
+        + usage["output_tokens"]
+        + usage["cache_read_input_tokens"]
+        + usage["cache_creation_input_tokens"]
+    )
+
+
+async def test_reply_with_the_budget_ending_answers_with_what_it_already_consulted() -> None:
+    tool_use, answer = fixture("anthropic_tool_use.json"), final({"reply": "Parcial: 0% de erro."})
+    # Cabe a volta das ferramentas e a resposta final, mas não mais duas voltas.
+    budget = TokenBudget(limit=tokens_of(tool_use) + tokens_of(answer) + 10)
+    api = ScriptedApi(ok(tool_use), ok(answer))
+    toolbox = RecordingToolbox()
+
+    draft = await reply(api, toolbox, budget)
+
+    assert draft == ChatDraft(text="Parcial: 0% de erro.")
+    first, last = api.bodies
+    assert "tool_choice" not in first
+    assert last["tool_choice"] == {"type": "none"}
+    assert last["messages"][-1]["content"][-1] == {"type": "text", "text": WRAP_UP}
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+
+
+async def test_reply_with_room_in_the_budget_keeps_the_tools() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final({"reply": "ok"})))
+
+    await reply(api, budget=TokenBudget(limit=1_000_000))
+
+    assert all("tool_choice" not in body for body in api.bodies)
+
+
+async def test_investigation_does_not_wrap_up_early() -> None:
+    tool_use = fixture("anthropic_tool_use.json")
+    api = ScriptedApi(ok(tool_use), ok(fixture("anthropic_final.json")))
+    budget = TokenBudget(limit=tokens_of(tool_use) * 3)
+
+    await claude(api).investigate(brief(), RecordingToolbox(), budget)
+
+    assert all("tool_choice" not in body for body in api.bodies)

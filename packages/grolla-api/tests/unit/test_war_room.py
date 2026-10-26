@@ -29,7 +29,7 @@ from grolla.testing.builders import T0, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla_api.app import Services, create_app
-from grolla_api.war_room import AUTHOR_COOKIE, format_duration
+from grolla_api.war_room import AUTHOR_COOKIE, ago, format_duration, initials, rich_text
 
 
 @dataclass
@@ -131,7 +131,8 @@ def test_with_the_cookie_the_page_shows_who_you_are_and_the_actions(
 
     page = ana.get(f"/incidents/{incident.id}").text
 
-    assert "Você é <strong>Ana</strong> (trocar)" in page
+    assert "Você é <strong>Ana</strong>" in page
+    assert 'popovertarget="trocar-nome">(trocar)</button>' in page
     assert f'hx-post="/incidents/{incident.id}/actions/assume"' in page
     assert f'hx-post="/incidents/{incident.id}/chat"' in page
 
@@ -204,7 +205,7 @@ def test_assume_returns_the_updated_header_and_actions(
     assert '<section id="war-room">' in fragment
     assert "<html" not in fragment
     assert "Em tratamento" in fragment
-    assert '<dd class="commander">Ana</dd>' in fragment
+    assert '<span class="avatar" aria-hidden="true">A</span>Ana</dd>' in fragment
     assert '<dd class="tta">12 min</dd>' in fragment
     assert "/actions/assume" not in fragment  # já assumido
     assert "/actions/mitigate" in fragment
@@ -375,9 +376,9 @@ def test_closed_incident_header_shows_tta_ttm_ttr_and_duration_until_closing(
 
     page = client.get(f"/incidents/{incident.id}").text
 
-    assert '<dd class="state">Resolvido</dd>' in page
-    assert '<dd class="sev">P1</dd>' in page
-    assert '<dd class="commander">Ana</dd>' in page
+    assert '<span class="state state-resolvido">Resolvido</span>' in page
+    assert '<span class="sev sev-P1" title="Severidade">P1</span>' in page
+    assert '<span class="avatar" aria-hidden="true">A</span>Ana</dd>' in page
     assert '<dd class="tta">4 min</dd>' in page
     assert '<dd class="ttm">20 min</dd>' in page
     assert '<dd class="ttr">35 min</dd>' in page
@@ -391,9 +392,9 @@ def test_open_incident_header_counts_until_now_and_leaves_times_empty(
 
     page = client.get(f"/incidents/{incident.id}").text
 
-    assert '<dd class="state">Detectado</dd>' in page
+    assert '<span class="state state-detectado">Detectado</span>' in page
     assert '<dd class="duration">12 min</dd>' in page
-    assert '<dd class="commander">—</dd>' in page
+    assert '<dd class="commander">ninguém ainda</dd>' in page
     assert '<dd class="tta">—</dd>' in page
     assert '<dd class="ttr">—</dd>' in page
 
@@ -450,9 +451,9 @@ def test_chat_shows_messages_with_agent_highlighted_and_queries_collapsible(
 
     assert page.index("o rollback resolveu?") < page.index("O rollback resolveu: a taxa")
     assert 'class="message message-agent"' in page
-    assert "<summary>Consultas feitas (1)</summary>" in page
+    assert "<summary>Consultei 1 fonte</summary>" in page
     assert "taxa_de_erro de pedidos-api" in page
-    assert "agente pensando…" not in page
+    assert "Grolla está investigando" not in page
 
 
 @pytest.mark.parametrize("status", [ReplyStatus.PENDING, ReplyStatus.RUNNING])
@@ -466,7 +467,7 @@ def test_pending_question_shows_the_agent_thinking(
     fragment = client.get(f"/incidents/{incident.id}/chat").text
 
     assert "olha os logs" in fragment
-    assert "agente pensando…" in fragment
+    assert "Grolla está investigando" in fragment
     assert "<html" not in fragment
 
 
@@ -502,9 +503,10 @@ def test_sending_a_message_returns_the_chat_with_it_pending(
     response = ana.post(f"/incidents/{incident.id}/chat", data={"texto": " o rollback resolveu? "})
 
     assert response.status_code == 200
-    assert '<section id="chat">' in response.text
+    assert '<div id="chat-messages"' in response.text
+    assert "<html" not in response.text
     assert "o rollback resolveu?" in response.text
-    assert "agente pensando…" in response.text
+    assert "Grolla está investigando" in response.text
     assert stub.questions == [("Ana", "o rollback resolveu?")]
 
 
@@ -551,7 +553,7 @@ def test_timeline_shows_the_author_and_labels_of_war_room_events(
     assert "Ação registrada" in fragment
     assert "Resposta do agente" in fragment
     assert "por Ana" in fragment
-    assert "por agente" in fragment
+    assert "por Grolla" in fragment
     assert f'hx-get="{url}?visto=3"' in fragment
     assert client.get(url, params={"visto": "3"}).status_code == 204
     assert client.get("/incidents/nao-e-uuid/timeline").status_code == 404
@@ -562,3 +564,214 @@ def test_htmx_is_served_as_static(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "htmx" in response.text
+
+
+# ---- revisão de UX: ciclo, próximo passo, chat com cara de chat
+
+
+def test_discarded_hypothesis_shows_who_and_why_without_the_button(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository)
+    repository.analyses[incident.id] = Analysis(
+        incident_id=incident.id,
+        status=AnalysisStatus.COMPLETED,
+        requested_at=T0,
+        started_at=T0,
+        finished_at=T0,
+        summary="",
+        evaluations=(),
+        hypotheses=(
+            Hypothesis(title="Banco degradado", confidence=0.7, evidence=()),
+            Hypothesis(title="Adquirente lenta", confidence=0.2, evidence=()),
+        ),
+        plan=(),
+        partial_reason=None,
+    )
+    data = {"title": "Adquirente lenta", "reason": "latência normal"}
+    repository.events = [
+        IncidentEvent(incident.id, T0, EventType.HYPOTHESIS_DISCARDED, data, author="Ana")
+    ]
+
+    page = ana.get(f"/incidents/{incident.id}").text
+
+    assert "Descartada por Ana: latência normal" in page
+    assert 'class="hypothesis hypothesis-discarded"' in page
+    assert page.count(f'hx-post="/incidents/{incident.id}/actions/discard-hypothesis"') == 1
+
+
+@pytest.mark.parametrize(
+    ("state", "current", "primary"),
+    [
+        (IncidentState.INFORMED, "Detectado", "Assumir como IC"),
+        (IncidentState.HANDLING, "Em tratamento", "Marcar mitigado"),
+        (IncidentState.MITIGATED, "Mitigado", "Encerrar"),
+    ],
+)
+def test_the_current_stage_is_marked_and_the_next_step_stands_out(
+    ana: TestClient,
+    repository: InMemoryIncidentRepository,
+    state: IncidentState,
+    current: str,
+    primary: str,
+) -> None:
+    incident = add_incident(repository, state=state)
+
+    page = ana.get(f"/incidents/{incident.id}").text
+
+    assert f'<li class="atual" aria-current="step">{current}</li>' in page
+    assert 'class="button-primary button-big"' in page
+    big = page.index('class="button-primary button-big"')
+    assert page[big : page.index("</button>", big)].endswith(primary)
+
+
+def test_resolved_incident_marks_every_stage_done_and_has_no_actions(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository, state=IncidentState.RESOLVED, resolved_at=NOW)
+
+    page = ana.get(f"/incidents/{incident.id}").text
+
+    assert page.count('<li class="feita">') == 4
+    assert "/actions/" not in page
+    assert "O chat continua aberto" in page
+
+
+def test_discarded_incident_has_no_cycle(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository, state=IncidentState.DISCARDED, resolved_at=NOW)
+
+    page = ana.get(f"/incidents/{incident.id}").text
+
+    assert 'class="stages"' not in page
+    assert "Incidente descartado" in page
+
+
+def test_my_messages_are_mine_and_the_agent_is_grolla_with_formatted_reply(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository)
+    repository.add_message(ChatMessage(0, incident.id, "Ana", "os erros continuam?", T0), False)
+    repository.add_message(ChatMessage(0, incident.id, "Bia", "<b>oi</b>", T0), False)
+    reply = "- **Taxa:** 0% (http://signoz/x?a=1&b=2).\n- <script>x</script>"
+    repository.add_message(ChatMessage(0, incident.id, AGENT_AUTHOR, reply, T0), False)
+
+    fragment = ana.get(f"/incidents/{incident.id}/chat").text
+
+    assert 'class="message message-human message-mine"' in fragment
+    assert "<strong>Você</strong>" in fragment
+    assert "<strong>Bia</strong>" in fragment
+    assert "&lt;b&gt;oi&lt;/b&gt;" in fragment
+    assert "<strong>Grolla</strong>" in fragment
+    assert "<li><strong>Taxa:</strong> 0% (" in fragment
+    assert '<a href="http://signoz/x?a=1&amp;b=2" target="_blank" rel="noopener">' in fragment
+    assert "&lt;script&gt;" in fragment
+    assert "<script>" not in fragment
+
+
+def test_failed_reply_is_marked(ana: TestClient, repository: InMemoryIncidentRepository) -> None:
+    incident = add_incident(repository)
+    text = "não consegui responder: LLM indisponível"
+    repository.add_message(ChatMessage(0, incident.id, AGENT_AUTHOR, text, T0), False)
+
+    fragment = ana.get(f"/incidents/{incident.id}/chat").text
+
+    assert "message-failed" in fragment
+
+
+def test_empty_chat_offers_suggestions_that_send_with_one_click(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository)
+
+    fragment = ana.get(f"/incidents/{incident.id}/chat").text
+
+    assert "Oi, eu sou o Grolla" in fragment
+    assert '<input type="hidden" name="texto" value="Os erros continuam?">' in fragment
+    assert fragment.count(f'hx-post="/incidents/{incident.id}/chat"') == 3
+
+
+def test_empty_chat_without_name_has_no_suggestions(
+    client: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository)
+
+    fragment = client.get(f"/incidents/{incident.id}/chat").text
+
+    assert "Oi, eu sou o Grolla" in fragment
+    assert 'name="texto"' not in fragment
+
+
+def test_timeline_reads_well_and_hides_card_queueing(
+    client: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = add_incident(repository)
+    repository.events = [
+        IncidentEvent(
+            incident.id, T0, EventType.STATE_CHANGED, {"from": "detectado", "to": "em_tratamento"}
+        ),
+        IncidentEvent(incident.id, T0, EventType.NOTIFICATION_QUEUED, {"kind": "x"}),
+        IncidentEvent(incident.id, T0, EventType.NOTIFICATION_DELIVERED, {"kind": "x"}),
+        IncidentEvent(
+            incident.id, T0, EventType.AGENT_MESSAGE, {"text": "**Taxa:** 0%"}, author=AGENT_AUTHOR
+        ),
+    ]
+
+    fragment = client.get(f"/incidents/{incident.id}/timeline").text
+
+    assert "Detectado → Em tratamento" in fragment
+    assert "Notificação enfileirada" not in fragment
+    assert '<li class="quiet">' in fragment
+    assert "Taxa: 0%" in fragment
+    assert "**" not in fragment
+    assert "visto=4" in fragment  # a versão conta todos os eventos, mesmo os escondidos
+
+
+def test_incident_list_shows_how_many_are_open(
+    client: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    add_incident(repository, state=IncidentState.HANDLING, commander="Ana")
+    add_incident(repository, state=IncidentState.RESOLVED)
+
+    page = client.get("/incidents").text
+
+    assert "1 aberto de 2" in page
+    assert "há 12 min" in page
+    assert "IC Ana" in page
+
+
+@pytest.mark.parametrize(
+    ("minutes", "text"),
+    [(0, "agora"), (5, "há 5 min"), (65, "há 1 h 05 min"), (3 * 24 * 60, "há 3 dias")],
+)
+def test_ago(minutes: int, text: str) -> None:
+    assert ago(timedelta(minutes=minutes)) == text
+
+
+def test_rich_text_splits_paragraphs_and_lists() -> None:
+    html = str(rich_text("Primeiro.\nmesmo parágrafo\n\n- a\n- `b`\ndepois"))
+
+    assert html == (
+        "<p>Primeiro.<br>mesmo parágrafo</p><ul><li>a</li><li><code>b</code></li></ul><p>depois</p>"
+    )
+
+
+def test_initials() -> None:
+    assert initials("Ana Maria Souza") == "AM"
+    assert initials("  ") == "?"
+
+
+def test_rich_text_turns_markdown_links_into_links() -> None:
+    html = str(rich_text("veja o [build 5](https://ado/b?id=5&x=1) e http://signoz/t."))
+
+    assert html == (
+        '<p>veja o <a href="https://ado/b?id=5&amp;x=1" target="_blank" rel="noopener">build 5</a>'
+        ' e <a href="http://signoz/t" target="_blank" rel="noopener">http://signoz/t</a>.</p>'
+    )
+
+
+def test_rich_text_never_links_other_schemes() -> None:
+    html = str(rich_text("[x](javascript:alert(1)) e javascript:alert(1)"))
+
+    assert "<a" not in html

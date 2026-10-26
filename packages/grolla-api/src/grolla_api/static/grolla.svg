@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 280" width="240" height="280" role="img" aria-labelledby="title">
+  <title id="title">Grolla, o mascote do agent-grolla</title>
+  <defs>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d2b4"/>
+      <stop offset="1" stop-color="#e9b893"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f80ed"/>
+      <stop offset="1" stop-color="#1f5fbf"/>
+    </linearGradient>
+    <linearGradient id="beard" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b3b3d"/>
+      <stop offset="1" stop-color="#2a2a2c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- sombra no chão -->
+  <ellipse cx="120" cy="268" rx="78" ry="9" fill="#000" opacity="0.12"/>
+
+  <!-- corpo: camiseta -->
+  <path d="M46 214 C46 186 72 170 120 170 C168 170 194 186 194 214 L194 262 C194 266 191 268 187 268 L53 268 C49 268 46 266 46 262 Z" fill="url(#shirt)"/>
+  <!-- mangas -->
+  <path d="M50 196 C36 202 26 218 24 236 L46 242 L56 208 Z" fill="#1f5fbf"/>
+  <path d="M190 196 C204 202 214 218 216 236 L194 242 L184 208 Z" fill="#1f5fbf"/>
+  <!-- braços e mãos -->
+  <path d="M26 234 C24 246 26 252 32 256" stroke="url(#skin)" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="34" cy="257" r="10" fill="#efc4a2"/>
+  <!-- braço direito acenando com joinha -->
+  <path d="M214 234 C222 222 226 210 224 198" stroke="url(#skin)" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="223" cy="194" r="11" fill="#efc4a2"/>
+  <rect x="219" y="174" width="8" height="18" rx="4" fill="#efc4a2"/>
+  <!-- estampa: linha de batimento (SRE de plantão) -->
+  <path d="M74 236 L100 236 L108 220 L118 252 L128 228 L134 236 L166 236" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.95"/>
+
+  <!-- orelhas -->
+  <ellipse cx="50" cy="104" rx="12" ry="17" fill="#e9b893"/>
+  <ellipse cx="190" cy="104" rx="12" ry="17" fill="#e9b893"/>
+  <!-- cabeça careca -->
+  <ellipse cx="120" cy="96" rx="70" ry="78" fill="url(#skin)"/>
+  <!-- brilho da careca -->
+  <ellipse cx="96" cy="40" rx="20" ry="9" fill="#fff" opacity="0.45" transform="rotate(-18 96 40)"/>
+
+  <!-- barba cheia, descendo até o peito -->
+  <path d="M52 104 C52 150 70 196 120 204 C170 196 188 150 188 104 C180 128 168 136 156 136 C146 128 134 124 120 124 C106 124 94 128 84 136 C72 136 60 128 52 104 Z" fill="url(#beard)"/>
+  <!-- fios grisalhos -->
+  <path d="M98 168 C102 180 108 188 114 192" stroke="#8d8d90" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M124 174 C126 184 128 190 132 196" stroke="#8d8d90" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M146 162 C148 172 148 180 146 188" stroke="#8d8d90" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M80 150 C84 160 88 168 94 174" stroke="#8d8d90" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+
+  <!-- sorriso aberto dentro da barba -->
+  <path d="M96 146 C104 166 136 166 144 146 Z" fill="#7a2e2e"/>
+  <path d="M100 147 L140 147 C138 152 102 152 100 147 Z" fill="#ffffff"/>
+  <ellipse cx="120" cy="158" rx="11" ry="5" fill="#e8737a"/>
+  <!-- bigode -->
+  <path d="M86 140 C96 128 112 130 120 138 C128 130 144 128 154 140 C142 138 132 142 120 144 C108 142 98 138 86 140 Z" fill="#1c1c1e"/>
+
+  <!-- bochechas coradas -->
+  <ellipse cx="72" cy="118" rx="10" ry="6" fill="#f08a8a" opacity="0.45"/>
+  <ellipse cx="168" cy="118" rx="10" ry="6" fill="#f08a8a" opacity="0.45"/>
+
+  <!-- sobrancelhas -->
+  <path d="M76 62 C84 55 98 55 108 60" stroke="#3b3b3d" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M132 60 C142 55 156 55 164 62" stroke="#3b3b3d" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- olhos sorrindo -->
+  <path d="M82 98 C87 90 99 90 104 98" stroke="#2a2a2c" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <path d="M136 98 C141 90 153 90 158 98" stroke="#2a2a2c" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+
+  <!-- óculos redondos de aro grosso -->
+  <g fill="none" stroke="#141414" stroke-width="7">
+    <circle cx="93" cy="96" r="22"/>
+    <circle cx="147" cy="96" r="22"/>
+    <path d="M115 94 C118 90 122 90 125 94"/>
+    <path d="M71 92 L52 96"/>
+    <path d="M169 92 L188 96"/>
+  </g>
+  <!-- reflexo nas lentes -->
+  <path d="M80 86 C83 81 88 79 92 79" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <path d="M134 86 C137 81 142 79 146 79" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+</svg>

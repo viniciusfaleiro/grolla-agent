@@ -255,6 +255,27 @@ O HTMX é servido como estático.
 8. **Polling com `?visto=<versão>`.** Sem novidade, a resposta é 204 e o HTMX não troca nada. Assim um `<details>` aberto não fecha a cada 3 s.
 9. **Testes da web.** Usam um espião sobre o `act` e o `ask` reais, em vez do stub provisório (code review do agente pai).
 
+## Design da página (revisão de UX)
+
+Pedido do usuário depois do teste funcional: UX fácil, amigável, moderna, com referência ao Grolla, e chat com cara de chat.
+
+- **Identidade.** A paleta sai do mascote:
+  - azul da camiseta (`#1f5fbf`) para a marca e o agente;
+  - grafite da barba (`#23262d`) para o texto;
+  - um tom claro e frio (`#f3f5f8`) para o fundo.
+
+  Severidade e estado têm cores próprias e contidas. A tipografia é Bricolage Grotesque nos títulos e Figtree no texto, com fallback do sistema caso a rede bloqueie as fontes.
+- **Elemento marcante.** A "linha de batimento" da camiseta do Grolla vira o pulso do incidente, sob o título: em vermelho enquanto aberto, em âmbar mitigado e reta verde quando resolvido. É o único elemento ousado; o resto é sóbrio.
+- **Layout.** Duas colunas no desktop: à esquerda, a condução (cabeçalho, ciclo, ações, causa raiz, análise, validação, alertas e timeline); à direita, o chat fixo na altura da tela, porque a conversa é o centro do war room. No celular, uma coluna, com o chat logo depois das ações.
+- **Ações.** A ação principal do estado fica em destaque. Severidade vira um seletor P0 a P4. Encerrar e descartar abrem um popover nativo (`popover`) com o motivo. Descartar hipótese mora na própria hipótese.
+- **Chat.** Bolhas: as de quem vê à direita, as dos outros à esquerda, e o Grolla com avatar. A resposta do agente é renderizada com um markdown mínimo e seguro (negrito, listas e links), feito no servidor depois do escape. Há indicador "investigando…" e sugestões de perguntas, que são forms com o texto pronto.
+- **JS.** Além do HTMX, um arquivo pequeno (`static/war-room.js`) só para Enter enviar, a caixa crescer e a rolagem automática. Sem framework.
+- **Orçamento do chat (achado no laboratório).** Cada volta do laço reenvia a conversa inteira, e o orçamento conta o acumulado. Com 60 mil tokens, a resposta morria em "orçamento esgotado" depois de umas 7 consultas.
+  - Correção: no chat, quando o que sobra não paga duas voltas, a última chamada vai com `tool_choice: none` e um aviso para responder com o que já consultou.
+  - A análise e a validação não mudam.
+  - Alternativa descartada: só subir o limite, que adia o problema e encarece a resposta.
+- **Alternativa mais simples considerada:** só reestilizar o CSS atual. Foi descartada porque não resolve o "próximo passo" nem a cara de chat, que dependem da estrutura.
+
 ## Risks / Trade-offs
 
 - [Nome livre sem autenticação] → só rede interna. Fica registrado em toda ação. O SSO é da fase 2.

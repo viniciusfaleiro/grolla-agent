@@ -1,13 +1,28 @@
-{# Chat inteiro: as mensagens e um form limpo; é o fragmento devolvido ao enviar. #}
-<section id="chat">
-{% include "_chat_messages.html" %}
-<div id="chat-error" role="alert"></div>
-{% if author %}
-<form hx-post="/incidents/{{ incident.id }}/chat" hx-target="#chat" hx-swap="outerHTML">
-  <label>Para o agente
-    <textarea name="texto" required rows="2" placeholder="olha os logs do pedidos-db desde 21:40"></textarea>
-  </label>
-  <button>Enviar</button>
-</form>
-{% endif %}
-</section>
+{# Painel do chat: cabeçalho do Grolla, conversa rolável e a caixa de mensagem. #}
+<aside class="chat-panel" id="chat" aria-label="Chat com o Grolla">
+  <header class="chat-head">
+    <span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>
+    <div>
+      <h2>Grolla</h2>
+      <p>Pergunte ou peça uma investigação. Eu consulto, mas não executo nada.</p>
+    </div>
+  </header>
+  <div class="chat-scroll" id="chat-scroll">
+    {% include "_chat_messages.html" %}
+  </div>
+  <div class="composer">
+    <div id="chat-error" class="error" role="alert"></div>
+    {% if author %}
+    <form hx-post="/incidents/{{ incident.id }}/chat" hx-target="#chat-messages" hx-swap="outerHTML"
+          hx-disabled-elt="find button" data-chat-form>
+      <label class="visually-hidden" for="mensagem">Mensagem para o Grolla</label>
+      <textarea id="mensagem" name="texto" required rows="1" data-enter-sends
+                placeholder="Pergunte algo ao Grolla"></textarea>
+      <button class="button-primary">Enviar</button>
+    </form>
+    <p class="hint">Enter envia · Shift+Enter quebra a linha</p>
+    {% else %}
+    <p class="composer-locked">Informe seu nome ao lado para conversar com o Grolla.</p>
+    {% endif %}
+  </div>
+</aside>

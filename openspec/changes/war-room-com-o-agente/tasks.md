@@ -56,3 +56,12 @@
 - [x] 6.5 Revisar e atualizar os READMEs do pai e de cada componente.
 - [x] 6.6 Rodar `make e2e` e garantir todos os cenários verdes.
 - [x] 6.7 Rodar `make fmt && make check` e garantir tudo verde.
+
+## 7. Revisão de UX e design (agente pai, só `packages/grolla-api/`)
+
+- [x] 7.1 Tokens de design (cores, tipografia, tema escuro), o mascote como avatar e favicon, e a página de lista de incidentes.
+- [x] 7.2 War room: cabeçalho com pulso e ciclo de estados, ação principal em destaque, seletor de severidade e popovers de encerrar e descartar; descarte de hipótese na análise.
+- [x] 7.3 Chat com cara de chat: bolhas por autor, Grolla com avatar, markdown mínimo seguro, consultas recolhidas, indicador "investigando…", sugestões com um clique, Enter envia e rolagem automática.
+- [x] 7.4 Timeline legível: trilho vertical, sem eventos de enfileiramento de card.
+- [x] 7.5 Chat responde com o que já consultou quando o orçamento da resposta está acabando (última chamada sem ferramentas).
+- [x] 7.6 Testes da web atualizados, README do `grolla-api`, `make e2e` e `make fmt && make check` verdes.

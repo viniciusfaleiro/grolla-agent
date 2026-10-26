@@ -21,7 +21,8 @@ from grolla.application.incidents import (
 )
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
-from grolla.domain.incidents import EventType, Incident
+from grolla.domain.chat import AGENT_AUTHOR
+from grolla.domain.incidents import OPEN_STATES, EventType, Incident
 from grolla.domain.war_room import InvalidActionError
 
 from grolla_api.war_room import (
@@ -29,15 +30,27 @@ from grolla_api.war_room import (
     AUTHOR_COOKIE_MAX_AGE,
     SEVERITIES,
     STATE_LABELS,
+    SUGGESTIONS,
+    SYSTEM_AUTHORS,
+    TOOL_LABELS,
     action_from,
+    ago,
     chat_version,
     decode_author,
+    discarded_hypotheses,
+    display_name,
     encode_author,
+    event_detail,
     header_of,
+    initials,
     is_agent,
+    is_failure,
+    is_quiet,
     is_waiting,
     parse_form,
+    rich_text,
     safe_redirect,
+    visible_events,
 )
 
 HealthCheck = Callable[[], Awaitable[bool]]
@@ -54,7 +67,7 @@ EVENT_LABELS = {
     EventType.STATE_CHANGED: "Estado alterado",
     EventType.INCIDENT_NORMALIZED: "Incidente normalizado",
     EventType.NOTIFICATION_QUEUED: "Notificação enfileirada",
-    EventType.NOTIFICATION_DELIVERED: "Notificação entregue",
+    EventType.NOTIFICATION_DELIVERED: "Card enviado ao canal",
     EventType.NOTIFICATION_FAILED: "Notificação falhou",
     EventType.ANALYSIS_REQUESTED: "Análise pedida",
     EventType.ANALYSIS_COMPLETED: "Análise concluída",
@@ -92,8 +105,24 @@ templates = Jinja2Templates(directory=HERE / "templates")
 TEMPLATE_GLOBALS: dict[str, Any] = {
     "state_labels": STATE_LABELS,
     "severities": SEVERITIES,
+    "open_states": OPEN_STATES,
+    "agent_author": AGENT_AUTHOR,
+    "system_authors": SYSTEM_AUTHORS,
+    "tool_labels": TOOL_LABELS,
+    "suggestions": SUGGESTIONS,
+    "analysis_labels": ANALYSIS_STATUS_LABELS,
+    "verification_labels": VERIFICATION_STATUS_LABELS,
+    "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
+    "ago": ago,
+    "display_name": display_name,
+    "event_detail": event_detail,
+    "initials": initials,
     "is_agent": is_agent,
+    "is_failure": is_failure,
+    "is_quiet": is_quiet,
     "is_waiting": is_waiting,
+    "rich_text": rich_text,
+    "visible_events": visible_events,
 }
 templates.env.globals.update(TEMPLATE_GLOBALS)
 
@@ -144,11 +173,17 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "author": author,
             "analysis": await repository.analysis_of(incident.id),
             "verification": await repository.verification_of(incident.id),
+            "discarded": discarded_hypotheses(await repository.events_of(incident.id)),
         }
 
-    async def chat_context(incident: Incident) -> dict[str, Any]:
+    async def chat_context(incident: Incident, author: str | None) -> dict[str, Any]:
         messages = await repository.chat_of(incident.id)
-        return {"incident": incident, "messages": messages, "chat_version": chat_version(messages)}
+        return {
+            "incident": incident,
+            "author": author,
+            "messages": messages,
+            "chat_version": chat_version(messages),
+        }
 
     async def timeline_context(incident: Incident) -> dict[str, Any]:
         events = await repository.events_of(incident.id)
@@ -185,20 +220,24 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
     @app.get("/incidents", response_class=HTMLResponse)
     async def incidents(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         found = await repository.list_incidents(INCIDENT_LIST_LIMIT)
-        return templates.TemplateResponse(request, "incidents.html", {"incidents": found})
+        context = {
+            "incidents": found,
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "now": services.clock.now(),
+            "nav": "incidents",
+        }
+        return templates.TemplateResponse(request, "incidents.html", context)
 
     @app.get("/incidents/{incident_id}", response_class=HTMLResponse)
     async def incident(request: Request, incident_id: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         found = await incident_or_404(incident_id)
         author = decode_author(request.cookies.get(AUTHOR_COOKIE))
         context = {
-            **await war_room_context(found, author),
-            **await chat_context(found),
+            **await chat_context(found, author),
             **await timeline_context(found),
+            **await war_room_context(found, author),
             "alerts": await repository.alerts_of(found.id),
-            "analysis_labels": ANALYSIS_STATUS_LABELS,
-            "verification_labels": VERIFICATION_STATUS_LABELS,
-            "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
+            "back_to": f"/incidents/{found.id}",
         }
         return templates.TemplateResponse(request, "incident.html", context)
 
@@ -229,7 +268,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
 
     @app.get("/incidents/{incident_id}/chat", response_class=HTMLResponse)
     async def chat(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]
-        context = await chat_context(await incident_or_404(incident_id))
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        context = await chat_context(await incident_or_404(incident_id), author)
         if visto == context["chat_version"]:
             return Response(status_code=status.HTTP_204_NO_CONTENT)  # nada novo: o HTMX não troca
         return templates.TemplateResponse(request, "_chat_messages.html", context)
@@ -247,8 +287,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             raise HTTPException(status.HTTP_404_NOT_FOUND, "incidente não encontrado") from error
         except InvalidActionError as error:
             return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, CHAT_ERROR)
-        context = {**await chat_context(found), "author": author}
-        return templates.TemplateResponse(request, "_chat.html", context)
+        context = await chat_context(found, author)
+        return templates.TemplateResponse(request, "_chat_messages.html", context)
 
     @app.get("/incidents/{incident_id}/timeline", response_class=HTMLResponse)
     async def timeline(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]

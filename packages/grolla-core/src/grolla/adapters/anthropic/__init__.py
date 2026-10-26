@@ -17,9 +17,12 @@ from typing import Any
 
 import anthropic
 import httpx2
+from anthropic import Omit, omit
 from anthropic.types import (
     Message,
     MessageParam,
+    TextBlockParam,
+    ToolChoiceParam,
     ToolParam,
     ToolResultBlockParam,
     ToolUseBlock,
@@ -60,6 +63,14 @@ from grolla.domain.chat import ChatDraft
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
 MAX_RETRIES = 2
 REQUEST_TIMEOUT_SECONDS = 60.0
+
+# Cada volta reenvia a conversa inteira e custa um pouco mais que a anterior: com menos de duas
+# voltas no orçamento, o chat fecha a resposta com o que já consultou.
+WRAP_UP_TURNS = 2
+WRAP_UP = (
+    "O orçamento desta resposta está acabando: responda agora com o que já consultou, "
+    "deixando claro o que não deu para verificar."
+)
 
 # Cache de 1 h no prefixo estável (ferramentas e system): as análises de um mesmo dia o reusam.
 _CACHE_1H: Any = {"type": "ephemeral", "ttl": "1h"}
@@ -171,6 +182,7 @@ class _Phase:
     schema: dict[str, object]
     settings: ModelSettings
     stage: str
+    wrap_up: bool = False  # chat: com o orçamento acabando, responde com o que já consultou
 
     def output_config(self) -> Any:
         config: dict[str, object] = {"format": {"type": "json_schema", "schema": self.schema}}
@@ -263,7 +275,7 @@ class ClaudeLanguageModel:
         budget: TokenBudget,
     ) -> ChatDraft:
         del brief  # o contexto montado pela application já traz o incidente
-        phase = _Phase(CHAT_PROMPT, CHAT_SCHEMA, self._chat, STAGE_WARROOM_CHAT)
+        phase = _Phase(CHAT_PROMPT, CHAT_SCHEMA, self._chat, STAGE_WARROOM_CHAT, wrap_up=True)
         messages: list[MessageParam] = [{"role": "user", "content": chat_text(context, question)}]
         async with self._client() as client:
             try:
@@ -311,25 +323,38 @@ async def _loop(
     toolbox: Toolbox,
     budget: TokenBudget,
 ) -> Message:
-    """Roda as ferramentas pedidas até a resposta final e a devolve; estende `messages`."""
+    """Roda as ferramentas pedidas até a resposta final e a devolve; estende `messages`.
+
+    Com `wrap_up`, quando o que sobra do orçamento não paga mais uma volta, a última chamada vai
+    sem ferramentas: o modelo responde com o que já consultou em vez de estourar o orçamento.
+    """
     tools = _tools(toolbox)
+    wrapping_up = False
     while True:
+        choice: ToolChoiceParam | Omit = {"type": "none"} if wrapping_up else omit
         response = await client.messages.create(
             model=phase.settings.model,
             max_tokens=phase.settings.max_tokens,
             system=[{"type": "text", "text": phase.system, "cache_control": _CACHE_1H}],
             tools=tools,
+            tool_choice=choice,
             messages=messages,
             thinking={"type": "adaptive"},
             output_config=phase.output_config(),
         )
-        budget.spend(_usage(response, phase.stage))
-        if response.stop_reason != "tool_use":
+        usage = _usage(response, phase.stage)
+        budget.spend(usage)
+        if response.stop_reason != "tool_use" or wrapping_up:
             return response
         calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
-        results = await asyncio.gather(*(_run(toolbox, call) for call in calls))
+        results: list[ToolResultBlockParam | TextBlockParam] = list(
+            await asyncio.gather(*(_run(toolbox, call) for call in calls))
+        )
+        if phase.wrap_up and budget.remaining < WRAP_UP_TURNS * _tokens(usage):
+            results.append({"type": "text", "text": WRAP_UP})
+            wrapping_up = True
         messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": list(results)})
+        messages.append({"role": "user", "content": results})
 
 
 async def _concrete(
@@ -367,6 +392,15 @@ def _tools(toolbox: Toolbox) -> list[ToolParam]:
     if tools:
         tools[-1]["cache_control"] = _CACHE_1H
     return tools
+
+
+def _tokens(usage: LlmUsage) -> int:
+    return (
+        usage.input_tokens
+        + usage.output_tokens
+        + usage.cache_read_tokens
+        + usage.cache_creation_tokens
+    )
 
 
 async def _run(toolbox: Toolbox, call: ToolUseBlock) -> ToolResultBlockParam:

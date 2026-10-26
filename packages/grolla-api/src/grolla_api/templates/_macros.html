@@ -1,23 +1,21 @@
-{% macro evaluations_table(evaluations) %}
-<table>
-  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
-  <tbody>
+{% macro lookups(evaluations) %}
+<ul class="lookups">
   {% for evaluation in evaluations %}
-    <tr>
-      <td><code>{{ evaluation.tool }}</code></td>
-      <td>{{ evaluation.subject }}</td>
-      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
-      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
+  <li{% if not evaluation.ok %} class="lookup-failed"{% endif %}>
+    <span class="tool" title="{{ evaluation.tool }}">{{ tool_labels.get(evaluation.tool, evaluation.tool) }}</span>
+    <span class="lookup-subject">{{ evaluation.subject }}{% if evaluation.url %} <a href="{{ evaluation.url }}" target="_blank" rel="noopener">abrir</a>{% endif %}</span>
+    <span class="lookup-finding">{% if not evaluation.ok %}falhou: {% endif %}{{ evaluation.finding }}</span>
+  </li>
   {% endfor %}
-  </tbody>
-</table>
+</ul>
 {% endmacro %}
 {% macro evidence_list(evidence) %}
 <ul>
   {% for item in evidence %}
-  <li>{{ item.text }}{% if item.url %} · <a href="{{ item.url }}">abrir</a>{% endif %}</li>
+  <li>{{ item.text }}{% if item.url %} <a href="{{ item.url }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
   {% endfor %}
 </ul>
 {% endmacro %}
-{% macro when(at) %}{{ at.strftime("%d/%m/%Y %H:%M:%S %Z") }}{% endmacro %}
+{% macro when(at) %}<time datetime="{{ at.isoformat() }}">{{ at.strftime("%d/%m/%Y %H:%M UTC") }}</time>{% endmacro %}
+{% macro hhmm(at) %}<time datetime="{{ at.isoformat() }}" title="{{ at.strftime('%d/%m/%Y %H:%M:%S UTC') }}">{{ at.strftime("%H:%M") }}</time>{% endmacro %}
+{% macro avatar(name) %}{% if name == agent_author %}<span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>{% else %}<span class="avatar" aria-hidden="true">{{ initials(name) }}</span>{% endif %}{% endmacro %}

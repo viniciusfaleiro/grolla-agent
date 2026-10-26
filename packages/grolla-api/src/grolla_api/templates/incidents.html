@@ -1,24 +1,30 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Incidentes</h1>
+<div class="list-head">
+  <h1>Incidentes</h1>
+  {% set open = incidents | selectattr("state", "in", open_states) | list %}
+  {% if incidents %}<p class="muted">{{ open | length }} {{ "aberto" if open | length == 1 else "abertos" }} de {{ incidents | length }}</p>{% endif %}
+</div>
 {% if incidents %}
-<table>
-  <thead>
-    <tr><th>Severidade</th><th>Título</th><th>Estado</th><th>Serviços</th><th>Detectado em</th></tr>
-  </thead>
-  <tbody>
+<ul class="incident-list">
   {% for incident in incidents %}
-    <tr>
-      <td class="sev">{{ incident.severity }}</td>
-      <td><a href="/incidents/{{ incident.id }}">{{ incident.title }}</a></td>
-      <td>{{ state_labels[incident.state] }}</td>
-      <td>{{ incident.services | join(", ") }}</td>
-      <td>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</td>
-    </tr>
+  <li class="incident-row">
+    <span class="sev sev-{{ incident.severity }}">{{ incident.severity }}</span>
+    <a href="/incidents/{{ incident.id }}">{{ incident.title }}</a>
+    <span class="when">{{ ago(now - incident.detected_at) }}</span>
+    <span class="meta">
+      <span class="state state-{{ incident.state }}">{{ state_labels[incident.state] }}</span>
+      {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+      {% if incident.commander %}<span>IC {{ incident.commander }}</span>{% endif %}
+    </span>
+  </li>
   {% endfor %}
-  </tbody>
-</table>
+</ul>
 {% else %}
-<p class="muted">Nenhum incidente registrado.</p>
+<div class="empty">
+  <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
+  <h2>Nenhum incidente por aqui</h2>
+  <p>Quando um alerta chegar, o Grolla abre o incidente e começa a investigar.</p>
+</div>
 {% endif %}
 {% endblock %}

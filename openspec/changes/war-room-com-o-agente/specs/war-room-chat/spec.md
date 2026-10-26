@@ -26,7 +26,7 @@ As consultas feitas para responder SHALL ser mostradas junto da resposta, como a
 ### Requirement: A resposta sempre chega
 Cada pedido de resposta SHALL terminar com uma resposta do agente. Se o LLM falhar, se o tempo ou o orçamento se esgotarem, ou se o worker cair no meio, a resposta SHALL ser "não consegui responder: <motivo>", com as consultas já feitas.
 
-A resposta SHALL ter limites próprios de tempo e de tokens, configuráveis. O chat de um incidente SHALL ter um teto de tokens. Atingido o teto, o agente SHALL responder que o limite do chat foi atingido, sem chamar o LLM.
+A resposta SHALL ter limites próprios de tempo e de tokens, configuráveis. Quando o orçamento da resposta estiver acabando, o agente SHALL parar de consultar e responder com o que já consultou, dizendo o que não deu para verificar. O chat de um incidente SHALL ter um teto de tokens. Atingido o teto, o agente SHALL responder que o limite do chat foi atingido, sem chamar o LLM.
 
 O uso SHALL ser registrado com a etapa `warroom_chat`.
 
@@ -37,3 +37,26 @@ O uso SHALL ser registrado com a etapa `warroom_chat`.
 #### Scenario: Teto do chat atingido
 - **WHEN** o chat do incidente já usou o teto de tokens
 - **THEN** a próxima pergunta recebe "limite do chat deste incidente atingido" sem chamada ao LLM
+
+#### Scenario: Orçamento acabando
+- **WHEN** o agente já fez várias consultas e o orçamento da resposta não paga mais uma volta
+- **THEN** ele responde com o que já consultou, sem novas consultas, em vez de "não consegui responder"
+
+### Requirement: Chat com cara de chat
+O chat SHALL se parecer com um aplicativo de mensagens:
+- as mensagens de quem está vendo à direita e as dos outros à esquerda, com nome e horário;
+- o agente identificado como Grolla, com o avatar do mascote;
+- a resposta do agente formatada (negrito, listas e links clicáveis), com as consultas feitas recolhidas;
+- enquanto o agente trabalha, um indicador de que ele está investigando;
+- Enter envia e Shift+Enter quebra a linha;
+- a conversa rola sozinha para a mensagem nova, sem tirar quem está lendo mais acima do lugar.
+
+O histórico inteiro da conversa SHALL ficar guardado com o incidente e aparecer igual para todos e a cada visita. Com o chat vazio, SHALL haver sugestões de perguntas que podem ser enviadas com um clique.
+
+#### Scenario: Histórico ao voltar
+- **WHEN** "Ana" fecha a página e volta mais tarde
+- **THEN** a conversa inteira continua no chat, na ordem em que aconteceu
+
+#### Scenario: Sugestão com um clique
+- **WHEN** o chat está vazio e Ana clica em "Os erros continuam?"
+- **THEN** a pergunta é enviada ao agente como se Ana a tivesse escrito

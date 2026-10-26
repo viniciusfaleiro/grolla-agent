@@ -19,7 +19,7 @@
 
 O processo que precisa responder rápido, sempre: é por ele que os alertas chegam. A api é fina:
 autentica e traduz o webhook pelo port `AlertIngress`, chama o caso de uso `receive_alerts` e
-renderiza as páginas (Jinja2; o único JS é o HTMX, servido como estático) a partir do
+renderiza as páginas (Jinja2 + HTMX e um `war-room.js` pequeno, servidos como estáticos) a partir do
 `IncidentRepository`. No war room, as ações e as mensagens viram chamadas aos casos de uso `act`
 e `ask` da `grolla.application.war_room`; a api só lê o form e o autor e devolve o fragmento. Não tem regra de
 negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
@@ -33,12 +33,12 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Saúde do worker** | `200` se o último heartbeat tem até 2 min, senão `503`; corpo `{"last_heartbeat": <iso ou null>}` | `GET /health/worker` |
 | **Webhook de alertas** | HTTP Basic: `401` sem credencial válida (sem efeito), `422` em payload inválido ou não-JSON, `202` depois de processar os alertas | `POST /webhooks/alerts` |
 | **Lista de incidentes** | HTML server-side: título, severidade, estado em português, serviços e detecção, mais recentes primeiro | `GET /incidents` |
-| **War room** | A página do incidente: cabeçalho com estado em português, severidade, duração (até agora ou até o encerramento), IC e TTA/TTM/TTR (vazios enquanto não há horário) e a causa raiz em destaque; os botões só das ações permitidas no estado; o chat com o agente; a análise (em andamento, concluída ou parcial com o motivo, com resumo, "O que avaliei", hipóteses com confiança e evidências e o plano proposto); a validação (causa raiz ou "causa raiz não confirmada" e o que faltou, veredito por hipótese, plano de ação e o que avaliei na validação); alertas e a timeline com o autor de cada evento; `404` se não existe | `GET /incidents/{id}` |
+| **War room** | A página do incidente, em duas colunas (uma no celular) e com tema escuro, na identidade do Grolla. Na condução: severidade, título, estado, serviços, o pulso do incidente na cor do estado, o ciclo Detectado → Em tratamento → Mitigado → Resolvido com a etapa atual marcada, IC, duração e TTA/TTM/TTR. Abaixo: a ação principal do estado em destaque, registrar ação, seletor de severidade, encerrar e descartar em popover com o motivo, e a causa raiz e o plano de ação sugerido. Depois, a análise (hipóteses com confiança, descarte de hipótese na própria hipótese e a descartada marcada com autor e motivo), a validação (veredito por hipótese) e as consultas recolhidas; alertas e timeline com o autor e sem o ruído de enfileiramento. `404` se não existe | `GET /incidents/{id}` |
 | **Autor (fase 1, sem SSO)** | Sem o cookie `grolla_author`, a página pede o nome; o form grava o cookie (HttpOnly, `SameSite=Lax`, 30 dias, nome URL-encoded) e redireciona (`303`) só para um caminho do próprio site; com o cookie, "Você é Ana (trocar)". Não é autenticação: a página fica na rede interna | `POST /author` |
 | **Ações do war room** | Forms HTMX: `assume`, `severity` (`severidade`), `record` (`texto`), `discard-hypothesis` (`titulo`, `motivo`; um botão por hipótese da análise), `mitigate`, `reopen`, `resolve` e `discard` (`motivo`). `200` com o fragmento do cabeçalho e das ações; `401` "informe seu nome" sem cookie; `422` com a mensagem do `InvalidActionError`; `404` para ação ou incidente inexistente. Os erros voltam com `HX-Retarget` para a área de erro do form | `POST /incidents/{id}/actions/{acao}` |
-| **Chat com o agente** | Mensagens em ordem, as do agente destacadas e as consultas feitas recolhíveis (`<details>`); pergunta sem resposta aparece como "agente pensando…". O envio (`texto`) responde `200` com o chat e um form limpo, `401` sem cookie, `422` texto vazio, `404` incidente inexistente | `POST /incidents/{id}/chat` |
+| **Chat com o agente** | Painel de mensagens fixo ao lado: as suas mensagens à direita, as dos outros à esquerda e o Grolla com o avatar do mascote; a resposta do agente com markdown mínimo e seguro (parágrafos, listas, negrito, links) e as consultas recolhidas; "Grolla está investigando…" enquanto responde; sugestões de pergunta com um clique no chat vazio; Enter envia, Shift+Enter quebra a linha e a conversa rola sozinha até a mensagem nova. O envio (`texto`) responde `200` com a conversa atualizada, `401` sem cookie, `422` texto vazio, `404` incidente inexistente | `POST /incidents/{id}/chat` |
 | **Polling (3 s)** | Fragmentos do chat e da timeline com `hx-trigger="every 3s"`. A URL carrega a versão vista (`?visto=`): sem nada novo, `204` e o HTMX não troca nada (um `<details>` aberto continua aberto) | `GET /incidents/{id}/chat` · `GET /incidents/{id}/timeline` |
-| **HTMX** | HTMX 2.0.4 servido como estático, sem build; `htmx-config` faz as respostas `4xx` também aparecerem na página | `GET /static/htmx.min.js` |
+| **Estáticos** | HTMX 2.0.4 (sem build; `htmx-config` faz as respostas `4xx` também aparecerem), `war-room.css` (tokens de cor e tipografia, tema escuro), `war-room.js` (Enter envia, caixa cresce, rolagem) e o mascote | `GET /static/…` |
 
 ## ⚡ Como rodar
 
@@ -78,9 +78,9 @@ uv run pytest packages/grolla-api
 ```
 src/grolla_api/
   app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, autor)
-  war_room.py  apresentação do war room: rótulos, durações, ações por estado, leitura do form e do cookie
+  war_room.py  apresentação do war room: rótulos, ciclo, ação em destaque, durações, markdown seguro do chat, leitura do form e do cookie
   templates/ páginas Jinja2 (base, lista, incidente) e fragmentos _war_room, _chat, _chat_messages, _timeline
-  static/    htmx.min.js
+  static/    htmx.min.js · war-room.css · war-room.js · grolla.svg · grolla-avatar.svg
   main.py    entrypoint `grolla-api`: settings → migrações → uvicorn
 tests/       unit/ · integration/
 Dockerfile
