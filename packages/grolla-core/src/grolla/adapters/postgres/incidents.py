@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.application.incidents import IncidentUnitOfWork, OutboxItem
+from grolla.application.memory import StudyStatus  # `learnings` usa os status das rodadas
 from grolla.domain.analysis import (
     Action,
     Analysis,
@@ -487,7 +488,16 @@ class PostgresUnitOfWork:
         )
 
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-persistencia
+        await self._connection.execute(
+            sa.text(
+                "INSERT INTO learnings (incident_id, status, attempts, requested_at)"
+                " VALUES (:incident_id, :pending, 0, :at)"
+                # Reencerrado: aprende de novo, do zero, com o log completo.
+                " ON CONFLICT (incident_id) DO UPDATE SET status = :pending, attempts = 0,"
+                " requested_at = :at, started_at = NULL, finished_at = NULL, reason = NULL"
+            ),
+            {"incident_id": incident_id, "pending": StudyStatus.PENDING.value, "at": at},
+        )
 
     async def enqueue(self, notification: Notification, at: datetime) -> None:
         await self._connection.execute(

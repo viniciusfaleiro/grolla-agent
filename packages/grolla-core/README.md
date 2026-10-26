@@ -50,6 +50,7 @@ os deployables só montam o processo.
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
+| **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL). O incidente novo é o card "Estou investigando", que lista o que vai ser checado. O card de análise traz o resumo e as seções "O que avaliei", "Hipóteses" (com confiança e evidência) e "Plano proposto", além dos botões "Abrir incidente" e "Ver no SigNoz". A análise parcial ("Análise parcial") diz o motivo logo abaixo do título; a com hipóteses avisa "Estou validando as hipóteses; a causa raiz vem em seguida.". O card da validação abre com "Causa raiz · P1", "Causa raiz não confirmada · P1" ou "Validação parcial · P1" (com "Motivo: …" logo abaixo) e traz as seções "Causa raiz", "Hipóteses" (`- <hipótese>: confirmada/rejeitada/inconclusiva — <justificativa>`), "Plano de ação" (`- <ação> (<alvo>) → <efeito>`, com link quando houver) e "O que faltou", só com o botão "Abrir incidente". O card "Incidente normalizado" fecha a história: duração ("Normalizado: durou 32 min") e o desfecho da validação (causa raiz e "Plano de ação sugerido", causa não confirmada com o que faltou, ou validação em andamento). As ações humanas do war room ganham cards curtos com o autor: "IC assumiu · P1", "Severidade alterada · P3" (com o motivo, se houver), "Incidente mitigado · P1", "Incidente descartado · P1" (com "Motivo: …") e "Incidente encerrado · P1", com "Encerrado por Ana · durou 35 min", o motivo, as ações registradas pelo time e a seção "Causa raiz" quando a validação a confirmou. As mensagens do chat não vão para o canal | `grolla.adapters.teams.TeamsChatNotifier` |
@@ -82,6 +83,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0003`: fila e resultado das análises iniciais e uso do modelo de linguagem (abaixo).
 - `0004`: fila e resultado da validação das hipóteses até a causa raiz (abaixo).
 - `0005`: war room: IC e horários do incidente e o chat com o agente (abaixo).
+- `0006`: memória viva: registros, versões, fila do aprendizado e rodadas de estudo (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -113,11 +115,22 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | `incidents` (colunas novas) | `commander` e os horários `handling_at` (TTA), `mitigated_at` (TTM) e `resolved_at` (TTR, encerrado ou descartado) | nulos nos incidentes antigos |
 | `chat_messages` | Mensagens do chat, em ordem de `at` e `id`, com `evaluations` em `jsonb` nas do agente. A pergunta de uma pessoa leva `reply_status` (`pendente` → `em_andamento` → `respondida`/`falhou`) e é a fila; a resposta do agente aponta a pergunta em `reply_to` | índice parcial nas pendentes |
 
+### Memória viva (0006)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `memories` | Dossiês, episódios e notas por assunto, com confiança, fonte e `active` (esquecer não apaga); coluna gerada `search` (`to_tsvector('portuguese', subject, title, body)`) | índice GIN na busca; **um dossiê por assunto** e **um episódio por (incidente, assunto)** (índices únicos parciais) |
+| `memory_versions` | O texto e o `active` de um registro antes de cada mudança | só inserção pelo adapter |
+| `learnings` | Fila do aprendizado ao encerrar (`pendente` → `em_andamento` → `concluido`/`falhou`), com tentativas e motivo | `incident_id` é a chave: um aprendizado por incidente |
+| `study_runs` | Rodadas de estudo (`inicial`, `diario`, `completo`, `reaprender`) e o estado | **uma rodada pendente só** (índice único parcial) |
+| `service_studies` | O último estudo de cada serviço: quando, se deu certo e o motivo | `service` é a chave |
+| `llm_usage` (coluna nova) | `study_run_id`: o uso do estudo aponta a rodada, não um incidente | índice para somar os tokens da rodada |
+
 ### Repositórios
 
 - `PostgresIncidentRepository.transaction()` abre **uma transação** e entrega a unidade de
   trabalho (`register_alert`, `active_incidents`, `incident_firing`, `save`, `append`,
-  `link_alert`, `enqueue`, `incident_for_update`, `add_message`, `request_analysis`): commit ao sair sem erro, rollback em exceção. Assim o evento, a
+  `link_alert`, `enqueue`, `incident_for_update`, `add_message`, `request_analysis`, `request_learning`): commit ao sair sem erro, rollback em exceção. Assim o evento, a
   projeção e o card na outbox são gravados juntos ou nada é gravado.
 - `register_alert` é um `INSERT … ON CONFLICT DO NOTHING RETURNING id`: devolve `False` para um
   reenvio, mesmo com dois processos.
@@ -159,6 +172,23 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `verification_of` devolve a validação em qualquer estado, ou `None` se nunca foi pedida. O
   card `root_cause` leva a validação completa no JSON da outbox; cards anteriores à 0004, sem a
   chave, voltam sem validação.
+- `PostgresMemoryStore.context_for` traz o dossiê do ambiente, os dos serviços (na ordem
+  pedida) e os das integrações cujo nome aparece no dossiê de um desses serviços; as notas
+  ativas e não consolidadas desses assuntos; e até `EPISODE_LIMIT` episódios ativos: primeiro os
+  do mesmo serviço com uma das regras de alerta no texto, depois os do mesmo serviço, depois por
+  `ts_rank` da busca; sem texto, os mais recentes do serviço. `search` usa
+  `websearch_to_tsquery('portuguese')` (radicais: "bancos" acha "banco"), confirmados e recentes
+  primeiro. `save` faz upsert pelo id e insere as versões numa transação: um dossiê duplicado
+  desfaz tudo (`tests/integration/test_postgres_memory.py`).
+- `request_learning` (na unidade de trabalho) volta o pedido a `pendente` com as tentativas
+  zeradas. `PostgresLearningQueue.claim` conta a tentativa; `finish` só grava se em andamento,
+  volta a pendente enquanto `attempts < LEARNING_ATTEMPTS` e grava o `llm_usage` com o
+  incidente; `failed` traz o título do incidente.
+- `PostgresStudyQueue.request` não duplica uma rodada pendente ou em andamento (`reaprender`
+  substitui a pendente), nem com pedidos simultâneos; `claim` usa `SKIP LOCKED`; `service_done`
+  grava o estudo do serviço (uma falha mantém a data do último estudo bem feito) e o uso com a
+  rodada; `tokens` é a soma desse uso; `service_order` põe primeiro os nunca estudados, os que
+  falharam ou ficaram sem orçamento, depois os estudados há mais tempo.
 - `data` dos eventos, `labels` e `raw` voltam do banco como JSON: horários viram ISO 8601 e ids
   viram texto.
 
@@ -190,7 +220,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py · analysis.py · war_room.py · chat.py
   application/     clock.py · incidents.py · investigation.py · analysis.py · war_room.py · chat.py
-  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/
+  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, memory, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py · investigation.py (fakes) · builders.py
 tests/             unit/ · integration/ · contracts/
