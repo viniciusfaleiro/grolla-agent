@@ -1,0 +1,61 @@
+{
+  "data": {
+    "alert": "Erros 5xx na pedidos-api",
+    "alertType": "TRACES_BASED_ALERT",
+    "annotations": {
+      "description": "{{$value}} spans com erro na pedidos-api nos últimos 5 minutos (limite 20).",
+      "summary": "Spans com erro na pedidos-api acima de 20 em 5 min"
+    },
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "builder_query",
+            "spec": {
+              "name": "A",
+              "stepInterval": 60,
+              "signal": "traces",
+              "source": "",
+              "aggregations": [
+                {
+                  "expression": "count()"
+                }
+              ],
+              "filter": {
+                "expression": "service.name = 'pedidos-api' AND has_error = true"
+              }
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "builder"
+      },
+      "op": "1",
+      "target": 20,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "createdAt": "2026-10-25T21:25:55.092323Z",
+    "createdBy": "admin@grolla.local",
+    "disabled": false,
+    "evalWindow": "5m0s",
+    "frequency": "1m0s",
+    "id": "01a174f4-af14-7500-8aa9-e7907b82ff20",
+    "labels": {
+      "service_name": "pedidos-api",
+      "severity": "critical",
+      "team": "credenciadora",
+      "tentativa": "causa-raiz"
+    },
+    "preferredChannels": [
+      "grolla-agente"
+    ],
+    "ruleType": "threshold_rule",
+    "state": "inactive",
+    "updatedAt": "2026-10-25T23:12:24.959724Z",
+    "updatedBy": "admin@grolla.local",
+    "version": "v5",
+    "webUrl": "http://signoz:8080/alerts/overview?ruleId=01a174f4-af14-7500-8aa9-e7907b82ff20"
+  },
+  "status": "success"
+}
