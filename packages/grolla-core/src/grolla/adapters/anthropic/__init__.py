@@ -4,10 +4,11 @@ A cada turno o modelo pede ferramentas do `Toolbox` (tool_use) ou devolve o resu
 que o structured outputs (`output_config.format`) obriga a seguir o schema do rascunho. O uso
 de cada resposta passa pelo `TokenBudget` antes de qualquer outra coisa.
 
-As duas fases usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`) e a
+As três chamadas usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`), a
 validação das hipóteses até a causa raiz (`verify`, etapa `verification`, com modelo e
-`effort` próprios). Na validação, um plano com passo de investigação ganha uma única mensagem
-de correção; se vier de novo, o resultado é inválido.
+`effort` próprios) e a resposta no chat do war room (`reply`, etapa `warroom_chat`, idem, com o
+resultado no schema `{"reply": string}`). Na validação, um plano com passo de investigação
+ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
 """
 
 import asyncio
@@ -16,9 +17,12 @@ from typing import Any
 
 import anthropic
 import httpx2
+from anthropic import Omit, omit
 from anthropic.types import (
     Message,
     MessageParam,
+    TextBlockParam,
+    ToolChoiceParam,
     ToolParam,
     ToolResultBlockParam,
     ToolUseBlock,
@@ -26,8 +30,10 @@ from anthropic.types import (
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
+    CHAT_PROMPT,
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
+    STAGE_WARROOM_CHAT,
     SYSTEM_PROMPT,
     VERIFICATION_PROMPT,
     InvalidAnalysisError,
@@ -51,11 +57,20 @@ from grolla.domain.analysis import (
     VerificationDraft,
     check_plan,
 )
+from grolla.domain.chat import ChatDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
 MAX_RETRIES = 2
 REQUEST_TIMEOUT_SECONDS = 60.0
+
+# Cada volta reenvia a conversa inteira e custa um pouco mais que a anterior: com menos de duas
+# voltas no orçamento, o chat fecha a resposta com o que já consultou.
+WRAP_UP_TURNS = 2
+WRAP_UP = (
+    "O orçamento desta resposta está acabando: responda agora, no formato pedido, com o que já "
+    "consultou e diga em uma linha o que não deu para verificar."
+)
 
 # Cache de 1 h no prefixo estável (ferramentas e system): as análises de um mesmo dia o reusam.
 _CACHE_1H: Any = {"type": "ephemeral", "ttl": "1h"}
@@ -136,6 +151,14 @@ VERIFICATION_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
+# Schema da resposta do chat: só o texto, que vai para o chat como está.
+CHAT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"reply": {"type": "string"}},
+    "required": ["reply"],
+    "additionalProperties": False,
+}
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -159,6 +182,7 @@ class _Phase:
     schema: dict[str, object]
     settings: ModelSettings
     stage: str
+    wrap_up: bool = False  # chat: com o orçamento acabando, responde com o que já consultou
 
     def output_config(self) -> Any:
         config: dict[str, object] = {"format": {"type": "json_schema", "schema": self.schema}}
@@ -209,18 +233,25 @@ class _Verification(_Strict):
     missing: str
 
 
+class _Reply(_Strict):
+    reply: str
+
+
 class ClaudeLanguageModel:
-    def __init__(
+    def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
         api_key: str,
         settings: ModelSettings,
+        *,
         base_url: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
         verification: ModelSettings | None = None,
+        chat: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
         self._verification = verification or settings  # etapa `verification` herda a da análise
+        self._chat = chat or settings  # etapa `warroom_chat` também herda
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -232,6 +263,23 @@ class ClaudeLanguageModel:
         async with self._client() as client:
             try:
                 return _draft(await _loop(client, phase, messages, toolbox, budget))
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def reply(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        question: str,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> ChatDraft:
+        del brief  # o contexto montado pela application já traz o incidente
+        phase = _Phase(CHAT_PROMPT, CHAT_SCHEMA, self._chat, STAGE_WARROOM_CHAT, wrap_up=True)
+        messages: list[MessageParam] = [{"role": "user", "content": chat_text(context, question)}]
+        async with self._client() as client:
+            try:
+                return _chat_draft(await _loop(client, phase, messages, toolbox, budget))
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
 
@@ -275,25 +323,38 @@ async def _loop(
     toolbox: Toolbox,
     budget: TokenBudget,
 ) -> Message:
-    """Roda as ferramentas pedidas até a resposta final e a devolve; estende `messages`."""
+    """Roda as ferramentas pedidas até a resposta final e a devolve; estende `messages`.
+
+    Com `wrap_up`, quando o que sobra do orçamento não paga mais uma volta, a última chamada vai
+    sem ferramentas: o modelo responde com o que já consultou em vez de estourar o orçamento.
+    """
     tools = _tools(toolbox)
+    wrapping_up = False
     while True:
+        choice: ToolChoiceParam | Omit = {"type": "none"} if wrapping_up else omit
         response = await client.messages.create(
             model=phase.settings.model,
             max_tokens=phase.settings.max_tokens,
             system=[{"type": "text", "text": phase.system, "cache_control": _CACHE_1H}],
             tools=tools,
+            tool_choice=choice,
             messages=messages,
             thinking={"type": "adaptive"},
             output_config=phase.output_config(),
         )
-        budget.spend(_usage(response, phase.stage))
-        if response.stop_reason != "tool_use":
+        usage = _usage(response, phase.stage)
+        budget.spend(usage)
+        if response.stop_reason != "tool_use" or wrapping_up:
             return response
         calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
-        results = await asyncio.gather(*(_run(toolbox, call) for call in calls))
+        results: list[ToolResultBlockParam | TextBlockParam] = list(
+            await asyncio.gather(*(_run(toolbox, call) for call in calls))
+        )
+        if phase.wrap_up and budget.remaining < WRAP_UP_TURNS * _tokens(usage):
+            results.append({"type": "text", "text": WRAP_UP})
+            wrapping_up = True
         messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": list(results)})
+        messages.append({"role": "user", "content": results})
 
 
 async def _concrete(
@@ -331,6 +392,15 @@ def _tools(toolbox: Toolbox) -> list[ToolParam]:
     if tools:
         tools[-1]["cache_control"] = _CACHE_1H
     return tools
+
+
+def _tokens(usage: LlmUsage) -> int:
+    return (
+        usage.input_tokens
+        + usage.output_tokens
+        + usage.cache_read_tokens
+        + usage.cache_creation_tokens
+    )
 
 
 async def _run(toolbox: Toolbox, call: ToolUseBlock) -> ToolResultBlockParam:
@@ -396,6 +466,21 @@ def _verification(response: Message) -> VerificationDraft:
         actions=tuple(Action(a.action, a.target, a.expected, a.link) for a in draft.actions),
         missing=draft.missing,
     )
+
+
+def chat_text(context: str, question: str) -> str:
+    """Mensagem do chat: o contexto do incidente e, por último, a pergunta."""
+    return f"{context}\n\nPergunta: {question}"
+
+
+def _chat_draft(response: Message) -> ChatDraft:
+    try:
+        draft = _Reply.model_validate_json(_final_text(response))
+    except ValidationError as error:
+        raise InvalidAnalysisError("resultado fora do formato da resposta do chat") from error
+    if not draft.reply.strip():
+        raise InvalidAnalysisError("resposta do chat vazia")
+    return ChatDraft(text=draft.reply.strip())
 
 
 def _describe(error: anthropic.APIError) -> str:

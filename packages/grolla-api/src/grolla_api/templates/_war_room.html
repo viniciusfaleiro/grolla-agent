@@ -1,0 +1,246 @@
+{# Condução, causa raiz e análise; é o fragmento devolvido pelas rotas de ação. #}
+{% from "_macros.html" import lookups, evidence_list, avatar, when %}
+{% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
+{% set open = header.actions | length > 0 %}
+<section id="war-room">
+<div class="conduct">
+  <div class="incident-head">
+    <div class="incident-title">
+      <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
+      <h1>{{ incident.title }}</h1>
+    </div>
+    <div class="chips">
+      <span class="state state-{{ incident.state }}">{{ header.state }}</span>
+      {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+      <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
+    </div>
+  </div>
+
+  <svg class="pulse pulse-{{ incident.state }}" viewBox="0 0 600 44" preserveAspectRatio="none" aria-hidden="true">
+    {% if open %}
+    <path class="pulse-beat" d="M0 22 H200 L214 22 L224 6 L238 38 L250 14 L258 22 H330 L340 22 L348 12 L358 32 L366 22 H600"/>
+    {% else %}
+    <path d="M0 22 H600"/>
+    {% endif %}
+  </svg>
+
+  {% if header.stages %}
+  <ol class="stages" aria-label="Ciclo do incidente">
+    {% for stage in header.stages %}
+    <li class="{{ stage.status }}"{% if stage.status == "atual" %} aria-current="step"{% endif %}>{{ stage.label }}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  <dl class="facts">
+    <div><dt>IC</dt><dd class="commander">{% if incident.commander %}{{ avatar(incident.commander) }}{{ incident.commander }}{% else %}ninguém ainda{% endif %}</dd></div>
+    <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
+    <div><dt title="Tempo até alguém assumir">TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
+    <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
+    <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
+  </dl>
+
+  {% if not author %}
+  <div class="panel join">
+    <h2>Como o time te chama?</h2>
+    <p class="muted">Seu nome aparece nas ações e nas mensagens deste war room.</p>
+    <form method="post" action="/author">
+      <input type="hidden" name="voltar" value="/incidents/{{ incident.id }}">
+      <label class="visually-hidden" for="nome">Seu nome</label>
+      <input id="nome" name="nome" required maxlength="60" placeholder="Seu nome" autocomplete="name">
+      <button class="button-primary">Entrar no war room</button>
+    </form>
+  </div>
+  {% elif open %}
+  <div class="panel next-step" hx-target="#war-room" hx-swap="outerHTML">
+    <div class="next-step-main">
+      {% if "assume" in header.actions %}
+      <form hx-post="{{ base }}assume"><button class="{{ 'button-primary button-big' if header.primary == 'assume' else '' }}">{{ "Assumir como IC" if not incident.commander else "Assumir como IC no lugar de " ~ incident.commander }}</button></form>
+      {% endif %}
+      {% if "mitigate" in header.actions %}
+      <form hx-post="{{ base }}mitigate"><button class="{{ 'button-primary button-big' if header.primary == 'mitigate' else '' }}">Marcar mitigado</button></form>
+      {% endif %}
+      {% if "resolve" in header.actions %}
+      <button class="{{ 'button-primary button-big' if header.primary == 'resolve' else '' }}" popovertarget="encerrar">Encerrar</button>
+      {% endif %}
+      {% if "reopen" in header.actions %}
+      <form hx-post="{{ base }}reopen"><button>Reabrir</button></form>
+      {% endif %}
+    </div>
+
+    {% if "record" in header.actions %}
+    <form class="record" hx-post="{{ base }}record">
+      <label class="visually-hidden" for="acao">O que você fez</label>
+      <input id="acao" name="texto" required placeholder="Registre o que foi feito, ex.: rollback do build 20261025.4">
+      <button>Registrar ação</button>
+    </form>
+    {% endif %}
+
+    <div class="more-actions">
+      {% if "severity" in header.actions %}
+      <form class="severity-picker" hx-post="{{ base }}severity" hx-confirm="Mudar a severidade? O canal do time recebe um card.">
+        <span class="muted">Severidade</span>
+        <span class="options" role="group" aria-label="Severidade">
+          {% for severity in severities %}
+          <button name="severidade" value="{{ severity }}" aria-pressed="{{ 'true' if severity == incident.severity else 'false' }}"{% if severity == incident.severity %} disabled{% endif %}>{{ severity }}</button>
+          {% endfor %}
+        </span>
+      </form>
+      {% endif %}
+      {% if "discard" in header.actions %}
+      <button class="button-quiet button-danger" popovertarget="descartar">Descartar como falso positivo</button>
+      {% endif %}
+    </div>
+    <div id="war-room-error" class="error" role="alert"></div>
+
+    {% if "resolve" in header.actions %}
+    <div id="encerrar" popover>
+      <form class="popover-form" hx-post="{{ base }}resolve">
+        <h3>Encerrar o incidente</h3>
+        <p class="muted">O canal do time recebe o resumo com a duração, o motivo e as ações registradas.</p>
+        <label for="motivo-encerrar">O que resolveu</label>
+        <textarea id="motivo-encerrar" name="motivo" required rows="3" placeholder="ex.: rollback do build 20261025.4; taxa de erro voltou a 0%"></textarea>
+        <div class="row">
+          <button type="button" class="button-quiet" popovertarget="encerrar" popovertargetaction="hide">Cancelar</button>
+          <button class="button-primary">Encerrar</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+    {% if "discard" in header.actions %}
+    <div id="descartar" popover>
+      <form class="popover-form" hx-post="{{ base }}discard">
+        <h3>Descartar como falso positivo</h3>
+        <label for="motivo-descartar">Por que não é um incidente</label>
+        <textarea id="motivo-descartar" name="motivo" required rows="3" placeholder="ex.: teste de carga programado"></textarea>
+        <div class="row">
+          <button type="button" class="button-quiet" popovertarget="descartar" popovertargetaction="hide">Cancelar</button>
+          <button class="button-primary">Descartar</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div id="war-room-error" class="error" role="alert"></div>
+  <p class="closed-note">Incidente {{ header.state | lower }}. O chat continua aberto para perguntas ao Grolla.</p>
+  {% endif %}
+
+  {% if verification and verification.root_cause %}
+  <div class="root-cause">
+    <h2>Causa raiz</h2>
+    <p>{{ verification.root_cause }}</p>
+  </div>
+  {% elif verification and verification.finished_at %}
+  <div class="root-cause root-cause-missing">
+    <h2>Causa raiz não confirmada</h2>
+    {% if verification.missing %}<p>O que faltou: {{ verification.missing }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if verification and verification.actions %}
+  <div class="panel">
+    <h2>Plano de ação sugerido</h2>
+    <ol class="plan">
+      {% for action in verification.actions %}
+      <li>
+        <span class="step">{{ loop.index }}</span>
+        <span class="what">{{ action.action }}</span>
+        <span class="muted">{{ action.target }}{% if action.link %} · <a href="{{ action.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</span>
+        <span class="why">{{ action.expected }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+</div>
+
+<div class="analysis">
+  <section class="panel" id="analise">
+    <h2>Análise do Grolla</h2>
+    {% if analysis is none %}
+    <p class="muted">Nenhuma análise pedida.</p>
+    {% else %}
+    <p class="status-line analysis-status">{{ analysis_labels[analysis.status] }}{% if analysis.partial_reason %}: {{ partial_reasons[analysis.partial_reason] }}{% endif %}</p>
+    {% if analysis.summary %}<p class="summary">{{ analysis.summary }}</p>{% endif %}
+
+    {% if analysis.hypotheses %}
+    <ol class="hypotheses">
+      {% for hypothesis in analysis.hypotheses %}
+      {% set gone = discarded.get(hypothesis.title) %}
+      {% set pct = (hypothesis.confidence * 100) | round | int %}
+      <li class="hypothesis{% if gone %} hypothesis-discarded{% endif %}">
+        <div class="hypothesis-head">
+          <h3 class="hypothesis-title">{{ hypothesis.title }}</h3>
+          <span class="confidence"><meter min="0" max="100" value="{{ pct }}"></meter>{{ pct }}%</span>
+        </div>
+        {% if hypothesis.evidence %}{{ evidence_list(hypothesis.evidence) }}{% endif %}
+        {% if gone %}
+        <p class="discarded-note">Descartada por {{ gone[0] }}: {{ gone[1] }}</p>
+        {% elif author and "discard-hypothesis" in header.actions %}
+        {% set pid = "descartar-hipotese-" ~ loop.index %}
+        <div><button class="button-quiet" popovertarget="{{ pid }}">Descartar hipótese</button></div>
+        <div id="{{ pid }}" popover>
+          <form class="popover-form" hx-post="{{ base }}discard-hypothesis" hx-target="#war-room" hx-swap="outerHTML">
+            <h3>Descartar "{{ hypothesis.title }}"</h3>
+            <input type="hidden" name="titulo" value="{{ hypothesis.title }}">
+            <label for="{{ pid }}-motivo">Por que não é essa</label>
+            <textarea id="{{ pid }}-motivo" name="motivo" required rows="2"></textarea>
+            <div class="row">
+              <button type="button" class="button-quiet" popovertarget="{{ pid }}" popovertargetaction="hide">Cancelar</button>
+              <button class="button-primary">Descartar hipótese</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+
+    {% if analysis.plan %}
+    <div class="subsection">
+      <h3>Plano proposto na análise</h3>
+      <ol>{% for step in analysis.plan %}<li>{{ step }}</li>{% endfor %}</ol>
+    </div>
+    {% endif %}
+
+    {% if analysis.evaluations %}
+    <details class="subsection">
+      <summary>O que o Grolla consultou ({{ analysis.evaluations | length }})</summary>
+      {{ lookups(analysis.evaluations) }}
+    </details>
+    {% endif %}
+    {% endif %}
+  </section>
+
+  <section class="panel" id="validacao">
+    <h2>Validação das hipóteses</h2>
+    {% if verification is none %}
+    <p class="muted">Nenhuma validação pedida.</p>
+    {% else %}
+    <p class="status-line verification-status">{{ verification_labels[verification.status] }}{% if verification.partial_reason %}: {{ partial_reasons[verification.partial_reason] }}{% endif %}</p>
+    {% if verification.verdicts %}
+    <ol class="verdicts">
+      {% for item in verification.verdicts %}
+      <li>
+        <div class="hypothesis-head">
+          <h3>{{ item.hypothesis }}</h3>
+          <span class="verdict verdict-{{ item.verdict.name | lower }}">{{ item.verdict }}</span>
+        </div>
+        {% if item.reasoning %}<p>{{ item.reasoning }}</p>{% endif %}
+        {% if item.evidence %}{{ evidence_list(item.evidence) }}{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+    {% if verification.evaluations %}
+    <details class="subsection">
+      <summary>O que o Grolla consultou na validação ({{ verification.evaluations | length }})</summary>
+      {{ lookups(verification.evaluations) }}
+    </details>
+    {% endif %}
+    {% endif %}
+  </section>
+</div>
+</section>

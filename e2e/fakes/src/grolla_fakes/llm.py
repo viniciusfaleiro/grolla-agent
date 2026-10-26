@@ -1,20 +1,26 @@
 """Messages API fake (`POST /anthropic/v1/messages`), no formato da API da Anthropic.
 
-Atende as duas fases da investigação, reconhecidas pelo schema em `output_config.format`: com a
-propriedade `verdicts`, é a validação; senão, a análise inicial. O modo de cada fase vem de
-`POST /_control/llm {"mode": ..., "verification_mode": ...}`. Os dois campos são opcionais e
-um não mexe no outro; o padrão é `completa`, e o `/_control/reset` volta os dois ao padrão.
+Atende as três fases, reconhecidas pelo schema em `output_config.format`: com a propriedade
+`verdicts`, é a validação; com `reply`, a resposta do chat do war room; senão, a análise
+inicial. O modo de cada fase vem de
+`POST /_control/llm {"mode": ..., "verification_mode": ..., "chat_mode": ...}`. Os campos são
+opcionais e um não mexe nos outros; o padrão é `completa`, e o `/_control/reset` volta todos ao
+padrão.
 
 - `completa`: sem resultados de ferramenta na conversa, pede ferramentas (tool_use): na análise
   inicial `query_metric`, `recent_deploys` e `search_logs`; na validação `query_metric` e
   `recent_deploys`. Com os resultados, devolve o JSON final citando trechos deles. Na validação,
   a primeira hipótese da análise sai confirmada, a segunda rejeitada, a causa raiz cita o
-  serviço e o plano é "Fazer rollback do <serviço> para o deploy anterior";
+  serviço e o plano é "Fazer rollback do <serviço> para o deploy anterior". No chat, pede
+  `search_logs` e responde em português citando os logs e o começo da pergunta (o texto depois
+  do último "Pergunta:" da mensagem);
 - `inconclusiva` (só na validação): o mesmo roteiro, mas todas as hipóteses inconclusivas, sem
   causa raiz, sem plano e com o que faltou;
 - `fora_do_ar`: 529 overloaded, como a API sobrecarregada;
 - `lenta`: espera além do timeout do e2e antes de responder (a fase termina parcial); na
   análise inicial, a resposta tardia não traz hipóteses.
+
+Os modos `inconclusiva` na análise inicial e no chat se comportam como `completa`.
 
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
@@ -35,12 +41,14 @@ from grolla_fakes.state import FakesState, RecordedRequest
 MESSAGES_PATH = "/anthropic/v1/messages"
 FIRST_TOOLS = ("query_metric", "recent_deploys", "search_logs")
 VERIFICATION_TOOLS = ("query_metric", "recent_deploys")
+CHAT_TOOLS = ("search_logs",)
 SLOW_SECONDS = 60.0  # bem acima dos timeouts de análise e de validação do e2e
 UNKNOWN_SERVICE = "servico-desconhecido"
 FALLBACK_HYPOTHESIS = "Hipótese da análise inicial"
 _SERVICES_LINE = re.compile(r"Serviços?:\s*([^\n,]+)")
 _HYPOTHESES = "Hipóteses da análise inicial:"
 _HYPOTHESIS_LINE = re.compile(r"^- (.+?) \(confiança [^)]*\)$")
+_QUESTION = "Pergunta:"
 
 
 class LlmMode(StrEnum):
@@ -50,9 +58,16 @@ class LlmMode(StrEnum):
     INCONCLUSIVE = "inconclusiva"  # só faz diferença na validação
 
 
+class Phase(StrEnum):
+    ANALYSIS = "analise"
+    VERIFICATION = "validacao"
+    CHAT = "chat"
+
+
 class LlmControl(BaseModel):
     mode: LlmMode | None = None  # campo ausente: a fase fica como está
     verification_mode: LlmMode | None = None
+    chat_mode: LlmMode | None = None
 
 
 def llm_router(state: FakesState) -> APIRouter:
@@ -64,12 +79,19 @@ def llm_router(state: FakesState) -> APIRouter:
             state.llm_mode = control.mode
         if control.verification_mode is not None:
             state.llm_verification_mode = control.verification_mode
+        if control.chat_mode is not None:
+            state.llm_chat_mode = control.chat_mode
 
     @router.post(MESSAGES_PATH)
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         body: dict[str, Any] = await request.json()
-        verifying = is_verification(body)
-        mode = LlmMode(state.llm_verification_mode if verifying else state.llm_mode)
+        current = phase(body)
+        modes = {
+            Phase.ANALYSIS: state.llm_mode,
+            Phase.VERIFICATION: state.llm_verification_mode,
+            Phase.CHAT: state.llm_chat_mode,
+        }
+        mode = LlmMode(modes[current])
         status = 529 if mode is LlmMode.DOWN else 200
         state.requests.append(
             RecordedRequest(method="POST", path=MESSAGES_PATH, body=body, status=status)
@@ -83,21 +105,44 @@ def llm_router(state: FakesState) -> APIRouter:
             )
         if mode is LlmMode.SLOW:
             await asyncio.sleep(SLOW_SECONDS)
-            if not verifying:  # se ainda houver quem espere, a análise sai sem hipóteses
+            if current is Phase.ANALYSIS:  # se ainda houver quem espere, sai sem hipóteses
                 return JSONResponse(_final(body, {**_draft({}), "hypotheses": []}))
-        if verifying:
+        if current is Phase.VERIFICATION:
             return JSONResponse(verification_reply(body, mode is LlmMode.INCONCLUSIVE))
+        if current is Phase.CHAT:
+            return JSONResponse(chat_reply(body))
         return JSONResponse(reply(body))
 
     return router
 
 
-def is_verification(body: dict[str, Any]) -> bool:
-    """A validação pede o schema com `verdicts`; a análise inicial, o do rascunho."""
+def phase(body: dict[str, Any]) -> Phase:
+    """A validação pede o schema com `verdicts`; o chat, com `reply`; a análise, o do rascunho."""
     output: dict[str, Any] = body.get("output_config") or {}
     output_format: dict[str, Any] = output.get("format") or {}
     schema: dict[str, Any] = output_format.get("schema") or {}
-    return "verdicts" in (schema.get("properties") or {})
+    properties: dict[str, Any] = schema.get("properties") or {}
+    if "verdicts" in properties:
+        return Phase.VERIFICATION
+    if "reply" in properties:
+        return Phase.CHAT
+    return Phase.ANALYSIS
+
+
+def chat_reply(body: dict[str, Any]) -> dict[str, Any]:
+    """Resposta do chat: consulta os logs do serviço e responde citando-os e a pergunta."""
+    results = _tool_results(body["messages"])
+    if not results:
+        return _message(body, _tool_calls(body, CHAT_TOOLS), "tool_use")
+    first = _first_text(body["messages"][0])
+    _, _, question = first.rpartition(_QUESTION)
+    logs = results.get("search_logs", "sem logs")
+    text = (
+        f"Consultei os logs de {_service(first)}: {_excerpt(logs)} "
+        f'Sobre "{_excerpt(question.strip(), 80)}": os logs acima são o que encontrei; '
+        "se quiser, registre a ação no war room."
+    )
+    return _final(body, {"reply": text})
 
 
 def reply(body: dict[str, Any]) -> dict[str, Any]:

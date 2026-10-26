@@ -37,7 +37,10 @@ incidentes e o pacote de deploy manual (`deploy/`). S3 (`agente-investiga-cada-a
 incidente novo recebe "estou investigando" e a análise do LLM (avaliações reais, hipóteses, plano)
 sobre o MCP do SigNoz e o Azure DevOps, com análise parcial garantida e `make evals`. S3.1
 (`investigacao-ate-a-causa-raiz`): validação de cada hipótese até a causa raiz com plano de ação
-concreto e consulta somente leitura à AWS. Próximo: S4
+concreto e consulta somente leitura à AWS. `normalizacao-com-causa-raiz`: card de normalizado
+com duração, causa raiz e plano. `war-room-com-o-agente`: ações humanas na página do incidente
+(IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat em que o
+agente investiga sob demanda. Próximo: S4
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

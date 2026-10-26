@@ -8,6 +8,7 @@ import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -74,6 +75,13 @@ async def _record(
     uow = PostgresUnitOfWork(connection)
     await uow.append(events)
     await uow.enqueue(notification, at)
+    await record_usages(connection, notification.incident_id, usages, at)
+
+
+async def record_usages(
+    connection: AsyncConnection, incident_id: UUID, usages: Sequence[LlmUsage], at: datetime
+) -> None:
+    """Uso do modelo por etapa, na transação de quem encerra a fase."""
     if not usages:
         return
     await connection.execute(
@@ -85,7 +93,7 @@ async def _record(
         ),
         [
             {
-                "incident_id": notification.incident_id,
+                "incident_id": incident_id,
                 "stage": usage.stage,
                 "model": usage.model,
                 "input_tokens": usage.input_tokens,

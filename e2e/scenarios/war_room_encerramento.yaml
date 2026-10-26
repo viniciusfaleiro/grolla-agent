@@ -1,0 +1,116 @@
+# Fluxo completo do war room: Ana assume como IC, rebaixa a severidade, registra o rollback,
+# marca mitigado e encerra com motivo. Cada ação vira evento com autor e card curto no canal, na
+# ordem; o card de encerramento traz quem encerrou, a duração, o motivo e as ações do time.
+name: war room do alerta ao encerramento
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no encerra-api
+              service_name: encerra-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no encerra-api
+              description: A taxa de erro HTTP 5xx do encerra-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=130
+            fingerprint: e2e-encerra-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'encerra-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/severity
+      cookies: { grolla_author: Ana }
+      form: { severidade: P2 }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/record
+      cookies: { grolla_author: Ana }
+      form: { texto: fiz rollback do build 20261025.3 }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/mitigate
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build .3 resolveu }
+      status: 200
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{incidente}' AND state = 'resolvido'
+        AND severity = 'P2' AND commander = 'Ana' AND handling_at IS NOT NULL
+        AND mitigated_at IS NOT NULL AND resolved_at IS NOT NULL
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}' AND author = 'Ana'
+        AND type IN ('commander_assigned', 'action_recorded', 'incident_mitigated',
+        'incident_resolved')
+      count: 4
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}' AND author = 'Ana'
+        AND type = 'action_recorded' AND data::text LIKE '%fiz rollback do build 20261025.3%'
+      count: 1
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [encerra-api, P1, Estou investigando]
+      then: [encerra-api, "IC assumiu · P1", Ana assumiu como IC]
+      timeout_seconds: 60
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [encerra-api, "IC assumiu · P1"]
+      then: [encerra-api, "Severidade alterada · P2", P1 → P2 por Ana]
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [encerra-api, "Severidade alterada · P2"]
+      then: [encerra-api, "Incidente mitigado · P2"]
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [encerra-api, "Incidente mitigado · P2"]
+      then:
+        - encerra-api
+        - "Incidente encerrado · P2"
+        - Encerrado por Ana
+        - durou
+        - "Motivo:"
+        - rollback do build .3 resolveu
+        - fiz rollback do build 20261025.3
+  # Um card de encerramento só: o reenvio da outbox não duplica.
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [encerra-api, Incidente encerrado]
+      count: 1

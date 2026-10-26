@@ -10,14 +10,17 @@ from typing import Any
 from uuid import UUID
 
 from grolla.application.analysis import AnalysisJob
+from grolla.application.chat import ChatJob
 from grolla.application.incidents import (
     InvalidAlertPayloadError,
     NotificationFailedError,
     OutboxItem,
 )
-from grolla.application.investigation import LlmUsage
+from grolla.application.investigation import STAGE_WARROOM_CHAT, LlmUsage
 from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
+from grolla.domain.chat import ChatMessage, ReplyStatus
 from grolla.domain.incidents import (
+    OPEN_STATES,
     Alert,
     AlertStatus,
     EventType,
@@ -56,6 +59,8 @@ class InMemoryIncidentRepository:
         self.analyses: dict[UUID, Analysis] = {}
         self.verifications: dict[UUID, Verification] = {}
         self.usages: list[tuple[UUID, LlmUsage, datetime]] = []  # (incidente, uso, quando)
+        self.messages: list[ChatMessage] = []
+        self.reply_started: dict[int, datetime] = {}  # pergunta em andamento → início
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator["InMemoryUnitOfWork"]:
@@ -68,6 +73,8 @@ class InMemoryIncidentRepository:
             dict(self.analyses),
             dict(self.verifications),
             list(self.usages),
+            list(self.messages),
+            dict(self.reply_started),
         )
         try:
             yield InMemoryUnitOfWork(self)
@@ -81,8 +88,18 @@ class InMemoryIncidentRepository:
                 self.analyses,
                 self.verifications,
                 self.usages,
+                self.messages,
+                self.reply_started,
             ) = snapshot
             raise
+
+    def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        """Grava com o próximo id; com `wants_reply`, a mensagem fica pendente de resposta."""
+        next_id = max((m.id for m in self.messages), default=0) + 1
+        status = ReplyStatus.PENDING if wants_reply else message.reply_status
+        saved = replace(message, id=next_id, reply_status=status)
+        self.messages.append(saved)
+        return saved
 
     async def list_incidents(self, limit: int) -> list[Incident]:
         ordered = sorted(self.incidents.values(), key=lambda i: i.detected_at, reverse=True)
@@ -93,6 +110,10 @@ class InMemoryIncidentRepository:
 
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         return [alert for owner, alert in self.links if owner == incident_id]
+
+    async def chat_of(self, incident_id: UUID) -> list[ChatMessage]:
+        mine = [m for m in self.messages if m.incident_id == incident_id]
+        return sorted(mine, key=lambda m: (m.at, m.id))
 
     async def verification_of(self, incident_id: UUID) -> Verification | None:
         return self.verifications.get(incident_id)
@@ -121,6 +142,7 @@ class InMemoryUnitOfWork:
                 incident
                 for incident in self._repository.incidents.values()
                 if service in incident.services
+                and incident.state in OPEN_STATES
                 and (incident.firing or incident.last_alert_at >= since)
             ),
             key=lambda i: i.last_alert_at,
@@ -144,6 +166,12 @@ class InMemoryUnitOfWork:
         outbox = self._repository.outbox
         next_id = max((entry.id for entry in outbox), default=0) + 1
         outbox.append(OutboxEntry(next_id, notification, next_attempt_at=at))
+
+    async def incident_for_update(self, incident_id: UUID) -> Incident | None:
+        return self._repository.incidents.get(incident_id)  # sem concorrência em memória
+
+    async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        return self._repository.add_message(message, wants_reply)
 
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
         """Um pedido por incidente: pedir de novo mantém o primeiro."""
@@ -353,3 +381,73 @@ class FakeAlertIngress:
         if not isinstance(payload, Mapping) or "alerts" not in payload:
             raise InvalidAlertPayloadError("payload sem a lista de alertas")
         return list(self.alerts)
+
+
+class InMemoryChatQueue:
+    """Fila das perguntas do chat sobre o estado de um `InMemoryIncidentRepository`."""
+
+    def __init__(self, repository: InMemoryIncidentRepository) -> None:
+        self._repository = repository
+
+    async def claim(self, now: datetime) -> ChatJob | None:
+        pending = [m for m in self._repository.messages if m.reply_status is ReplyStatus.PENDING]
+        oldest = min(pending, key=lambda m: (m.at, m.id), default=None)
+        if oldest is None:
+            return None
+        self._set_status(oldest.id, ReplyStatus.RUNNING)
+        self._repository.reply_started[oldest.id] = now
+        return _job(oldest, now)
+
+    async def stuck(self, started_before: datetime) -> list[ChatJob]:
+        started = self._repository.reply_started
+        return [
+            _job(m, started[m.id])
+            for m in self._repository.messages
+            if m.reply_status is ReplyStatus.RUNNING and started[m.id] < started_before
+        ]
+
+    async def answer(
+        self,
+        job: ChatJob,
+        reply: ChatMessage,
+        events: Sequence[IncidentEvent],
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        question = self._message(job.message_id)
+        if question is None or question.reply_status is not ReplyStatus.RUNNING:
+            return  # já respondida (pelo reaper ou por outro worker): a resposta chega uma vez
+        async with self._repository.transaction() as uow:
+            self._set_status(job.message_id, reply.reply_status or ReplyStatus.ANSWERED)
+            del self._repository.reply_started[job.message_id]
+            self._repository.add_message(
+                replace(reply, reply_status=None, reply_to=job.message_id), wants_reply=False
+            )
+            await uow.append(events)
+            self._repository.usages.extend((job.incident_id, u, at) for u in usages)
+
+    async def chat_tokens(self, incident_id: UUID) -> int:
+        return sum(
+            u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens
+            for owner, u, _ in self._repository.usages
+            if owner == incident_id and u.stage == STAGE_WARROOM_CHAT
+        )
+
+    def _message(self, message_id: int) -> ChatMessage | None:
+        return next((m for m in self._repository.messages if m.id == message_id), None)
+
+    def _set_status(self, message_id: int, status: ReplyStatus) -> None:
+        messages = self._repository.messages
+        index = next(n for n, m in enumerate(messages) if m.id == message_id)
+        messages[index] = replace(messages[index], reply_status=status)
+
+
+def _job(question: ChatMessage, started_at: datetime) -> ChatJob:
+    return ChatJob(
+        message_id=question.id,
+        incident_id=question.incident_id,
+        author=question.author,
+        text=question.text,
+        asked_at=question.at,
+        started_at=started_at,
+    )

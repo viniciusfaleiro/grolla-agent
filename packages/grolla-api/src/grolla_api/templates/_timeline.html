@@ -1,0 +1,25 @@
+{# Timeline com o autor; o polling só troca este bloco quando chega evento. #}
+{% from "_macros.html" import hhmm %}
+<div id="timeline"
+     hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
+     hx-trigger="every 3s" hx-swap="outerHTML">
+{% set shown = visible_events(events) %}
+{% if shown %}
+<ol class="timeline">
+  {% for event in shown %}
+  {% set human = event.author not in system_authors %}
+  <li{% if is_quiet(event) %} class="quiet"{% endif %}>
+    {{ hhmm(event.at) }}
+    <div class="event{% if human %} event-human{% endif %}">
+      <span class="event-label">{{ event_labels.get(event.type, event.type) }}</span>
+      {% if event.author != "sistema" %}<span class="event-author">por {{ display_name(event.author) }}</span>{% endif %}
+      {% set detail = event_detail(event) %}
+      {% if detail %}<div class="event-detail">{{ detail | truncate(180) }}</div>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Nenhum evento.</p>
+{% endif %}
+</div>

@@ -1,0 +1,75 @@
+# Ana pede ao agente no chat do war room que olhe os logs. A resposta chega de forma assíncrona,
+# começa por "Consultei os logs", aponta a pergunta e traz a consulta feita como avaliação. As
+# duas mensagens viram eventos na timeline, o uso do LLM fica na etapa `warroom_chat` e o chat não
+# vai para o canal.
+name: chat do war room responde com a consulta
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no chat-api
+              service_name: chat-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no chat-api
+              description: A taxa de erro HTTP 5xx do chat-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=133
+            fingerprint: e2e-chat-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'chat-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/chat
+      cookies: { grolla_author: Ana }
+      form: { texto: "olha os logs do chat-api desde 09:40" }
+      status: 200
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM chat_messages r JOIN chat_messages q ON q.id = r.reply_to
+        WHERE r.incident_id = '{incidente}' AND r.author = 'agente'
+        AND r.text LIKE 'Consultei os logs de chat-api%'
+        AND jsonb_array_length(r.evaluations) >= 1
+        AND q.author = 'Ana' AND q.text = 'olha os logs do chat-api desde 09:40'
+        AND q.reply_status = 'respondida'
+      at_least: 1
+      timeout_seconds: 60
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM chat_messages WHERE incident_id = '{incidente}'
+      count: 2
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND ((type = 'human_message' AND author = 'Ana')
+        OR (type = 'agent_message' AND author = 'agente'))
+      count: 2
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM llm_usage WHERE incident_id = '{incidente}'
+        AND stage = 'warroom_chat'
+      at_least: 1
+      timeout_seconds: 5
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [Consultei os logs]
+      count: 0

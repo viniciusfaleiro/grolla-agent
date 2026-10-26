@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from grolla.application.clock import Clock
 from grolla.domain.analysis import Analysis, Verification
+from grolla.domain.chat import ChatMessage
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -59,7 +60,9 @@ class IncidentUnitOfWork(Protocol):
         ...
 
     async def active_incidents(self, service: str, since: datetime) -> list[Incident]:
-        """Incidentes do serviço com alerta disparando ou último alerta desde `since`."""
+        """Incidentes abertos (`OPEN_STATES`) do serviço com alerta disparando ou último alerta
+        desde `since`.
+        """
         ...
 
     async def incident_firing(self, fingerprint: str) -> Incident | None: ...
@@ -72,6 +75,14 @@ class IncidentUnitOfWork(Protocol):
 
     async def enqueue(self, notification: Notification, at: datetime) -> None:
         """Põe a notificação na outbox, pronta para entrega a partir de `at`."""
+        ...
+
+    async def incident_for_update(self, incident_id: UUID) -> Incident | None:
+        """O incidente, travado até o fim da transação (ações concorrentes no war room)."""
+        ...
+
+    async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        """Grava uma mensagem do chat; com `wants_reply`, ela fica pendente de resposta."""
         ...
 
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
@@ -92,6 +103,10 @@ class IncidentRepository(Protocol):
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         """A análise do incidente em qualquer estado; None se nunca foi pedida."""
+        ...
+
+    async def chat_of(self, incident_id: UUID) -> list[ChatMessage]:
+        """Mensagens do chat em ordem cronológica."""
         ...
 
     async def verification_of(self, incident_id: UUID) -> Verification | None:

@@ -1,160 +1,41 @@
 {% extends "base.html" %}
-{% macro evaluations_table(evaluations) %}
-<table>
-  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
-  <tbody>
-  {% for evaluation in evaluations %}
-    <tr>
-      <td><code>{{ evaluation.tool }}</code></td>
-      <td>{{ evaluation.subject }}</td>
-      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
-      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endmacro %}
-{% macro evidence_list(evidence) %}
-<ul>
-  {% for item in evidence %}
-  <li>{{ item.text }}{% if item.url %} · <a href="{{ item.url }}">abrir</a>{% endif %}</li>
-  {% endfor %}
-</ul>
-{% endmacro %}
+{% from "_macros.html" import when %}
 {% block title %}{{ incident.title }}{% endblock %}
 {% block content %}
-<h1>{{ incident.title }}</h1>
-{% if verification and verification.root_cause %}
-<p class="root-cause"><strong>Causa raiz:</strong> {{ verification.root_cause }}</p>
-{% endif %}
-<dl>
-  <dt>Severidade</dt><dd class="sev">{{ incident.severity }}</dd>
-  <dt>Estado</dt><dd>{{ incident.state }}</dd>
-  <dt>Serviços</dt><dd>{{ incident.services | join(", ") }}</dd>
-  <dt>Detectado em</dt><dd>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</dd>
-</dl>
+<div class="war-room">
+  {% include "_war_room.html" %}
 
-<h2>Análise</h2>
-{% if analysis is none %}
-<p class="muted">Nenhuma análise pedida.</p>
-{% else %}
-<p class="analysis-status"><strong>{{ analysis_labels[analysis.status] }}</strong>
-{% if analysis.partial_reason %} · {{ partial_reasons[analysis.partial_reason] }}{% endif %}</p>
-{% if analysis.summary %}<p>{{ analysis.summary }}</p>{% endif %}
+  {% include "_chat.html" %}
 
-{% if analysis.evaluations %}
-<h3>O que avaliei</h3>
-{{ evaluations_table(analysis.evaluations) }}
-{% endif %}
+  <div class="rest">
+    <section class="panel" id="alertas">
+      <h2>Alertas</h2>
+      {% if alerts %}
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
+        <tbody>
+        {% for alert in alerts %}
+          <tr>
+            <td>{{ alert.status }}</td>
+            <td>{{ alert.rule_name }}</td>
+            <td>{{ alert.summary }}</td>
+            <td>{{ when(alert.starts_at) }}</td>
+            <td>{% if alert.source_url %}<a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <p class="muted">Nenhum alerta.</p>
+      {% endif %}
+    </section>
 
-{% if analysis.hypotheses %}
-<h3>Hipóteses</h3>
-<ol>
-  {% for hypothesis in analysis.hypotheses %}
-  <li>
-    <strong>{{ hypothesis.title }}</strong> · {{ (hypothesis.confidence * 100) | round | int }}%
-    {% if hypothesis.evidence %}
-    {{ evidence_list(hypothesis.evidence) }}
-    {% endif %}
-  </li>
-  {% endfor %}
-</ol>
-{% endif %}
-
-{% if analysis.plan %}
-<h3>Plano proposto</h3>
-<ol>
-  {% for step in analysis.plan %}<li>{{ step }}</li>{% endfor %}
-</ol>
-{% endif %}
-{% endif %}
-
-<h2>Validação</h2>
-{% if verification is none %}
-<p class="muted">Nenhuma validação pedida.</p>
-{% else %}
-<p class="verification-status"><strong>{{ verification_labels[verification.status] }}</strong>
-{% if verification.partial_reason %} · {{ partial_reasons[verification.partial_reason] }}{% endif %}</p>
-{% if verification.root_cause %}
-<p class="root-cause"><strong>Causa raiz:</strong> {{ verification.root_cause }}</p>
-{% elif verification.finished_at %}
-<p class="root-cause"><strong>Causa raiz não confirmada.</strong>
-{% if verification.missing %} O que faltou: {{ verification.missing }}{% endif %}</p>
-{% endif %}
-
-{% if verification.verdicts %}
-<h3>Veredito por hipótese</h3>
-<ol>
-  {% for item in verification.verdicts %}
-  <li>
-    <strong>{{ item.hypothesis }}</strong> · <span class="verdict verdict-{{ item.verdict.name | lower }}">{{ item.verdict }}</span>
-    {% if item.reasoning %}<p>{{ item.reasoning }}</p>{% endif %}
-    {% if item.evidence %}{{ evidence_list(item.evidence) }}{% endif %}
-  </li>
-  {% endfor %}
-</ol>
-{% endif %}
-
-{% if verification.actions %}
-<h3>Plano de ação</h3>
-<table>
-  <thead><tr><th>Ação</th><th>Alvo</th><th>Efeito esperado</th><th>Link</th></tr></thead>
-  <tbody>
-  {% for action in verification.actions %}
-    <tr>
-      <td>{{ action.action }}</td>
-      <td>{{ action.target }}</td>
-      <td>{{ action.expected }}</td>
-      <td>{% if action.link %}<a href="{{ action.link }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endif %}
-
-{% if verification.evaluations %}
-<h3>O que avaliei na validação</h3>
-{{ evaluations_table(verification.evaluations) }}
-{% endif %}
-{% endif %}
-
-<h2>Alertas</h2>
-{% if alerts %}
-<table>
-  <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
-  <tbody>
-  {% for alert in alerts %}
-    <tr>
-      <td>{{ alert.status }}</td>
-      <td>{{ alert.rule_name }}</td>
-      <td>{{ alert.summary }}</td>
-      <td>{{ alert.starts_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</td>
-      <td>{% if alert.source_url %}<a href="{{ alert.source_url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="muted">Nenhum alerta.</p>
-{% endif %}
-
-<h2>Timeline</h2>
-{% if events %}
-<ol>
-  {% for event in events %}
-  <li>
-    <strong>{{ event.at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</strong> ·
-    {{ event_labels.get(event.type, event.type) }}
-    <span class="muted">({{ event.author }})</span>
-    {% if event.data %}
-    <ul class="muted">
-      {% for key, value in event.data.items() %}<li>{{ key }}: {{ value }}</li>{% endfor %}
-    </ul>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ol>
-{% else %}
-<p class="muted">Nenhum evento.</p>
-{% endif %}
+    <section class="panel" id="timeline-panel">
+      <h2>Timeline</h2>
+      {% include "_timeline.html" %}
+    </section>
+  </div>
+</div>
 {% endblock %}

@@ -22,6 +22,9 @@ investigation:
   max_parallel: 3
   verification_timeout_seconds: 15
   verification_max_tokens: 150000
+  chat_timeout_seconds: 15
+  chat_max_tokens: 60000
+  chat_max_tokens_per_incident: 400000
 llm:
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }

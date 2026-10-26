@@ -32,6 +32,9 @@ class InvestigationConfig(_Section):
     max_parallel: int = Field(default=3, gt=0)
     verification_timeout_seconds: int = Field(default=300, gt=0)
     verification_max_tokens: int = Field(default=150_000, gt=0)
+    chat_timeout_seconds: int = Field(default=120, gt=0)
+    chat_max_tokens: int = Field(default=60_000, gt=0)  # por resposta do agente
+    chat_max_tokens_per_incident: int = Field(default=400_000, gt=0)
 
 
 class StageConfig(_Section):
@@ -43,7 +46,7 @@ class StageConfig(_Section):
 
 
 class LlmConfig(_Section):
-    stages: dict[Literal["investigation", "verification"], StageConfig]
+    stages: dict[Literal["investigation", "verification", "warroom_chat"], StageConfig]
 
 
 class TelemetryConfig(_Section):
@@ -103,6 +106,9 @@ class TeamConfig(BaseModel):
             telemetry_url=self.signoz.base_url if self.signoz else None,
             verification_timeout=timedelta(seconds=self.investigation.verification_timeout_seconds),
             verification_max_tokens=self.investigation.verification_max_tokens,
+            chat_timeout=timedelta(seconds=self.investigation.chat_timeout_seconds),
+            chat_max_tokens=self.investigation.chat_max_tokens,
+            chat_max_tokens_per_incident=self.investigation.chat_max_tokens_per_incident,
         )
 
     def intake_policy(self) -> IntakePolicy:

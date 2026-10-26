@@ -5,6 +5,7 @@ from grolla.adapters.aws import AwsCloudInventory
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
+    PostgresChatQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
     PostgresNotificationOutbox,
@@ -15,6 +16,7 @@ from grolla.adapters.signoz.telemetry import SignozTelemetry
 from grolla.adapters.system_clock import SystemClock
 from grolla.adapters.teams import TeamsChatNotifier
 from grolla.application.analysis import AnalysisPolicy, AnalysisQueue
+from grolla.application.chat import ChatQueue
 from grolla.application.clock import Clock
 from grolla.application.incidents import (
     AlertIngress,
@@ -26,6 +28,7 @@ from grolla.application.incidents import (
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
+    STAGE_WARROOM_CHAT,
     ChangeHistory,
     CloudInventory,
     LanguageModel,
@@ -33,7 +36,7 @@ from grolla.application.investigation import (
     Telemetry,
 )
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
-from grolla.bootstrap.team_config import TeamConfig, load_team_config
+from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,7 @@ class WorkerContainer:
     notifier: ChatNotifier
     repository: IncidentRepository
     analysis_queue: AnalysisQueue
+    chat_queue: ChatQueue
     model: LanguageModel
     telemetry: Telemetry
     changes: ChangeHistory
@@ -94,6 +98,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             f"{settings.config_file}: o worker precisa das seções llm, signoz e azure_devops"
         )
     verification = config.llm.stages.get(STAGE_VERIFICATION)
+    chat = config.llm.stages.get(STAGE_WARROOM_CHAT)
     stage = config.llm.stages.get(STAGE_INVESTIGATION)
     if stage is None:
         raise ConfigError(f"{settings.config_file}: falta llm.stages.{STAGE_INVESTIGATION}")
@@ -109,17 +114,13 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         notifier=TeamsChatNotifier(settings.teams_webhook_url.get_secret_value()),
         repository=PostgresIncidentRepository(database),
         analysis_queue=PostgresAnalysisQueue(database),
+        chat_queue=PostgresChatQueue(database),
         model=ClaudeLanguageModel(
             settings.anthropic_api_key.get_secret_value(),
             ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort),
             base_url=settings.anthropic_base_url,
-            verification=None
-            if verification is None
-            else ModelSettings(
-                model=verification.model,
-                max_tokens=verification.max_tokens,
-                effort=verification.effort,
-            ),
+            verification=_model_settings(verification),
+            chat=_model_settings(chat),
         ),
         telemetry=SignozTelemetry(config.signoz.mcp_url, config.signoz.base_url),
         changes=AzureDevOpsChangeHistory(
@@ -136,6 +137,12 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         else AwsCloudInventory(config.cloud.regions, config.cloud.resource_map),
         analysis=config.analysis_policy(),
     )
+
+
+def _model_settings(stage: StageConfig | None) -> ModelSettings | None:
+    if stage is None:
+        return None
+    return ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort)
 
 
 def prepare_api() -> ApiContainer:

@@ -25,6 +25,11 @@ _HEADLINES = {
     NotificationKind.INCIDENT_OPENED: "Estou investigando",
     NotificationKind.ANALYSIS_READY: "Análise pronta",
     NotificationKind.ROOT_CAUSE: "Causa raiz",
+    NotificationKind.COMMANDER_ASSIGNED: "IC assumiu",
+    NotificationKind.SEVERITY_CHANGED_BY_HUMAN: "Severidade alterada",
+    NotificationKind.INCIDENT_MITIGATED: "Incidente mitigado",
+    NotificationKind.INCIDENT_RESOLVED: "Incidente encerrado",
+    NotificationKind.INCIDENT_DISCARDED: "Incidente descartado",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -33,6 +38,11 @@ _COLORS = {
     NotificationKind.INCIDENT_OPENED: "Attention",
     NotificationKind.ANALYSIS_READY: "Accent",
     NotificationKind.ROOT_CAUSE: "Good",
+    NotificationKind.COMMANDER_ASSIGNED: "Accent",
+    NotificationKind.SEVERITY_CHANGED_BY_HUMAN: "Warning",
+    NotificationKind.INCIDENT_MITIGATED: "Good",
+    NotificationKind.INCIDENT_RESOLVED: "Good",
+    NotificationKind.INCIDENT_DISCARDED: "Default",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }
@@ -108,12 +118,18 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
         _headline(_HEADLINES[kind], notification, _COLORS[kind]),
         *_identity(notification),
         _text(notification.summary),
-        {"type": "TextBlock", "text": notification.evidence, "wrap": True, "isSubtle": True},
     ]
+    if notification.evidence.strip():  # nas ações humanas, o motivo e as ações registradas
+        body.append(
+            {"type": "TextBlock", "text": notification.evidence, "wrap": True, "isSubtle": True}
+        )
+    verification = notification.verification
     if kind is NotificationKind.INCIDENT_OPENED:
         body.append(_section("Vou checar", [f"- {check}" for check in INITIAL_CHECKS]))
-    if kind is NotificationKind.INCIDENT_NORMALIZED and notification.verification is not None:
-        body.extend(_outcome(notification.verification))
+    if kind is NotificationKind.INCIDENT_NORMALIZED and verification is not None:
+        body.extend(_outcome(verification))
+    if kind is NotificationKind.INCIDENT_RESOLVED and verification and verification.root_cause:
+        body.append(_section("Causa raiz", [_clip(verification.root_cause)]))
     return body
 
 

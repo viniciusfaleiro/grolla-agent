@@ -3,22 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Incidentes{% endblock %} · agent-grolla</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #ddd; vertical-align: top; }
-  .sev { font-weight: bold; }
-  .muted { color: #666; }
-  .root-cause { background: #fff4e5; border-left: 4px solid #b86e00; padding: .5rem .8rem; }
-  .verdict { font-weight: bold; }
-  .verdict-confirmed { color: #237b4b; }
-  .verdict-rejected { color: #c4314b; }
-  .verdict-inconclusive { color: #666; }
-</style>
+{# Erros 4xx também são trocados na página: é assim que a recusa de uma ação aparece. #}
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"4..","swap":true,"error":true},{"code":"...","swap":false}]}'>
+<title>{% block title %}Incidentes{% endblock %} · Grolla</title>
+<link rel="icon" href="/static/grolla-avatar.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Figtree:wght@400..700&display=swap">
+<link rel="stylesheet" href="/static/war-room.css">
+<script src="/static/htmx.min.js"></script>
+<script src="/static/war-room.js" defer></script>
 </head>
 <body>
-<nav><a href="/incidents">Incidentes</a></nav>
+<header class="topbar">
+  <a class="brand" href="/incidents"><img src="/static/grolla-avatar.svg" alt=""><strong>Grolla</strong></a>
+  <nav><a href="/incidents"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidentes</a></nav>
+  {% if author %}
+  <div class="me">
+    <span>Você é <strong>{{ author }}</strong></span>
+    <button class="button-quiet" popovertarget="trocar-nome">(trocar)</button>
+  </div>
+  <div id="trocar-nome" popover>
+    <form class="popover-form" method="post" action="/author">
+      <h3>Trocar o nome</h3>
+      <input type="hidden" name="voltar" value="{{ back_to or '/incidents' }}">
+      <label class="visually-hidden" for="novo-nome">Seu nome</label>
+      <input id="novo-nome" name="nome" required maxlength="60" value="{{ author }}" autocomplete="name">
+      <div class="row">
+        <button type="button" class="button-quiet" popovertarget="trocar-nome" popovertargetaction="hide">Cancelar</button>
+        <button class="button-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</header>
+<main class="page">
 {% block content %}{% endblock %}
+</main>
 </body>
 </html>

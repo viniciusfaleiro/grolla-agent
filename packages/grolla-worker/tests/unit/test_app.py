@@ -13,6 +13,7 @@ from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
     InMemoryAnalysisQueue,
+    InMemoryChatQueue,
     InMemoryIncidentRepository,
     InMemoryNotificationOutbox,
 )
@@ -23,6 +24,7 @@ from grolla_worker.app import (
     DEFAULT_QUEUE,
     DELIVERY_CRON,
     REAPER_CRON,
+    REPLIES_CRON,
     VERIFICATIONS_CRON,
     build_app,
 )
@@ -58,6 +60,7 @@ async def container() -> AsyncIterator[WorkerContainer]:
         notifier=FakeChatNotifier(),
         repository=repository,
         analysis_queue=InMemoryAnalysisQueue(repository),
+        chat_queue=InMemoryChatQueue(repository),
         model=ScriptedLanguageModel(),
         telemetry=FakeTelemetry(),
         changes=FakeChangeHistory(),
@@ -110,6 +113,8 @@ def test_heartbeat_and_delivery_run_in_the_default_queue_and_analyses_in_their_o
         "reap_stuck_analyses": ANALYSIS_QUEUE,
         "run_verifications": ANALYSIS_QUEUE,
         "reap_stuck_verifications": ANALYSIS_QUEUE,
+        "run_replies": ANALYSIS_QUEUE,
+        "reap_stuck_replies": ANALYSIS_QUEUE,
     }
 
 
@@ -232,4 +237,66 @@ async def test_verification_reaper_reaps_with_the_container_policy(
 
     assert calls == [
         (container.analysis_queue, container.repository, container.clock, container.analysis)
+    ]
+
+
+def test_replies_run_every_two_seconds_in_parallel_and_their_reaper_once_a_minute(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    replies = app.tasks["run_replies"]
+    assert replies.queueing_lock == "run_replies"
+    assert replies.lock is None
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_replies", "")].cron == REPLIES_CRON == "* * * * * */2"
+    assert app.tasks["reap_stuck_replies"].queueing_lock == "reap_stuck_replies"
+    assert app.tasks["reap_stuck_replies"].lock == "reap_stuck_replies"
+    assert periodic[("reap_stuck_replies", "")].cron == REAPER_CRON
+
+
+async def test_replies_job_drains_the_chat_queue_with_the_container_ports(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_reply", run_next)
+    app = registered(container)
+
+    await app.tasks["run_replies"].func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "queue": container.chat_queue,
+        "repository": container.repository,
+        "model": container.model,
+        "telemetry": container.telemetry,
+        "changes": container.changes,
+        "cloud": container.cloud,
+        "clock": container.clock,
+        "policy": container.analysis,
+    }
+
+
+async def test_reply_reaper_reaps_with_the_container_policy(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_replies", reap)
+    app = registered(container)
+
+    await app.tasks["reap_stuck_replies"].func(timestamp=0)
+
+    assert calls == [
+        (container.chat_queue, container.repository, container.clock, container.analysis)
     ]

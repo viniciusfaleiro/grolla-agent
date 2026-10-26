@@ -24,7 +24,9 @@ from grolla.domain.analysis import (
     Verdict,
     Verification,
 )
+from grolla.domain.chat import ChatMessage, ReplyStatus
 from grolla.domain.incidents import (
+    OPEN_STATES,
     Alert,
     AlertStatus,
     EventType,
@@ -39,6 +41,7 @@ from grolla.domain.incidents import (
 SYSTEM_AUTHOR = "sistema"
 # Primeira chave dos advisory locks por serviço (a segunda é o hash do nome do serviço).
 SERVICE_LOCK_NAMESPACE = 7042
+OPEN_STATE_VALUES = sorted(state.value for state in OPEN_STATES)
 
 
 def _incident(row: sa.Row[Any]) -> Incident:
@@ -51,6 +54,23 @@ def _incident(row: sa.Row[Any]) -> Incident:
         detected_at=row.detected_at,
         last_alert_at=row.last_alert_at,
         firing=frozenset(row.firing),
+        commander=row.commander,
+        handling_at=row.handling_at,
+        mitigated_at=row.mitigated_at,
+        resolved_at=row.resolved_at,
+    )
+
+
+def _chat_message(row: sa.Row[Any]) -> ChatMessage:
+    return ChatMessage(
+        id=row.id,
+        incident_id=row.incident_id,
+        author=row.author,
+        text=row.text,
+        at=row.at,
+        evaluations=_evaluations(row.evaluations),
+        reply_status=None if row.reply_status is None else ReplyStatus(row.reply_status),
+        reply_to=row.reply_to,
     )
 
 
@@ -271,7 +291,7 @@ def _notification(data: Mapping[str, Any]) -> Notification:
     )
 
 
-async def _append(connection: AsyncConnection, events: Sequence[IncidentEvent]) -> None:
+async def insert_events(connection: AsyncConnection, events: Sequence[IncidentEvent]) -> None:
     if not events:
         return
     await connection.execute(
@@ -290,6 +310,33 @@ async def _append(connection: AsyncConnection, events: Sequence[IncidentEvent]) 
             for event in events
         ],
     )
+
+
+async def insert_message(
+    connection: AsyncConnection,
+    message: ChatMessage,
+    reply_status: ReplyStatus | None,
+    reply_to: int | None = None,
+) -> ChatMessage:
+    """Grava a mensagem (o `id` dela é ignorado) e a devolve com o id gerado pelo banco."""
+    result = await connection.execute(
+        sa.text(
+            "INSERT INTO chat_messages (incident_id, author, text, at, evaluations,"
+            " reply_status, reply_to) VALUES (:incident_id, :author, :text, :at,"
+            " CAST(:evaluations AS jsonb), :reply_status, :reply_to)"
+            " RETURNING id, incident_id, author, text, at, evaluations, reply_status, reply_to"
+        ),
+        {
+            "incident_id": message.incident_id,
+            "author": message.author,
+            "text": message.text,
+            "at": message.at,
+            "evaluations": json.dumps(evaluations_data(message.evaluations)),
+            "reply_status": None if reply_status is None else reply_status.value,
+            "reply_to": reply_to,
+        },
+    )
+    return _chat_message(result.one())
 
 
 class PostgresUnitOfWork:
@@ -334,14 +381,14 @@ class PostgresUnitOfWork:
         )
         result = await self._connection.execute(
             sa.text(
-                "SELECT "
-                "id, title, state, severity, services, detected_at, last_alert_at, firing"
+                "SELECT id, title, state, severity, services, detected_at, last_alert_at,"
+                " firing, commander, handling_at, mitigated_at, resolved_at"
                 " FROM incidents"
-                " WHERE :service = ANY (services)"
+                " WHERE :service = ANY (services) AND state = ANY (:open_states)"
                 " AND (cardinality(firing) > 0 OR last_alert_at >= :since)"
                 " ORDER BY last_alert_at DESC FOR UPDATE"
             ),
-            {"service": service, "since": since},
+            {"service": service, "since": since, "open_states": OPEN_STATE_VALUES},
         )
         return [_incident(row) for row in result]
 
@@ -350,8 +397,8 @@ class PostgresUnitOfWork:
         # incidente não perdem a atualização de `firing` um do outro.
         result = await self._connection.execute(
             sa.text(
-                "SELECT "
-                "id, title, state, severity, services, detected_at, last_alert_at, firing"
+                "SELECT id, title, state, severity, services, detected_at, last_alert_at,"
+                " firing, commander, handling_at, mitigated_at, resolved_at"
                 " FROM incidents WHERE :fingerprint = ANY (firing)"
                 " ORDER BY last_alert_at DESC LIMIT 1 FOR UPDATE"
             ),
@@ -363,15 +410,17 @@ class PostgresUnitOfWork:
     async def save(self, incident: Incident) -> None:
         await self._connection.execute(
             sa.text(
-                "INSERT INTO incidents ("
-                "id, title, state, severity, services, detected_at, last_alert_at, firing"
-                ") VALUES (:id, :title, :state,"
+                "INSERT INTO incidents (id, title, state, severity, services, detected_at,"
+                " last_alert_at, firing, commander, handling_at, mitigated_at, resolved_at)"
+                " VALUES (:id, :title, :state,"
                 " :severity, CAST(:services AS text[]), :detected_at, :last_alert_at,"
-                " CAST(:firing AS text[]))"
+                " CAST(:firing AS text[]), :commander, :handling_at, :mitigated_at, :resolved_at)"
                 " ON CONFLICT (id) DO UPDATE SET title = excluded.title,"
                 " state = excluded.state, severity = excluded.severity,"
                 " services = excluded.services, detected_at = excluded.detected_at,"
-                " last_alert_at = excluded.last_alert_at, firing = excluded.firing"
+                " last_alert_at = excluded.last_alert_at, firing = excluded.firing,"
+                " commander = excluded.commander, handling_at = excluded.handling_at,"
+                " mitigated_at = excluded.mitigated_at, resolved_at = excluded.resolved_at"
             ),
             {
                 "id": incident.id,
@@ -382,11 +431,15 @@ class PostgresUnitOfWork:
                 "detected_at": incident.detected_at,
                 "last_alert_at": incident.last_alert_at,
                 "firing": sorted(incident.firing),
+                "commander": incident.commander,
+                "handling_at": incident.handling_at,
+                "mitigated_at": incident.mitigated_at,
+                "resolved_at": incident.resolved_at,
             },
         )
 
     async def append(self, events: Sequence[IncidentEvent]) -> None:
-        await _append(self._connection, events)
+        await insert_events(self._connection, events)
 
     async def link_alert(self, alert: Alert, incident_id: UUID) -> None:
         await self._connection.execute(
@@ -400,6 +453,27 @@ class PostgresUnitOfWork:
                 "starts_at": alert.starts_at,
                 "status": alert.status.value,
             },
+        )
+
+    async def incident_for_update(self, incident_id: UUID) -> Incident | None:
+        # Duas pessoas agindo ao mesmo tempo no war room: a segunda espera o commit da primeira
+        # e decide sobre o estado já atualizado.
+        result = await self._connection.execute(
+            sa.text(
+                "SELECT id, title, state, severity, services, detected_at, last_alert_at,"
+                " firing, commander, handling_at, mitigated_at, resolved_at"
+                " FROM incidents WHERE id = :id FOR UPDATE"
+            ),
+            {"id": incident_id},
+        )
+        row = result.one_or_none()
+        return None if row is None else _incident(row)
+
+    async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        return await insert_message(
+            self._connection,
+            message,
+            reply_status=ReplyStatus.PENDING if wants_reply else None,
         )
 
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
@@ -440,8 +514,8 @@ class PostgresIncidentRepository:
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 sa.text(
-                    "SELECT "
-                    "id, title, state, severity, services, detected_at, last_alert_at, firing"
+                    "SELECT id, title, state, severity, services, detected_at, last_alert_at,"
+                    " firing, commander, handling_at, mitigated_at, resolved_at"
                     " FROM incidents"
                     " ORDER BY detected_at DESC, id LIMIT :limit"
                 ),
@@ -453,8 +527,8 @@ class PostgresIncidentRepository:
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 sa.text(
-                    "SELECT "
-                    "id, title, state, severity, services, detected_at, last_alert_at, firing"
+                    "SELECT id, title, state, severity, services, detected_at, last_alert_at,"
+                    " firing, commander, handling_at, mitigated_at, resolved_at"
                     " FROM incidents WHERE id = :id"
                 ),
                 {"id": incident_id},
@@ -474,6 +548,18 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             return [_alert(row) for row in result]
+
+    async def chat_of(self, incident_id: UUID) -> list[ChatMessage]:
+        async with self._engine.connect() as connection:
+            result = await connection.execute(
+                sa.text(
+                    "SELECT id, incident_id, author, text, at, evaluations, reply_status, reply_to"
+                    " FROM chat_messages"
+                    " WHERE incident_id = :id ORDER BY at, id"
+                ),
+                {"id": incident_id},
+            )
+            return [_chat_message(row) for row in result]
 
     async def verification_of(self, incident_id: UUID) -> Verification | None:
         async with self._engine.connect() as connection:
@@ -553,7 +639,7 @@ class PostgresNotificationOutbox:
                 ),
                 {"id": item.id, "at": at},
             )
-            await _append(
+            await insert_events(
                 connection,
                 [_outcome(item, at, EventType.NOTIFICATION_DELIVERED, {})],
             )
@@ -577,7 +663,7 @@ class PostgresNotificationOutbox:
                 ),
                 {"id": item.id, "at": at, "error": error},
             )
-            await _append(
+            await insert_events(
                 connection,
                 [_outcome(item, at, EventType.NOTIFICATION_FAILED, {"error": error})],
             )
