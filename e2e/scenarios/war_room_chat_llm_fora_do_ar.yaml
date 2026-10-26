@@ -1,0 +1,69 @@
+# Com o LLM fora do ar no chat, a resposta ainda chega: "não consegui responder: LLM
+# indisponível", e a pergunta fica como falhou. O modo de chat do LLM fake troca só antes da
+# pergunta (a análise do alerta segue no modo padrão) e volta para "completa" no fim.
+name: chat do war room com o LLM fora do ar
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no chat-fora-api
+              service_name: chat-fora-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no chat-fora-api
+              description: A taxa de erro HTTP 5xx do chat-fora-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=134
+            fingerprint: e2e-chat-fora-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'chat-fora-api' = ANY(services)
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json: { chat_mode: fora_do_ar }
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/chat
+      cookies: { grolla_author: Ana }
+      form: { texto: "o rollback resolveu?" }
+      status: 200
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM chat_messages r JOIN chat_messages q ON q.id = r.reply_to
+        WHERE r.incident_id = '{incidente}' AND r.author = 'agente'
+        AND r.text LIKE 'não consegui responder%LLM indisponível%'
+        AND q.author = 'Ana' AND q.reply_status = 'falhou'
+      at_least: 1
+      timeout_seconds: 60
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'agent_message' AND author = 'agente'
+      count: 1
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json: { chat_mode: completa }
+      status: 204

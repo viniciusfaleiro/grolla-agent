@@ -3,10 +3,12 @@
 Espera o stack do profile `e2e` do compose de pé (o `make e2e` sobe e derruba). Cada cenário:
 reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e confere (`then`).
 
-Ações: `http`, `expect_status`, `wait_for_db_row`, `expect_db_count`, `expect_fake_requests`
-(contagem exata por trechos do corpo) e `expect_fake_request_order` (a primeira requisição com
-os trechos `first` chegou antes da com `then`). O modo do LLM fake se troca com `http` em
-`POST /_control/llm`.
+Ações: `http` (corpo em `json` ou em `form` urlencoded, e `cookies`), `expect_status`,
+`wait_for_db_row`, `expect_db_count`, `expect_fake_requests` (contagem exata por trechos do
+corpo), `expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da
+com `then`) e `capture` (guarda a primeira coluna da primeira linha de um SQL com um nome; o
+`{nome}` é trocado pelo valor no `path` e no `sql` dos passos seguintes). O modo do LLM fake se
+troca com `http` em `POST /_control/llm`.
 
 O banco não é limpo entre cenários: cada cenário usa serviços e fingerprints próprios e filtra
 as consultas e os cards por eles.
@@ -30,6 +32,7 @@ POLL_INTERVAL_SECONDS = 1.0
 SETTLE_SECONDS = 7.0
 
 Step = dict[str, dict[str, Any]]
+Captured = dict[str, str]
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -37,29 +40,42 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def http(
-    service: str,
-    method: str,
-    path: str,
-    body: Any = None,
-    auth: tuple[str, str] | None = None,
+    service: str, method: str, path: str, options: dict[str, Any] | None = None
 ) -> httpx2.Response:
-    return httpx2.request(method, f"{SERVICES[service]}{path}", json=body, auth=auth, timeout=10)
+    """Requisição a um serviço; `options` traz `json`, `form`, `auth` e `cookies` do passo."""
+    options = options or {}
+    auth = cast(list[str] | None, options.get("auth"))
+    cookies = cast(dict[str, str] | None, options.get("cookies"))
+    return httpx2.request(
+        method,
+        f"{SERVICES[service]}{path}",
+        json=options.get("json"),
+        data=options.get("form"),
+        auth=(auth[0], auth[1]) if auth else None,
+        # Direto no header: cookie por requisição está depreciado no cliente.
+        headers={"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())} if cookies else None,
+        timeout=10,
+    )
 
 
-def run_step(step: Step) -> None:
+def fill(text: str, captured: Captured) -> str:
+    """Troca cada `{nome}` capturado pelo valor."""
+    for name, value in captured.items():
+        text = text.replace(f"{{{name}}}", value)
+    return text
+
+
+def run_step(step: Step, captured: Captured) -> None:
     (action, args), *extra = step.items()
     if extra:
         raise ValueError(f"um passo tem uma ação só: {step}")
+    args: dict[str, Any] = {
+        key: fill(value, captured) if key in ("path", "sql") else value
+        for key, value in args.items()
+    }
     match action:
         case "http":
-            auth = cast(list[str] | None, args.get("auth"))
-            response = http(
-                args["service"],
-                args.get("method", "GET"),
-                args["path"],
-                args.get("json"),
-                (auth[0], auth[1]) if auth else None,
-            )
+            response = http(args["service"], args.get("method", "GET"), args["path"], args)
             if "status" in args:
                 assert response.status_code == args["status"], response.text
         case "expect_status":
@@ -67,6 +83,8 @@ def run_step(step: Step) -> None:
             assert response.status_code == args["status"], response.text
         case "wait_for_db_row":
             wait_for_db_row(args["sql"], args["at_least"], args["timeout_seconds"])
+        case "capture":
+            captured[args["name"]] = db_value(args["sql"])
         case "expect_db_count":
             count = db_count(args["sql"])
             assert count == args["count"], f"esperava {args['count']} em `{args['sql']}`: {count}"
@@ -92,6 +110,13 @@ def db_count(sql: str) -> int:
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(cast(Any, sql)).fetchone()
     return int(row[0]) if row else 0
+
+
+def db_value(sql: str) -> str:
+    with psycopg.connect(DATABASE_URL) as connection:
+        row = connection.execute(cast(Any, sql)).fetchone()
+    assert row is not None, f"nenhuma linha em `{sql}`"
+    return str(row[0])
 
 
 def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:
@@ -164,6 +189,7 @@ def test_scenario(path: Path) -> None:
     given = cast(dict[str, Any], scenario.get("given") or {})
     steps = cast(list[Step], (scenario.get("when") or []) + scenario["then"])
     http("fakes", "POST", "/_control/reset")
-    http("fakes", "POST", "/_control/scenario", given.get("fakes") or {})
+    http("fakes", "POST", "/_control/scenario", {"json": given.get("fakes") or {}})
+    captured: Captured = {}
     for step in steps:
-        run_step(step)
+        run_step(step, captured)
