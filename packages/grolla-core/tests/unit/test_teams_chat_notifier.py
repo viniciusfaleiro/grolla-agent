@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from grolla.domain.analysis import (
     Evidence,
     Hypothesis,
     PartialReason,
+    SeenBefore,
     Verification,
 )
 from grolla.domain.incidents import Notification, NotificationKind, Severity
@@ -565,3 +567,35 @@ def test_human_action_cards_use_only_elements_the_test_console_renders(
     types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
     assert types <= {"TextBlock", "FactSet", "Container"}
     assert {a["type"] for a in card["actions"]} == {"Action.OpenUrl"}
+
+
+PAST = UUID("0193a3a0-7c1e-7000-8000-000000000042")
+
+
+def test_analysis_card_says_seen_before_with_the_past_incident_link_and_reason() -> None:
+    seen = SeenBefore(
+        incident_id=PAST,
+        title="pedidos-api com 5xx",
+        at=datetime(2026, 10, 20, 14, 5, tzinfo=UTC),
+        reason="mesmo erro de pool depois de deploy com migration",
+    )
+    current = notification(NotificationKind.ANALYSIS_READY, analysis=analysis())
+    current = replace(
+        current,
+        page_url=f"https://grolla/incidents/{current.incident_id}",
+        analysis=replace(analysis(), seen_before=seen),
+    )
+
+    section = sections(adaptive_card(current))
+
+    assert section["Já vi isso: pedidos-api com 5xx (20/10)"] == (
+        "mesmo erro de pool depois de deploy com migration\n"
+        f"[Abrir o incidente anterior](https://grolla/incidents/{PAST})"
+    )
+    assert texts(adaptive_card(current)).index("Já vi isso: pedidos-api com 5xx (20/10)") < (
+        texts(adaptive_card(current)).index("O que avaliei")
+    )
+
+
+def test_analysis_card_without_seen_before_has_no_mention() -> None:
+    assert not any(line.startswith("Já vi isso") for line in texts(analysis_card(analysis())))
