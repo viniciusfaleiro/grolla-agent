@@ -209,7 +209,9 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
     active = [
         c
         for c in candidates
-        if alert.service in c.services and (c.firing or c.last_alert_at >= now - window)
+        if c.state in OPEN_STATES
+        and alert.service in c.services
+        and (c.firing or c.last_alert_at >= now - window)
     ]
     current = max(active, key=lambda c: c.last_alert_at, default=None)
 
@@ -252,7 +254,9 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
             )
             kind = NotificationKind.SEVERITY_RAISED
 
-    target = state_for(incident.severity)
+    # Só Detectado e Informado seguem a severidade; Em tratamento e Mitigado são do humano.
+    waiting = incident.state in (IncidentState.DETECTED, IncidentState.INFORMED)
+    target = state_for(incident.severity) if waiting else incident.state
     if target != incident.state:
         events.append(
             _event(
@@ -268,7 +272,7 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
         events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
     notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
     return replace(
-        _decision(incident, events, notifications, now), request_analysis=current is None
+        decision_with_cards(incident, events, notifications, now), request_analysis=current is None
     )
 
 
@@ -279,12 +283,12 @@ def decide_resolved(
     updated = replace(incident, last_alert_at=now, firing=incident.firing - {alert.fingerprint})
     events = [_event(updated, now, EventType.ALERT_RESOLVED, _alert_data(alert))]
     notifications: tuple[Notification, ...] = ()
-    if incident.firing and not updated.firing:
+    if incident.state in OPEN_STATES and incident.firing and not updated.firing:
         events.append(_event(updated, now, EventType.INCIDENT_NORMALIZED, {}))
         card = _notification(NotificationKind.INCIDENT_NORMALIZED, updated, alert, page_url)
         summary = f"Normalizado: durou {duration_text(now - incident.detected_at)}"
         notifications = (replace(card, summary=summary),)
-    return _decision(updated, events, notifications, now)
+    return decision_with_cards(updated, events, notifications, now)
 
 
 def duration_text(duration: timedelta) -> str:
@@ -327,12 +331,13 @@ def _notification(
     )
 
 
-def _decision(
+def decision_with_cards(
     incident: Incident,
     events: list[IncidentEvent],
     notifications: tuple[Notification, ...],
     now: datetime,
 ) -> Decision:
+    """A decisão com os eventos e, para cada card, o evento `notification_queued`."""
     queued = [
         _event(incident, now, EventType.NOTIFICATION_QUEUED, {"kind": n.kind.value})
         for n in notifications
