@@ -1,0 +1,22 @@
+{
+  "objectId": "8d3f1c0a2b4e5f60718293a4b5c6d7e8f9012345",
+  "gitObjectType": "blob",
+  "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "path": "/README.md",
+  "contentMetadata": {
+    "encoding": 65001,
+    "contentType": "text/plain",
+    "fileName": "README.md",
+    "extension": ".md"
+  },
+  "content": "# authorizer-api\n\nAutoriza transações de cartão: recebe o pedido da maquininha, consulta o antifraude e o emissor e devolve aprovado ou negado.\n\n## Dependências\n\n- PostgreSQL `authorizer-db` (pool de 20 conexões)\n- Gateway do emissor (HTTPS)\n",
+  "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2FREADME.md&versionType=Branch&version=main&versionOptions=None",
+  "_links": {
+    "self": {
+      "href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2FREADME.md&versionType=Branch&version=main&versionOptions=None"
+    },
+    "repository": {
+      "href": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6"
+    }
+  }
+}

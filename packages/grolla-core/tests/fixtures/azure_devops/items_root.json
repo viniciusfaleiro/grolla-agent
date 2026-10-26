@@ -1,0 +1,43 @@
+{
+  "count": 5,
+  "value": [
+    {
+      "objectId": "1f2e3d4c5b6a79881726354433221100ffeeddcc",
+      "gitObjectType": "tree",
+      "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "path": "/",
+      "isFolder": true,
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2F&versionType=Branch&version=main&versionOptions=None"
+    },
+    {
+      "objectId": "8d3f1c0a2b4e5f60718293a4b5c6d7e8f9012345",
+      "gitObjectType": "blob",
+      "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "path": "/README.md",
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2FREADME.md&versionType=Branch&version=main&versionOptions=None"
+    },
+    {
+      "objectId": "2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d",
+      "gitObjectType": "blob",
+      "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "path": "/azure-pipelines.yml",
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2Fazure-pipelines.yml&versionType=Branch&version=main&versionOptions=None"
+    },
+    {
+      "objectId": "3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e",
+      "gitObjectType": "tree",
+      "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "path": "/docs",
+      "isFolder": true,
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2Fdocs&versionType=Branch&version=main&versionOptions=None"
+    },
+    {
+      "objectId": "4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f",
+      "gitObjectType": "tree",
+      "commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "path": "/src",
+      "isFolder": true,
+      "url": "https://dev.azure.com/minha-org/7f0c8a3e-2c1b-4f55-9b2e-0d8a1c3e9f10/_apis/git/repositories/5febef5a-833d-4e14-b9c0-14cb638f91e6/items?path=%2Fsrc&versionType=Branch&version=main&versionOptions=None"
+    }
+  ]
+}

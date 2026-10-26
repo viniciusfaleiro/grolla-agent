@@ -10,7 +10,12 @@ import httpx2
 import pytest
 from contracts.change_history_contract import ChangeHistoryContract
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
-from grolla.application.investigation import NO_REPOSITORY, ChangeHistory, ToolUnavailableError
+from grolla.application.investigation import (
+    NO_REPOSITORY,
+    READ_LIMIT,
+    ChangeHistory,
+    ToolUnavailableError,
+)
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "azure_devops"
 BASE = "https://dev.azure.com/minha-org"
@@ -33,6 +38,8 @@ class FakeAzureDevOps:
         self.builds: Any = fixture("builds")
         self.status = 200
         self.commit_status = 200
+        self.files: dict[str, Any] = {"/README.md": fixture("item_file")}  # Git Items por caminho
+        self.listing: Any = fixture("items_root")
         self.requests: list[httpx2.Request] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
@@ -43,11 +50,22 @@ class FakeAzureDevOps:
         project = parts[2]
         if "/commits/" in request.url.path:
             return httpx2.Response(self.commit_status, json=fixture("commit"))
+        if request.url.path.endswith("/items"):
+            return self._items(request.url.params)
         if "/_apis/git/repositories/" in request.url.path:
             if (project, parts[-1]) not in self.repositories:
                 return httpx2.Response(404, json={"message": "TF401019: repository not found"})
             return httpx2.Response(200, json={**fixture("repository"), "name": parts[-1]})
         return httpx2.Response(200, json=self.builds)
+
+    def _items(self, params: httpx2.QueryParams) -> httpx2.Response:
+        """Git Items: a listagem com `recursionLevel`, senão o arquivo do caminho (ou 404)."""
+        if "recursionLevel" in params:
+            return httpx2.Response(200, json=self.listing)
+        item = self.files.get(params["path"])
+        if item is None:
+            return httpx2.Response(404, json={"message": "TF401174: item not found"})
+        return httpx2.Response(200, json=item)
 
     def history(
         self, projects: tuple[str, ...] = ("Core",), mapping: dict[str, RepositoryRef] | None = None
@@ -266,3 +284,145 @@ async def test_network_failure_is_unavailable_and_not_cached() -> None:
         with pytest.raises(ToolUnavailableError, match="falha de rede"):
             await history.recent_deploys("authorizer-api", SINCE)
     assert len(calls) == 2
+    with pytest.raises(ToolUnavailableError, match="falha de rede"):
+        await history.read_file("authorizer-api", "README.md")
+
+
+# ---- read_file: Git Items API no branch padrão
+
+WEB = f"{BASE}/Core/_git/authorizer-api"
+
+
+async def test_read_file_brings_the_content_from_the_default_branch_and_the_link() -> None:
+    fake = FakeAzureDevOps()
+
+    result = await fake.history().read_file("authorizer-api", "README.md")
+
+    items = fake.requests[-1]
+    assert items.url.path == f"/minha-org/Core/_apis/git/repositories/{REPO_ID}/items"
+    assert dict(items.url.params) == {
+        "path": "/README.md",
+        "$format": "json",
+        "includeContent": "true",
+        "includeContentMetadata": "true",
+        "versionDescriptor.version": "main",
+        "versionDescriptor.versionType": "branch",
+        "api-version": "7.1",
+    }
+    assert result.summary.startswith("/README.md de authorizer-api:\n# authorizer-api\n")
+    assert "pool de 20 conexões" in result.summary
+    assert result.url == f"{WEB}?path=/README.md&version=GBmain"
+
+
+@pytest.mark.parametrize("path", ["", "/", "  "])
+async def test_empty_path_lists_the_root(path: str) -> None:
+    fake = FakeAzureDevOps()
+
+    result = await fake.history().read_file("authorizer-api", path)
+
+    assert fake.requests[-1].url.params["recursionLevel"] == "OneLevel"
+    assert result.summary == (
+        "4 item(ns) em / de authorizer-api (pastas terminam em /): "
+        "README.md, azure-pipelines.yml, docs/, src/"
+    )
+    assert result.url == f"{WEB}?path=/&version=GBmain"
+
+
+async def test_folder_path_lists_the_folder() -> None:
+    fake = FakeAzureDevOps()
+    fake.files["/docs"] = {"path": "/docs", "isFolder": True, "gitObjectType": "tree"}
+    fake.listing = {
+        "count": 3,
+        "value": [
+            {"path": "/docs", "isFolder": True},
+            {"path": "/docs/runbook.md"},
+            {"path": "/docs/adr", "isFolder": True},
+        ],
+    }
+
+    result = await fake.history().read_file("authorizer-api", "docs/")
+
+    assert result.summary == (
+        "2 item(ns) em /docs de authorizer-api (pastas terminam em /): adr/, runbook.md"
+    )
+
+
+async def test_empty_folder_and_long_listing() -> None:
+    fake = FakeAzureDevOps()
+    fake.listing = {"value": [{"path": "/", "isFolder": True}]}
+
+    assert (await fake.history().read_file("authorizer-api", "")).summary == (
+        "/ de authorizer-api está vazia"
+    )
+
+    fake.listing = {"value": [{"path": f"/f{i:03}.md"} for i in range(205)]}
+
+    assert (await fake.history().read_file("authorizer-api", "")).summary.endswith(
+        "f199.md e mais 5"
+    )
+
+
+async def test_large_file_is_cut_and_says_so() -> None:
+    fake = FakeAzureDevOps()
+    fake.files["/big.md"] = {"path": "/big.md", "content": "x" * (READ_LIMIT + 10)}
+
+    result = await fake.history().read_file("authorizer-api", "big.md")
+
+    header, _, content = result.summary.partition(":\n")
+    assert header == (
+        f"/big.md de authorizer-api (cortado: os primeiros {READ_LIMIT} de "
+        f"{READ_LIMIT + 10} caracteres)"
+    )
+    assert content == "x" * READ_LIMIT
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"path": "/logo.png", "content": "", "contentMetadata": {"isBinary": True}},
+        {"path": "/logo.png", "content": "PNG\x00\x01"},
+    ],
+)
+async def test_binary_file_is_refused_with_a_warning(item: dict[str, Any]) -> None:
+    fake = FakeAzureDevOps()
+    fake.files["/logo.png"] = item
+
+    result = await fake.history().read_file("authorizer-api", "logo.png")
+
+    assert result.summary == "/logo.png de authorizer-api é um arquivo binário: não li o conteúdo"
+
+
+async def test_missing_file_is_an_answer() -> None:
+    result = await FakeAzureDevOps().history().read_file("authorizer-api", "nao-existe.md")
+
+    assert result.summary == "/nao-existe.md não existe em authorizer-api (branch main)"
+    assert result.url == f"{WEB}?path=/&version=GBmain"
+
+
+async def test_read_file_of_service_without_repository() -> None:
+    result = await FakeAzureDevOps().history().read_file("servico-sem-repositorio", "README.md")
+
+    assert result.summary == f"servico-sem-repositorio: {NO_REPOSITORY}"
+
+
+async def test_empty_repository_has_no_branch() -> None:
+    def empty(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/items"):
+            assert "versionDescriptor.version" not in request.url.params
+            return httpx2.Response(404, json={"message": "TF401174"})
+        return httpx2.Response(200, json={"id": REPO_ID, "name": "authorizer-api"})
+
+    history = AzureDevOpsChangeHistory(BASE, TOKEN, ["Core"], {}, httpx2.MockTransport(empty))
+
+    result = await history.read_file("authorizer-api", "README.md")
+
+    assert result.summary == "/README.md não existe em authorizer-api (branch padrão)"
+    assert result.url == f"{WEB}?path=/"
+
+
+async def test_read_file_with_refused_api_is_unavailable() -> None:
+    fake = FakeAzureDevOps()
+    fake.status = 203
+
+    with pytest.raises(ToolUnavailableError, match="HTTP 203"):
+        await fake.history().read_file("authorizer-api", "README.md")
