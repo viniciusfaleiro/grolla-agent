@@ -9,11 +9,17 @@ validação das hipóteses até a causa raiz (`verify`, etapa `verification`, co
 `effort` próprios) e a resposta no chat do war room (`reply`, etapa `warroom_chat`, idem, com o
 resultado no schema `{"reply": string}`). Na validação, um plano com passo de investigação
 ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
+
+A memória usa mais três chamadas: o estudo de um serviço (`study_service`, etapa `study`) roda
+o mesmo laço, fechando no orçamento como o chat, e devolve o dossiê; o aprendizado ao encerrar
+(`learn`, etapa `learning`) e a síntese do ambiente (`synthesize`, etapa `study`) são uma
+chamada só, sem ferramentas, com saída estruturada.
 """
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 import anthropic
 import httpx2
@@ -31,9 +37,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    LEARNING_PROMPT,
     STAGE_INVESTIGATION,
+    STAGE_LEARNING,
+    STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
+    STUDY_PROMPT,
+    SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
     VERIFICATION_PROMPT,
     InvalidAnalysisError,
@@ -46,6 +57,9 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
     brief_text,
+    learning_text,
+    study_text,
+    synthesis_text,
     verification_text,
 )
 from grolla.domain.analysis import (
@@ -56,12 +70,19 @@ from grolla.domain.analysis import (
     Hypothesis,
     HypothesisVerdict,
     NotConcreteError,
+    SeenBeforeDraft,
     Verdict,
     VerificationDraft,
     check_plan,
 )
 from grolla.domain.chat import ChatDraft
-from grolla.domain.memory import DossierDraft, LearningDraft, SynthesisDraft
+from grolla.domain.memory import (
+    ENVIRONMENT,
+    DossierDraft,
+    LearningDraft,
+    SubjectKind,
+    SynthesisDraft,
+)
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -110,8 +131,23 @@ DRAFT_SCHEMA: dict[str, object] = {
             },
         },
         "plan": {"type": "array", "items": {"type": "string"}},
+        # "Já vi isso": o id de um episódio da memória entregue, ou null.
+        "seen_before": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["incident_id", "reason"],
+                    "additionalProperties": False,
+                },
+                {"type": "null"},
+            ]
+        },
     },
-    "required": ["summary", "hypotheses", "plan"],
+    "required": ["summary", "hypotheses", "plan", "seen_before"],
     "additionalProperties": False,
 }
 
@@ -163,6 +199,46 @@ CHAT_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
+
+def _object(**properties: object) -> dict[str, object]:
+    """Objeto do structured outputs: todos os campos obrigatórios, nenhum a mais."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+_TEXT = {"type": "string"}
+
+# Estudo de um serviço: o dossiê, em texto. Os links vêm das avaliações, não do modelo.
+STUDY_SCHEMA = _object(dossier=_TEXT)
+
+# Aprendizado ao encerrar: o episódio e os dossiês reescritos dos serviços e integrações.
+LEARNING_SCHEMA = _object(
+    episode_title=_TEXT,
+    episode_body=_TEXT,
+    noise={"type": "boolean"},
+    dossiers={
+        "type": "array",
+        "items": _object(
+            subject=_TEXT,
+            subject_kind={
+                "type": "string",
+                "enum": [SubjectKind.SERVICE.value, SubjectKind.INTEGRATION.value],
+            },
+            body=_TEXT,
+        ),
+    },
+)
+
+# Síntese: o dossiê do ambiente e um por integração.
+SYNTHESIS_SCHEMA = _object(
+    environment=_TEXT,
+    integrations={"type": "array", "items": _object(subject=_TEXT, body=_TEXT)},
+)
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -210,10 +286,51 @@ class _Hypothesis(_Strict):
     evidence: list[_Evidence] = Field(min_length=1)
 
 
+class _SeenBefore(_Strict):
+    incident_id: str
+    reason: str
+
+    def draft(self) -> SeenBeforeDraft | None:
+        """Id que não é UUID ou motivo vazio: a referência é descartada, sem invalidar."""
+        try:
+            incident_id = UUID(self.incident_id)
+        except ValueError:
+            return None
+        return SeenBeforeDraft(incident_id, self.reason.strip()) if self.reason.strip() else None
+
+
 class _Draft(_Strict):
     summary: str
     hypotheses: list[_Hypothesis]
     plan: list[str]
+    seen_before: _SeenBefore | None = None
+
+
+class _Study(_Strict):
+    dossier: str
+
+
+class _LearnedDossier(_Strict):
+    subject: str
+    subject_kind: Literal[SubjectKind.SERVICE, SubjectKind.INTEGRATION]
+    body: str
+
+
+class _Learning(_Strict):
+    episode_title: str
+    episode_body: str
+    noise: bool
+    dossiers: list[_LearnedDossier]
+
+
+class _Integration(_Strict):
+    subject: str
+    body: str
+
+
+class _Synthesis(_Strict):
+    environment: str
+    integrations: list[_Integration]
 
 
 class _Verdict(_Strict):
@@ -310,15 +427,63 @@ class ClaudeLanguageModel:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+        phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, learning_text(brief), budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        learned = _parsed(_Learning, response, "do aprendizado")
+        if not learned.episode_title.strip() or not learned.episode_body.strip():
+            raise InvalidAnalysisError("episódio sem título ou sem texto")
+        return LearningDraft(
+            episode_title=learned.episode_title.strip(),
+            episode_body=learned.episode_body.strip(),
+            noise=learned.noise,
+            dossiers=tuple(
+                DossierDraft(d.subject.strip(), d.subject_kind, d.body.strip())
+                for d in learned.dossiers
+                if d.subject.strip() and d.body.strip()
+            ),
+        )
 
     async def study_service(
         self, brief: ServiceStudyBrief, toolbox: Toolbox, budget: TokenBudget
     ) -> DossierDraft:
-        raise NotImplementedError
+        phase = _Phase(STUDY_PROMPT, STUDY_SCHEMA, self._study, STAGE_STUDY, wrap_up=True)
+        messages: list[MessageParam] = [{"role": "user", "content": study_text(brief)}]
+        async with self._client() as client:
+            try:
+                response = await _loop(client, phase, messages, toolbox, budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        body = _parsed(_Study, response, "do estudo").dossier.strip()
+        if not body:
+            raise InvalidAnalysisError("dossiê do serviço vazio")
+        # Fontes: só os links que as ferramentas devolveram, nunca os escritos pelo modelo.
+        links = dict.fromkeys(e.url for e in toolbox.evaluations if e.ok and e.url)
+        return DossierDraft(brief.service, SubjectKind.SERVICE, body, tuple(links))
 
     async def synthesize(self, brief: SynthesisBrief, budget: TokenBudget) -> SynthesisDraft:
-        raise NotImplementedError
+        phase = _Phase(SYNTHESIS_PROMPT, SYNTHESIS_SCHEMA, self._study, STAGE_STUDY)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, synthesis_text(brief), budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        synthesis = _parsed(_Synthesis, response, "da síntese")
+        if not synthesis.environment.strip():
+            raise InvalidAnalysisError("dossiê do ambiente vazio")
+        return SynthesisDraft(
+            environment=DossierDraft(
+                ENVIRONMENT, SubjectKind.ENVIRONMENT, synthesis.environment.strip()
+            ),
+            integrations=tuple(
+                DossierDraft(i.subject.strip(), SubjectKind.INTEGRATION, i.body.strip())
+                for i in synthesis.integrations
+                if i.subject.strip() and i.body.strip()
+            ),
+        )
 
     def _client(self) -> anthropic.AsyncAnthropic:
         http_client = (
@@ -374,6 +539,29 @@ async def _loop(
             wrapping_up = True
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": results})
+
+
+async def _once(
+    client: anthropic.AsyncAnthropic, phase: _Phase, text: str, budget: TokenBudget
+) -> Message:
+    """Uma chamada sem ferramentas, só com a saída estruturada da etapa."""
+    response = await client.messages.create(
+        model=phase.settings.model,
+        max_tokens=phase.settings.max_tokens,
+        system=[{"type": "text", "text": phase.system, "cache_control": _CACHE_1H}],
+        messages=[{"role": "user", "content": text}],
+        thinking={"type": "adaptive"},
+        output_config=phase.output_config(),
+    )
+    budget.spend(_usage(response, phase.stage))
+    return response
+
+
+def _parsed[T: BaseModel](model: type[T], response: Message, what: str) -> T:
+    try:
+        return model.model_validate_json(_final_text(response))
+    except ValidationError as error:
+        raise InvalidAnalysisError(f"resultado fora do formato {what}") from error
 
 
 async def _concrete(
@@ -463,6 +651,7 @@ def _draft(response: Message) -> AnalysisDraft:
             for item in draft.hypotheses
         ),
         plan=tuple(draft.plan),
+        seen_before=draft.seen_before.draft() if draft.seen_before else None,
     )
 
 
