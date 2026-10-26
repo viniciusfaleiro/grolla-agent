@@ -486,6 +486,9 @@ class PostgresUnitOfWork:
             {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
         )
 
+    async def request_learning(self, incident_id: UUID, at: datetime) -> None:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-persistencia
+
     async def enqueue(self, notification: Notification, at: datetime) -> None:
         await self._connection.execute(
             sa.text(

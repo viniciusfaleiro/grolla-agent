@@ -81,6 +81,9 @@ class AzureDevOpsChangeHistory:
             raise ToolUnavailableError(f"falha de rede: {type(error).__name__}") from error
         return self._summary(repository, builds, since)
 
+    async def read_file(self, service: str, path: str) -> ToolResult:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+
     async def _repository(self, client: httpx2.AsyncClient, service: str) -> _Repository | None:
         if service in self._repositories:
             return self._repositories[service]

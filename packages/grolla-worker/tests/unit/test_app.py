@@ -18,6 +18,7 @@ from grolla.testing.incidents import (
     InMemoryNotificationOutbox,
 )
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry, ScriptedLanguageModel
+from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
@@ -66,6 +67,10 @@ async def container() -> AsyncIterator[WorkerContainer]:
         changes=FakeChangeHistory(),
         cloud=NoCloudInventory(),
         analysis=config.analysis_policy(),
+        memory=InMemoryMemoryStore(),
+        learning_queue=InMemoryLearningQueue(),
+        studies=InMemoryStudyQueue(),
+        memory_policy=config.memory_policy(),
     )
     await database.dispose()
 

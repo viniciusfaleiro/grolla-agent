@@ -61,6 +61,7 @@ class InMemoryIncidentRepository:
         self.usages: list[tuple[UUID, LlmUsage, datetime]] = []  # (incidente, uso, quando)
         self.messages: list[ChatMessage] = []
         self.reply_started: dict[int, datetime] = {}  # pergunta em andamento → início
+        self.learning_requests: dict[UUID, datetime] = {}  # incidente → pedido do aprendizado
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator["InMemoryUnitOfWork"]:
@@ -190,6 +191,9 @@ class InMemoryUnitOfWork:
                 partial_reason=None,
             ),
         )
+
+    async def request_learning(self, incident_id: UUID, at: datetime) -> None:
+        self._repository.learning_requests[incident_id] = at
 
 
 class InMemoryAnalysisQueue:

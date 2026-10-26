@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from grolla.domain.memory import Memory
+
 # O que o card "investigando" promete checar; é o roteiro curto da análise inicial.
 INITIAL_CHECKS = ("métricas do serviço", "deploys recentes", "traces com erro", "logs de erro")
 
@@ -61,12 +63,31 @@ class Hypothesis:
 
 
 @dataclass(frozen=True)
+class SeenBeforeDraft:
+    """O modelo diz que o incidente repete um caso da memória."""
+
+    incident_id: UUID
+    reason: str
+
+
+@dataclass(frozen=True)
+class SeenBefore:
+    """Caso "já vi isso": o incidente passado, como a memória o registrou, e o motivo."""
+
+    incident_id: UUID
+    title: str  # título do episódio
+    at: datetime  # quando o episódio foi escrito (encerramento do incidente)
+    reason: str
+
+
+@dataclass(frozen=True)
 class AnalysisDraft:
     """O que o modelo de linguagem devolve, já validado."""
 
     summary: str
     hypotheses: tuple[Hypothesis, ...]
     plan: tuple[str, ...]
+    seen_before: SeenBeforeDraft | None = None
 
 
 @dataclass(frozen=True)
@@ -81,16 +102,23 @@ class Analysis:
     hypotheses: tuple[Hypothesis, ...]  # maior confiança primeiro
     plan: tuple[str, ...]
     partial_reason: PartialReason | None
+    seen_before: SeenBefore | None = None
 
 
 def complete(
-    pending: Analysis, draft: AnalysisDraft, evaluations: Sequence[Evaluation], now: datetime
+    pending: Analysis,
+    draft: AnalysisDraft,
+    evaluations: Sequence[Evaluation],
+    now: datetime,
+    episodes: Sequence[Memory] = (),
 ) -> Analysis:
     """Análise concluída com o rascunho do modelo e as avaliações reais.
 
     O modelo escreve as evidências, mas um link só é mantido se veio de uma avaliação: link
-    que nenhuma ferramenta devolveu pode ter sido inventado.
+    que nenhuma ferramenta devolveu pode ter sido inventado. Pelo mesmo motivo, "já vi isso"
+    só é mantido se aponta um dos `episodes` entregues ao modelo.
     """
+    del episodes  # contrato da memória viva: a checagem é do grolla-dominio
     known = {e.url for e in evaluations if e.url}
     hypotheses = (
         replace(

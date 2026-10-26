@@ -340,6 +340,24 @@ Escrita exige autor identificado (cookie `grolla_author`).
 - `ensure_initial_study` (na subida, pede `INITIAL` se não há dossiê);
 - os reapers junto com os existentes.
 
+### Ajustes do commit de contrato
+
+O código do commit de contrato é a fonte de verdade; ele difere do bloco acima em:
+- `MemoryContext`, `memory_text`, `DossierDraft`, `SynthesisDraft` e `LearningDraft` ficam em
+  `grolla.domain.memory` (dados puros); `MemoryStore` e `SubjectSummary` em
+  `grolla.application.memory_store`, para o `Toolbox` e os casos de uso usarem o mesmo port sem
+  import circular; os briefs (`LearningBrief`, `ServiceStudyBrief`, `SynthesisBrief`) e
+  `AlertRule` em `grolla.application.investigation`.
+- O modelo devolve `SeenBeforeDraft(incident_id, reason)`; `complete(..., episodes)` monta o
+  `SeenBefore(incident_id, title, at, reason)` a partir do episódio entregue.
+- `Telemetry.dependencies(service, start, end)`, com janela como as outras consultas.
+- `StudyQueue.service_done(run, ServiceStudy, usages)`, `finish(run, status, reason, now)` e
+  `services()`; `request` devolve se pediu. `llm_usage` ganha `study_run_id`.
+- `Toolbox(..., *, memory=None, remember_as: Source | None = None)`: `remember_as` é a fonte
+  das notas do chat (tipo `chat`, autor da pergunta, id do incidente).
+- `MemoryPolicy` e `StudyPolicy` (com o `alert_filter` do time) em `grolla.application.memory`;
+  `TeamConfig.memory_policy()`.
+
 ## Decisions
 
 **1. Assuntos com dossiê, não lista de fatos.** Uma lista de centenas de fatos atômicos vira

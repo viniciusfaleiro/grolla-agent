@@ -92,6 +92,9 @@ class AwsCloudInventory:
     async def alarms(self, service: str) -> ToolResult:
         return await self._run(lambda: self._alarms(service))
 
+    async def overview(self) -> ToolResult:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+
     async def _run(self, query: Callable[[], ToolResult]) -> ToolResult:
         try:
             return await asyncio.to_thread(query)

@@ -6,22 +6,36 @@ fornecedor não muda o prompt, os evals nem os cenários.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from grolla.application.clock import Clock
+from grolla.application.memory_store import MemoryStore
 from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.chat import ChatDraft
-from grolla.domain.incidents import Alert, Incident
+from grolla.domain.incidents import Alert, Incident, IncidentEvent
+from grolla.domain.memory import (
+    DossierDraft,
+    LearningDraft,
+    Memory,
+    MemoryContext,
+    Source,
+    SynthesisDraft,
+)
 
 STAGE_INVESTIGATION = "investigation"
 STAGE_VERIFICATION = "verification"
 STAGE_WARROOM_CHAT = "warroom_chat"
+STAGE_LEARNING = "learning"
+STAGE_STUDY = "study"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
+NO_DEPENDENCIES = "nenhuma dependência vista nos traces na janela"  # resposta, não erro
+NOTHING_REMEMBERED = "nada na memória sobre isso"  # resposta de `recall`, não erro
+READ_LIMIT = 20_000  # caracteres de um arquivo lido por `read_file`
 
 Signal = Literal["taxa_de_erro", "latencia_p99", "vazao"]
 SIGNALS: tuple[Signal, ...] = ("taxa_de_erro", "latencia_p99", "vazao")
@@ -37,8 +51,40 @@ class ToolResult:
     url: str | None  # link para a origem
 
 
+@dataclass(frozen=True)
+class AlertRule:
+    """Uma regra de alerta configurada na plataforma de observabilidade."""
+
+    name: str
+    condition: str  # texto legível da condição (consulta, operador, limite, janela)
+    severity: str
+    labels: Mapping[str, str]
+    service: str  # pelos `service_labels` do YAML; UNKNOWN_SERVICE quando não há
+    url: str | None
+
+
 class Telemetry(Protocol):
-    """Métricas, logs e traces dos serviços."""
+    """Métricas, logs, traces e regras de alerta dos serviços."""
+
+    async def alert_rules(self) -> list[AlertRule]:
+        """Todas as regras de alerta configuradas; quem filtra o domínio é o caso de uso.
+
+        Levanta ToolUnavailableError.
+        """
+        ...
+
+    async def active_services(self, since: datetime) -> list[str]:
+        """Serviços com traces desde `since`; levanta ToolUnavailableError."""
+        ...
+
+    async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
+        """Dependências chamadas pelo serviço na janela, pelos spans de saída: outro serviço,
+        banco, fila ou host externo, com tipo, chamadas, taxa de erro e p99.
+
+        Sem spans de saída não é erro: o resumo diz NO_DEPENDENCIES. Levanta
+        ToolUnavailableError.
+        """
+        ...
 
     async def query_metric(
         self, service: str, signal: Signal, start: datetime, end: datetime
@@ -69,6 +115,15 @@ class ChangeHistory(Protocol):
         """
         ...
 
+    async def read_file(self, service: str, path: str) -> ToolResult:
+        """Arquivo do repositório do serviço no branch padrão, cortado em READ_LIMIT
+        caracteres (o corte é dito no resumo); caminho vazio ou de pasta devolve a listagem.
+
+        Arquivo binário é recusado com aviso, sem erro; serviço sem repositório diz
+        NO_REPOSITORY. Levanta ToolUnavailableError.
+        """
+        ...
+
 
 class CloudInventory(Protocol):
     """Recursos de nuvem do serviço, mudanças recentes neles e alarmes, só leitura.
@@ -91,6 +146,13 @@ class CloudInventory(Protocol):
         """Alarmes da nuvem em estado de alarme ligados aos recursos do serviço."""
         ...
 
+    async def overview(self) -> ToolResult:
+        """Recursos das regiões configuradas, agrupados por tipo e pela tag `service`, com um
+        grupo "sem serviço" para os sem a tag (rede, balanceadores, bancos compartilhados), e o
+        estado de cada um.
+        """
+        ...
+
 
 class NoCloudInventory:
     """Instância sem a seção `cloud`: as ferramentas de nuvem respondem NO_CLOUD, sem erro."""
@@ -102,6 +164,9 @@ class NoCloudInventory:
         return ToolResult(NO_CLOUD, None)
 
     async def alarms(self, service: str) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+    async def overview(self) -> ToolResult:
         return ToolResult(NO_CLOUD, None)
 
 
@@ -191,14 +256,22 @@ ToolCall = Callable[[], Awaitable[ToolResult]]
 class Toolbox:
     """Liga as ferramentas neutras aos ports e registra cada chamada como avaliação."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — o toolbox liga todos os ports das ferramentas
         self,
         telemetry: Telemetry,
         changes: ChangeHistory,
         clock: Clock,
         lookback: timedelta,
         cloud: CloudInventory | None = None,
+        *,
+        memory: MemoryStore | None = None,
+        remember_as: Source | None = None,
     ) -> None:
+        """`memory` liga `recall`; `remember_as` (só no chat) liga `remember`, gravando notas
+        com essa fonte.
+        """
+        self._memory = memory
+        self._remember_as = remember_as
         self._telemetry = telemetry
         self._changes = changes
         self._cloud = cloud or NoCloudInventory()
@@ -339,6 +412,34 @@ class InvestigationBrief:
     incident: Incident
     alerts: tuple[Alert, ...]
     now: datetime
+    memory: MemoryContext = field(default_factory=MemoryContext)
+
+
+@dataclass(frozen=True)
+class LearningBrief:
+    """O que o modelo recebe para aprender com um incidente encerrado."""
+
+    incident: Incident
+    events: tuple[IncidentEvent, ...]
+    memory: MemoryContext  # dossiês e notas pendentes dos serviços e integrações do incidente
+    now: datetime
+
+
+@dataclass(frozen=True)
+class ServiceStudyBrief:
+    service: str
+    rules: tuple[AlertRule, ...]  # regras do domínio deste serviço
+    memory: MemoryContext  # dossiê atual, notas e episódios do serviço
+    now: datetime
+
+
+@dataclass(frozen=True)
+class SynthesisBrief:
+    rules: tuple[AlertRule, ...]  # todas as regras do domínio
+    services: tuple[Memory, ...]  # dossiês dos serviços
+    memory: MemoryContext  # dossiês atuais do ambiente e das integrações, notas e episódios
+    cloud: str  # resumo de `CloudInventory.overview`
+    now: datetime
 
 
 class LanguageModelError(Exception):
@@ -380,6 +481,26 @@ class LanguageModel(Protocol):
     ) -> ChatDraft:
         """Responde uma pergunta do war room, podendo investigar com as ferramentas;
         levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
+    async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
+        """Escreve o episódio e reescreve os dossiês do incidente encerrado, sem ferramentas;
+        levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
+    async def study_service(
+        self, brief: ServiceStudyBrief, toolbox: Toolbox, budget: TokenBudget
+    ) -> DossierDraft:
+        """Estuda um serviço com as ferramentas e escreve o dossiê dele; levanta
+        LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
+    async def synthesize(self, brief: SynthesisBrief, budget: TokenBudget) -> SynthesisDraft:
+        """Escreve o dossiê do ambiente e os das integrações, sem ferramentas; levanta
+        LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
         """
         ...
 

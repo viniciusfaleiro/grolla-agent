@@ -7,6 +7,11 @@ from grolla.adapters.postgres.incidents import (
     PostgresIncidentRepository,
     PostgresNotificationOutbox,
 )
+from grolla.adapters.postgres.memory import (
+    PostgresLearningQueue,
+    PostgresMemoryStore,
+    PostgresStudyQueue,
+)
 from grolla.adapters.postgres.migrate import migrate
 
 __all__ = [
@@ -14,6 +19,9 @@ __all__ = [
     "PostgresChatQueue",
     "PostgresDatabase",
     "PostgresIncidentRepository",
+    "PostgresLearningQueue",
+    "PostgresMemoryStore",
     "PostgresNotificationOutbox",
+    "PostgresStudyQueue",
     "migrate",
 ]

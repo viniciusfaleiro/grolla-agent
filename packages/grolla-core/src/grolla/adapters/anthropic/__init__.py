@@ -39,7 +39,10 @@ from grolla.application.investigation import (
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModelError,
+    LearningBrief,
     LlmUsage,
+    ServiceStudyBrief,
+    SynthesisBrief,
     TokenBudget,
     Toolbox,
     brief_text,
@@ -58,6 +61,7 @@ from grolla.domain.analysis import (
     check_plan,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.memory import DossierDraft, LearningDraft, SynthesisDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -247,11 +251,15 @@ class ClaudeLanguageModel:
         transport: httpx2.AsyncBaseTransport | None = None,
         verification: ModelSettings | None = None,
         chat: ModelSettings | None = None,
+        learning: ModelSettings | None = None,
+        study: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
         self._verification = verification or settings  # etapa `verification` herda a da análise
         self._chat = chat or settings  # etapa `warroom_chat` também herda
+        self._learning = learning or settings  # etapas da memória também herdam
+        self._study = study or settings
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -300,6 +308,17 @@ class ClaudeLanguageModel:
                 return await _concrete(client, phase, messages, toolbox, budget)
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+
+    async def study_service(
+        self, brief: ServiceStudyBrief, toolbox: Toolbox, budget: TokenBudget
+    ) -> DossierDraft:
+        raise NotImplementedError
+
+    async def synthesize(self, brief: SynthesisBrief, budget: TokenBudget) -> SynthesisDraft:
+        raise NotImplementedError
 
     def _client(self) -> anthropic.AsyncAnthropic:
         http_client = (

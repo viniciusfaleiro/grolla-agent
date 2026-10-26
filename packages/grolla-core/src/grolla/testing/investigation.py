@@ -14,9 +14,13 @@ from grolla.application.investigation import (
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
+    AlertRule,
     InvestigationBrief,
+    LearningBrief,
     LlmUsage,
+    ServiceStudyBrief,
     Signal,
+    SynthesisBrief,
     TokenBudget,
     Toolbox,
     ToolResult,
@@ -24,6 +28,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
+from grolla.domain.memory import DossierDraft, LearningDraft, SynthesisDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -66,6 +71,15 @@ class FakeTelemetry:
         args = {"service": service, "only_errors": only_errors, "start": start, "end": end}
         return self._answer("find_traces", args, f"nenhum trace com erro de {service} na janela")
 
+    async def alert_rules(self) -> list[AlertRule]:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+
+    async def active_services(self, since: datetime) -> list[str]:
+        raise NotImplementedError
+
+    async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
+        raise NotImplementedError
+
     def _answer(self, tool: str, args: dict[str, Any], default: str) -> ToolResult:
         self.calls.append((tool, args))
         if tool in self.failing:
@@ -92,6 +106,9 @@ class FakeChangeHistory:
         if service not in self.deploys:
             return ToolResult(NO_REPOSITORY, None)
         return ToolResult(self.deploys[service], f"https://pipelines.interno/{service}")
+
+    async def read_file(self, service: str, path: str) -> ToolResult:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
 
 
 CLOUD_TOOLS = ("resources", "changes", "alarms")
@@ -130,6 +147,9 @@ class FakeCloudInventory:
 
     async def alarms(self, service: str) -> ToolResult:
         return self._answer("alarms", service, f"não há alarmes ativos para {service}")
+
+    async def overview(self) -> ToolResult:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
 
     def _answer(self, tool: str, service: str, default: str) -> ToolResult:
         self.calls.append((tool, service))
@@ -243,6 +263,17 @@ class ScriptedLanguageModel:
         if self.verification_error is not None:
             raise self.verification_error
         return self.verification
+
+    async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+
+    async def study_service(
+        self, brief: ServiceStudyBrief, toolbox: Toolbox, budget: TokenBudget
+    ) -> DossierDraft:
+        raise NotImplementedError
+
+    async def synthesize(self, brief: SynthesisBrief, budget: TokenBudget) -> SynthesisDraft:
+        raise NotImplementedError
 
     async def _play(
         self, delay: float, calls: ToolCalls, usage: LlmUsage, toolbox: Toolbox, budget: TokenBudget

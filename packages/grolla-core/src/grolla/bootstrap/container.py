@@ -8,7 +8,10 @@ from grolla.adapters.postgres import (
     PostgresChatQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
+    PostgresLearningQueue,
+    PostgresMemoryStore,
     PostgresNotificationOutbox,
+    PostgresStudyQueue,
     migrate,
 )
 from grolla.adapters.signoz import SignozAlertIngress
@@ -27,6 +30,8 @@ from grolla.application.incidents import (
 )
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
+    STAGE_LEARNING,
+    STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     ChangeHistory,
@@ -35,6 +40,8 @@ from grolla.application.investigation import (
     NoCloudInventory,
     Telemetry,
 )
+from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
+from grolla.application.memory_store import MemoryStore
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
 
@@ -50,6 +57,9 @@ class ApiContainer:
     ingress: AlertIngress
     repository: IncidentRepository
     intake: IntakePolicy
+    memory: MemoryStore
+    studies: StudyQueue
+    learning_queue: LearningQueue  # aprendizados falhos na página da memória
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,10 @@ class WorkerContainer:
     changes: ChangeHistory
     cloud: CloudInventory
     analysis: AnalysisPolicy
+    memory: MemoryStore
+    learning_queue: LearningQueue
+    studies: StudyQueue
+    memory_policy: MemoryPolicy
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -88,6 +102,9 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         ),
         repository=PostgresIncidentRepository(database),
         intake=config.intake_policy(),
+        memory=PostgresMemoryStore(database),
+        studies=PostgresStudyQueue(database),
+        learning_queue=PostgresLearningQueue(database),
     )
 
 
@@ -121,6 +138,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             base_url=settings.anthropic_base_url,
             verification=_model_settings(verification),
             chat=_model_settings(chat),
+            learning=_model_settings(config.llm.stages.get(STAGE_LEARNING)),
+            study=_model_settings(config.llm.stages.get(STAGE_STUDY)),
         ),
         telemetry=SignozTelemetry(config.signoz.mcp_url, config.signoz.base_url),
         changes=AzureDevOpsChangeHistory(
@@ -136,6 +155,10 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         if config.cloud is None
         else AwsCloudInventory(config.cloud.regions, config.cloud.resource_map),
         analysis=config.analysis_policy(),
+        memory=PostgresMemoryStore(database),
+        learning_queue=PostgresLearningQueue(database),
+        studies=PostgresStudyQueue(database),
+        memory_policy=config.memory_policy(),
     )
 
 

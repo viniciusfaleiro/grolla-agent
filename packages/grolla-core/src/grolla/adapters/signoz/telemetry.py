@@ -24,7 +24,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from grolla.application.investigation import Signal, ToolResult, ToolUnavailableError
+from grolla.application.investigation import AlertRule, Signal, ToolResult, ToolUnavailableError
 
 # Lista fechada: só leitura. Qualquer outra ferramenta (criar dashboard, apagar alerta...) é
 # recusada antes de chegar ao servidor, mesmo que a API key permita.
@@ -142,6 +142,15 @@ class SignozTelemetry:
         if only_errors:
             return await self._error_traces(service, start, end)
         return await self._slow_operations(service, start, end)
+
+    async def alert_rules(self) -> list[AlertRule]:
+        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-integracoes
+
+    async def active_services(self, since: datetime) -> list[str]:
+        raise NotImplementedError
+
+    async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
+        raise NotImplementedError
 
     async def _aggregate(self, arguments: Mapping[str, Any]) -> "list[_Series]":
         envelope = _parse(

@@ -2,16 +2,16 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `grolla.domain.memory` (assuntos, registros, confiança, fonte, versões, regras com corpos `NotImplementedError`) e `SeenBefore` na análise.
-- [ ] 0.2 Application, com corpos `NotImplementedError`:
+- [x] 0.1 `grolla.domain.memory` (assuntos, registros, confiança, fonte, versões, regras com corpos `NotImplementedError`) e `SeenBefore` na análise.
+- [x] 0.2 Application, com corpos `NotImplementedError`:
   - modelos e ports: `AlertRule`, `MemoryContext`, `MemoryStore`, `LearningQueue`, `StudyQueue`, briefs e drafts;
   - métodos novos de `Telemetry`, `CloudInventory`, `ChangeHistory` e `LanguageModel`;
   - `request_learning`;
   - memória no `InvestigationBrief` e no `Toolbox`;
   - casos de uso.
-- [ ] 0.3 Stubs no Postgres, nos adapters Anthropic, SigNoz, AWS e Azure DevOps e nos fakes; migração `0006`.
-- [ ] 0.4 Config `memory` e etapas `learning`/`study` no `bootstrap`; containers do worker e da api com a memória e as filas.
-- [ ] 0.5 `make check` verde com os stubs e commit de contrato.
+- [x] 0.3 Stubs no Postgres, nos adapters Anthropic, SigNoz, AWS e Azure DevOps e nos fakes; migração `0006`.
+- [x] 0.4 Config `memory` e etapas `learning`/`study` no `bootstrap`; containers do worker e da api com a memória e as filas.
+- [x] 0.5 `make check` verde com os stubs e commit de contrato.
 
 ## 1. grolla-dominio
 
