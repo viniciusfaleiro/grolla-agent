@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% from "_macros.html" import when, join %}
+{% block title %}Memória{% endblock %}
+{% block content %}
+<div class="memory-intro">
+  <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
+  <div>
+    <h1>Memória do Grolla</h1>
+    <p class="muted">O que o Grolla sabe do ambiente que cuida. Ele aprende sozinho; o time corrige, confirma e ensina.</p>
+  </div>
+</div>
+
+{% if not author %}{{ join("/memoria", "Seu nome fica nas notas, nas correções e nos pedidos de estudo.") }}{% endif %}
+
+<div class="memory-grid">
+  <div class="memory-main">
+    <section class="panel" id="ambiente">
+      <div class="panel-head">
+        <h2>Ambiente</h2>
+        {% if environment %}
+        <span class="badge badge-{{ environment.confidence }}">{{ environment.confidence }}</span>
+        <span class="muted">atualizado {{ ago(now - environment.updated_at) }}</span>
+        <a class="panel-link" href="{{ subject_url(environment.subject) }}">editar e ver o histórico</a>
+        {% endif %}
+      </div>
+      {% if environment and environment.active %}
+      <div class="rich dossier">{{ rich_text(environment.body) }}</div>
+      {% elif environment %}
+      <p class="muted">O dossiê do ambiente foi esquecido; o próximo estudo escreve um novo. A versão antiga continua no <a href="{{ subject_url(environment.subject) }}">histórico</a>.</p>
+      {% else %}
+      <div class="empty memory-empty">
+        <h3>Ainda não estudei o ambiente</h3>
+        {% if study_enabled %}
+        <p>Na primeira subida eu leio os alertas do time, os repositórios, as pipelines, a nuvem e as integrações, e escrevo aqui o mapa do ambiente. Enquanto isso, o que você ensinar já entra nas investigações.</p>
+        {% else %}
+        <p>O estudo do ambiente está desligado (falta <code>memory.study</code> no YAML do time). Mesmo assim eu aprendo com cada incidente encerrado e com o que o time me ensina.</p>
+        {% endif %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="panel" id="assuntos">
+      <h2>Assuntos</h2>
+      {% for group in groups %}
+      <div class="subject-group">
+        <h3>{{ group.label }} <span class="muted">{{ group.subjects | length }}</span></h3>
+        <ul class="subject-list">
+          {% for item in group.subjects %}
+          <li>
+            <a href="{{ subject_url(item.subject) }}">{{ item.subject }}</a>
+            <span class="muted">{{ item.records }} {{ "registro" if item.records == 1 else "registros" }} · atualizado {{ ago(now - item.updated_at) }}{% if item.studied_at %} · estudado {{ ago(now - item.studied_at) }}{% endif %}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% else %}
+      <p class="muted">Nenhum assunto ainda. Os serviços e as integrações aparecem aqui conforme eu estudo e aprendo.</p>
+      {% endfor %}
+      <form class="open-subject" method="get" action="/memoria">
+        <label for="assunto">Ensinar sobre outro assunto</label>
+        <div class="row">
+          <input id="assunto" name="assunto" required maxlength="100" placeholder="ex.: captura-api">
+          <button>Abrir</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <aside class="memory-side">
+    <section class="panel" id="estudo">
+      <h2>Estudo do ambiente</h2>
+      {% if study %}
+      <p class="study-line"><strong>{{ study_modes[study.mode] | capitalize }}</strong> <span class="study-status study-{{ study.status }}">{{ study_statuses[study.status] }}</span></p>
+      <dl class="facts">
+        <div><dt>Pedido por</dt><dd>{{ display_name(study.author) }}</dd></div>
+        <div><dt>Quando</dt><dd>{{ when(study.requested_at) }}</dd></div>
+        {% if study.finished_at %}<div><dt>Terminou</dt><dd>{{ when(study.finished_at) }}</dd></div>{% endif %}
+        {% if study.tokens %}<div><dt>Tokens</dt><dd>{{ "{:,}".format(study.tokens).replace(",", ".") }}</dd></div>{% endif %}
+      </dl>
+      {% if study.reason %}<p class="muted">{{ study.reason }}</p>{% endif %}
+      {% else %}
+      <p class="muted">Nenhum estudo pedido ainda.</p>
+      {% endif %}
+
+      {% if progress.studied or progress.pending or progress.failed %}
+      <div class="study-services">
+        {% if progress.studied %}
+        <div><h3>Estudados <span class="muted">{{ progress.studied | length }}</span></h3>
+          <ul class="chips">{% for item in progress.studied %}<li><a class="chip" href="{{ subject_url(item.service) }}"{% if item.studied_at %} title="estudado em {{ item.studied_at.strftime('%d/%m/%Y %H:%M UTC') }}"{% endif %}>{{ item.service }}</a></li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% if progress.pending %}
+        <div><h3>Pendentes <span class="muted">{{ progress.pending | length }}</span></h3>
+          <p class="muted">Não couberam no orçamento; vão primeiro na próxima rodada.</p>
+          <ul class="chips">{% for item in progress.pending %}<li><span class="chip">{{ item.service }}</span></li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% if progress.failed %}
+        <div><h3>Falharam <span class="muted">{{ progress.failed | length }}</span></h3>
+          <ul class="failures">{% for item in progress.failed %}<li><strong>{{ item.service }}</strong><span class="muted">{{ item.reason or "sem motivo registrado" }}</span></li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if not study_enabled %}
+      <p class="muted">O estudo está desligado: falta <code>memory.study</code> no YAML do time.</p>
+      {% elif author %}
+      <div class="study-actions">
+        <form hx-post="/memoria/estudar"><button class="button-primary">Estudar de novo</button></form>
+        <button class="button-quiet button-danger" popovertarget="reaprender">Reaprender do zero</button>
+      </div>
+      <p class="hint muted">Estudar de novo mantém a memória e reestuda todos os serviços, até o limite de tokens da rodada.</p>
+      <div id="reaprender" popover>
+        <form class="popover-form" hx-post="/memoria/reaprender">
+          <h3>Reaprender o ambiente do zero?</h3>
+          <input type="hidden" name="confirmar" value="sim">
+          <p><strong>Esqueço</strong> todos os dossiês e as notas que aprendi sozinho, e refaço o estudo completo do ambiente.</p>
+          <p><strong>Fica</strong> o histórico dos incidentes (episódios) e as notas confirmadas pelo time; eles entram nos dossiês novos.</p>
+          <p class="muted">Nada é apagado: o que eu esquecer continua no histórico de cada registro e pode ser restaurado. O estudo gasta tokens do LLM até o limite da rodada.</p>
+          <div id="erro-reaprender" class="error" role="alert"></div>
+          <div class="row">
+            <button type="button" class="button-quiet" popovertarget="reaprender" popovertargetaction="hide">Cancelar</button>
+            <button class="button-primary">Reaprender do zero</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+      <div id="erro-estudo" class="error" role="alert"></div>
+    </section>
+
+    {% if learning_failures %}
+    <section class="panel" id="falhas">
+      <h2>Aprendizados que falharam</h2>
+      <ul class="failures">
+        {% for failure in learning_failures %}
+        <li>
+          <a href="/incidents/{{ failure.incident_id }}">{{ failure.title }}</a>
+          <span class="muted">{{ failure.reason }} · {{ when(failure.at) }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="hint muted">O incidente continua encerrado; só a memória ficou sem esse aprendizado.</p>
+    </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

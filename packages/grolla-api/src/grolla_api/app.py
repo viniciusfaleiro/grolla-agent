@@ -19,12 +19,41 @@ from grolla.application.incidents import (
     InvalidAlertPayloadError,
     receive_alerts,
 )
+from grolla.application.memory import (
+    InvalidMemoryError,
+    LearningQueue,
+    MemoryNotFoundError,
+    StudyMode,
+    StudyQueue,
+    add_note,
+    confirm_memory,
+    edit_memory,
+    forget_memory,
+    request_study,
+    restore_memory,
+)
+from grolla.application.memory_store import MemoryStore
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.chat import AGENT_AUTHOR
 from grolla.domain.incidents import OPEN_STATES, EventType, Incident
+from grolla.domain.memory import ENVIRONMENT, Memory, SubjectKind
 from grolla.domain.war_room import InvalidActionError
 
+from grolla_api.memory_pages import (
+    NEW_SUBJECT_KINDS,
+    STUDY_MODE_LABELS,
+    STUDY_STATUS_LABELS,
+    SUBJECT_KIND_NAMES,
+    SUBJECT_MAX_LENGTH,
+    kind_of,
+    parse_version_at,
+    source_of,
+    split_records,
+    study_progress,
+    subject_groups,
+    subject_url,
+)
 from grolla_api.war_room import (
     AUTHOR_COOKIE,
     AUTHOR_COOKIE_MAX_AGE,
@@ -123,12 +152,23 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "is_waiting": is_waiting,
     "rich_text": rich_text,
     "visible_events": visible_events,
+    "source_of": source_of,
+    "study_modes": STUDY_MODE_LABELS,
+    "study_statuses": STUDY_STATUS_LABELS,
+    "new_subject_kinds": NEW_SUBJECT_KINDS,
+    "subject_kind_names": SUBJECT_KIND_NAMES,
+    "subject_url": subject_url,
 }
 templates.env.globals.update(TEMPLATE_GLOBALS)
 
 NO_AUTHOR = "informe seu nome"
 WAR_ROOM_ERROR = "#war-room-error"
 CHAT_ERROR = "#chat-error"
+STUDY_ERROR = "#erro-estudo"
+RELEARN_ERROR = "#erro-reaprender"  # dentro do popover de confirmação
+NOTE_ERROR = "#erro-nota"
+RELEARN_UNCONFIRMED = "confirme que quer reaprender o ambiente do zero"
+STUDY_QUEUED = "já tem um estudo na fila ou em andamento; espere ele terminar"
 
 
 def error_fragment(message: str, status_code: int, target: str) -> HTMLResponse:
@@ -150,6 +190,32 @@ class Services:
     repository: IncidentRepository
     intake: IntakePolicy
     clock: Clock
+    memory: MemoryStore
+    studies: StudyQueue
+    learning_queue: LearningQueue
+    study_enabled: bool  # sem `memory.study` no YAML nenhum estudo roda
+
+
+# Mudança num registro: (registro, autor, campos do form) → registro gravado.
+RecordChange = Callable[[Memory, str, dict[str, str]], Awaitable[Memory]]
+
+
+def reload_page(request: Request, url: str) -> Response:
+    """A ação da memória deu certo: volta à página com o estado novo.
+
+    O HTMX navega pelo `HX-Redirect` (um 303 seria seguido pelo fetch e trocado dentro do form);
+    um form comum recebe o 303.
+    """
+    if request.headers.get("HX-Request") == "true":
+        return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"HX-Redirect": url})
+    return RedirectResponse(url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def subject_or_404(subject: str) -> str:
+    subject = subject.strip()
+    if not subject or len(subject) > SUBJECT_MAX_LENGTH:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "assunto não encontrado")
+    return subject
 
 
 def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função curta por rota
@@ -296,6 +362,165 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         if visto == str(len(context["events"])):
             return Response(status_code=status.HTTP_204_NO_CONTENT)  # nada novo: o HTMX não troca
         return templates.TemplateResponse(request, "_timeline.html", context)
+
+    memory = services.memory
+    clock = services.clock
+
+    async def record_or_404(memory_id: str) -> Memory:
+        try:
+            found = await memory.get(UUID(memory_id))
+        except ValueError:
+            found = None
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "registro não encontrado")
+        return found
+
+    @app.get("/memoria", response_class=HTMLResponse)
+    async def memory_home(request: Request, assunto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]
+        if assunto.strip():  # "abrir ou criar um assunto" leva à página dele
+            url = subject_url(subject_or_404(assunto))
+            return RedirectResponse(url, status_code=status.HTTP_303_SEE_OTHER)
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "memory",
+            "back_to": "/memoria",
+            "now": clock.now(),
+            "environment": await memory.dossier(ENVIRONMENT),
+            "groups": subject_groups(await memory.subjects()),
+            "study": await services.studies.last(),
+            "progress": study_progress(await services.studies.services()),
+            "learning_failures": await services.learning_queue.failed(),
+            "study_enabled": services.study_enabled,
+        }
+        return templates.TemplateResponse(request, "memory.html", context)
+
+    async def study(request: Request, mode: StudyMode, target: str) -> Response:
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, target)
+        try:
+            asked = await request_study(
+                studies=services.studies, memory=memory, mode=mode, author=author, clock=clock
+            )
+        except InvalidMemoryError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, target)
+        if not asked:
+            return error_fragment(STUDY_QUEUED, status.HTTP_409_CONFLICT, target)
+        return reload_page(request, "/memoria")
+
+    @app.post("/memoria/estudar")
+    async def study_again(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
+        return await study(request, StudyMode.FULL, STUDY_ERROR)
+
+    @app.post("/memoria/reaprender")
+    async def relearn(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
+        if parse_form(await request.body()).get("confirmar") != "sim":
+            return error_fragment(
+                RELEARN_UNCONFIRMED, status.HTTP_422_UNPROCESSABLE_CONTENT, RELEARN_ERROR
+            )
+        return await study(request, StudyMode.RELEARN, RELEARN_ERROR)
+
+    @app.get("/memoria/registros/{memory_id}/versoes", response_class=HTMLResponse)
+    async def memory_versions(request: Request, memory_id: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        record = await record_or_404(memory_id)
+        context = {
+            "record": record,
+            "versions": await memory.versions(record.id),
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+        }
+        return templates.TemplateResponse(request, "_memory_versions.html", context)
+
+    async def change_record(request: Request, memory_id: str, change: RecordChange) -> Response:
+        """Escrita num registro: exige autor; erro de domínio vira mensagem junto do registro."""
+        record = await record_or_404(memory_id)
+        target = f"#erro-{record.id}"
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, target)
+        try:
+            await change(record, author, parse_form(await request.body()))
+        except MemoryNotFoundError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "registro não encontrado") from error
+        except InvalidMemoryError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, target)
+        return reload_page(request, subject_url(record.subject))
+
+    async def edited(record: Memory, author: str, form: dict[str, str]) -> Memory:
+        body = form.get("texto", "")
+        return await edit_memory(
+            memory=memory, memory_id=record.id, body=body, author=author, clock=clock
+        )
+
+    async def confirmed(record: Memory, author: str, _: dict[str, str]) -> Memory:
+        return await confirm_memory(memory=memory, memory_id=record.id, author=author, clock=clock)
+
+    async def forgotten(record: Memory, author: str, _: dict[str, str]) -> Memory:
+        return await forget_memory(memory=memory, memory_id=record.id, author=author, clock=clock)
+
+    async def restored(record: Memory, author: str, form: dict[str, str]) -> Memory:
+        version_at = parse_version_at(form.get("versao", ""))
+        if version_at is None:
+            raise InvalidMemoryError("versão inválida")
+        return await restore_memory(
+            memory=memory, memory_id=record.id, version_at=version_at, author=author, clock=clock
+        )
+
+    @app.post("/memoria/registros/{memory_id}")
+    async def edit_record(request: Request, memory_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        return await change_record(request, memory_id, edited)
+
+    @app.post("/memoria/registros/{memory_id}/confirmar")
+    async def confirm_record(request: Request, memory_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        return await change_record(request, memory_id, confirmed)
+
+    @app.post("/memoria/registros/{memory_id}/esquecer")
+    async def forget_record(request: Request, memory_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        return await change_record(request, memory_id, forgotten)
+
+    @app.post("/memoria/registros/{memory_id}/restaurar")
+    async def restore_record(request: Request, memory_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        return await change_record(request, memory_id, restored)
+
+    @app.get("/memoria/{subject}", response_class=HTMLResponse)
+    async def memory_subject(request: Request, subject: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        subject = subject_or_404(subject)
+        records = await memory.of_subject(subject)
+        url = subject_url(subject)
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "memory",
+            "back_to": url,
+            "subject": subject,
+            "page_url": url,
+            "kind": kind_of(subject, records),
+            "records": split_records(records),
+        }
+        return templates.TemplateResponse(request, "memory_subject.html", context)
+
+    @app.post("/memoria/{subject}/notas")
+    async def new_note(request: Request, subject: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        subject = subject_or_404(subject)
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, NOTE_ERROR)
+        form = parse_form(await request.body())
+        kind = kind_of(subject, await memory.of_subject(subject))
+        if kind is None:  # assunto novo: a nota diz se é serviço ou integração
+            kind = (
+                SubjectKind.INTEGRATION if form.get("tipo") == "integracao" else SubjectKind.SERVICE
+            )
+        try:
+            await add_note(
+                memory=memory,
+                subject=subject,
+                subject_kind=kind,
+                text=form.get("texto", ""),
+                author=author,
+                clock=clock,
+            )
+        except InvalidMemoryError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, NOTE_ERROR)
+        return reload_page(request, subject_url(subject))
 
     @app.post("/author")
     async def set_author(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]

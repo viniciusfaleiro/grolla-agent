@@ -300,7 +300,9 @@ def _inline(text: str) -> str:
 
 
 def rich_text(text: str) -> Markup:
-    """Markdown mínimo e seguro para as respostas do agente: parágrafos, listas, negrito, links."""
+    """Markdown mínimo e seguro para o texto do agente: títulos, parágrafos, listas, negrito,
+    links.
+    """
     blocks: list[str] = []
     paragraph: list[str] = []
     items: list[str] = []
@@ -315,7 +317,11 @@ def rich_text(text: str) -> Markup:
 
     for raw in text.splitlines():
         line = raw.strip()
-        if line.startswith(_BULLET):
+        heading = line.lstrip("#")
+        if line.startswith("#") and heading.startswith(" "):  # "## Seção" dos dossiês
+            flush()
+            blocks.append(f'<p class="rich-heading">{_inline(heading.strip())}</p>')
+        elif line.startswith(_BULLET):
             if paragraph:
                 flush()
             items.append(_inline(line[2:].strip()))
