@@ -1,0 +1,13 @@
+{# Chat inteiro: as mensagens e um form limpo; é o fragmento devolvido ao enviar. #}
+<section id="chat">
+{% include "_chat_messages.html" %}
+<div id="chat-error" role="alert"></div>
+{% if author %}
+<form hx-post="/incidents/{{ incident.id }}/chat" hx-target="#chat" hx-swap="outerHTML">
+  <label>Para o agente
+    <textarea name="texto" required rows="2" placeholder="olha os logs do pedidos-db desde 21:40"></textarea>
+  </label>
+  <button>Enviar</button>
+</form>
+{% endif %}
+</section>

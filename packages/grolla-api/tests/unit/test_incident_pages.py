@@ -22,20 +22,9 @@ from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla_api.app import Services, create_app
 
 
-class RepositoryWithAnalyses(InMemoryIncidentRepository):
-    """Stub local de `verification_of` até o fake do domínio chegar."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.verifications: dict[UUID, Verification] = {}
-
-    async def verification_of(self, incident_id: UUID) -> Verification | None:
-        return self.verifications.get(incident_id)
-
-
 @pytest.fixture
-def repository() -> RepositoryWithAnalyses:
-    return RepositoryWithAnalyses()
+def repository() -> InMemoryIncidentRepository:
+    return InMemoryIncidentRepository()
 
 
 def make_analysis(
@@ -83,12 +72,12 @@ def make_analysis(
 
 
 @pytest.fixture
-def client(services: Services, repository: RepositoryWithAnalyses) -> TestClient:
+def client(services: Services, repository: InMemoryIncidentRepository) -> TestClient:
     return TestClient(create_app(replace(services, repository=repository)))
 
 
 def test_list_shows_the_most_recent_incident_first(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     older = make_incident(services=("captura",), detected_at=T0)
     newer = make_incident(services=("autorizador",), detected_at=T0 + timedelta(hours=1))
@@ -111,7 +100,7 @@ def test_empty_list_says_there_is_nothing(client: TestClient) -> None:
 
 
 def test_incident_page_shows_alerts_and_timeline_in_order(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     incident = make_incident(severity=Severity.P1, services=("captura",))
     first = make_alert(service="captura", summary="Erro em 7%")
@@ -136,7 +125,9 @@ def test_incident_page_shows_alerts_and_timeline_in_order(
     assert received < page.index("Alerta agrupado") < page.index("Severidade alterada")
 
 
-def test_page_escapes_alert_text(client: TestClient, repository: RepositoryWithAnalyses) -> None:
+def test_page_escapes_alert_text(
+    client: TestClient, repository: InMemoryIncidentRepository
+) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
     repository.links = [(incident.id, make_alert(summary="<script>x</script>"))]
@@ -153,7 +144,7 @@ def test_unknown_incident_is_not_found(client: TestClient, incident_id: str) -> 
 
 
 def test_completed_analysis_shows_summary_evaluations_hypotheses_and_plan(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
@@ -179,7 +170,7 @@ def test_completed_analysis_shows_summary_evaluations_hypotheses_and_plan(
 
 @pytest.mark.parametrize("status", [AnalysisStatus.PENDING, AnalysisStatus.RUNNING])
 def test_analysis_not_finished_shows_in_progress(
-    client: TestClient, repository: RepositoryWithAnalyses, status: AnalysisStatus
+    client: TestClient, repository: InMemoryIncidentRepository, status: AnalysisStatus
 ) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
@@ -196,7 +187,7 @@ def test_analysis_not_finished_shows_in_progress(
 
 
 def test_partial_analysis_shows_the_reason_in_portuguese(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
@@ -218,7 +209,7 @@ def test_partial_analysis_shows_the_reason_in_portuguese(
 
 
 def test_incident_without_analysis_says_so(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
@@ -226,7 +217,9 @@ def test_incident_without_analysis_says_so(
     assert "Nenhuma análise pedida" in client.get(f"/incidents/{incident.id}").text
 
 
-def test_analysis_text_is_escaped(client: TestClient, repository: RepositoryWithAnalyses) -> None:
+def test_analysis_text_is_escaped(
+    client: TestClient, repository: InMemoryIncidentRepository
+) -> None:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
     repository.analyses = {
@@ -305,7 +298,7 @@ def make_verification(
 
 
 def page_with(
-    client: TestClient, repository: RepositoryWithAnalyses, verification: Verification | None
+    client: TestClient, repository: InMemoryIncidentRepository, verification: Verification | None
 ) -> str:
     incident = make_incident()
     repository.incidents = {incident.id: incident}
@@ -316,7 +309,7 @@ def page_with(
 
 
 def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     page = page_with(client, repository, make_verification(uuid4()))
 
@@ -343,7 +336,7 @@ def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
 
 @pytest.mark.parametrize("status", [AnalysisStatus.PENDING, AnalysisStatus.RUNNING])
 def test_verification_not_finished_shows_validating(
-    client: TestClient, repository: RepositoryWithAnalyses, status: AnalysisStatus
+    client: TestClient, repository: InMemoryIncidentRepository, status: AnalysisStatus
 ) -> None:
     pending = replace(
         make_verification(uuid4(), status),
@@ -363,7 +356,7 @@ def test_verification_not_finished_shows_validating(
 
 
 def test_verification_without_root_cause_says_what_was_missing(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     unconfirmed = replace(
         make_verification(uuid4()),
@@ -381,7 +374,7 @@ def test_verification_without_root_cause_says_what_was_missing(
 
 
 def test_partial_verification_shows_the_reason_in_portuguese(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     partial = replace(
         make_verification(uuid4(), AnalysisStatus.PARTIAL, PartialReason.LLM_FAILED),
@@ -400,7 +393,7 @@ def test_partial_verification_shows_the_reason_in_portuguese(
 
 
 def test_incident_without_verification_says_so(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     page = page_with(client, repository, None)
 
@@ -409,7 +402,7 @@ def test_incident_without_verification_says_so(
 
 
 def test_verification_text_is_escaped(
-    client: TestClient, repository: RepositoryWithAnalyses
+    client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     hostile = replace(make_verification(uuid4()), root_cause="<script>x</script>")
 

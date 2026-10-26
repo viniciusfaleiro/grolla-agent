@@ -1,0 +1,23 @@
+{% macro evaluations_table(evaluations) %}
+<table>
+  <thead><tr><th>Ferramenta</th><th>Objeto</th><th>Achado</th><th>Link</th></tr></thead>
+  <tbody>
+  {% for evaluation in evaluations %}
+    <tr>
+      <td><code>{{ evaluation.tool }}</code></td>
+      <td>{{ evaluation.subject }}</td>
+      <td>{% if not evaluation.ok %}<span class="muted">falhou:</span> {% endif %}{{ evaluation.finding }}</td>
+      <td>{% if evaluation.url %}<a href="{{ evaluation.url }}">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+{% macro evidence_list(evidence) %}
+<ul>
+  {% for item in evidence %}
+  <li>{{ item.text }}{% if item.url %} · <a href="{{ item.url }}">abrir</a>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% macro when(at) %}{{ at.strftime("%d/%m/%Y %H:%M:%S %Z") }}{% endmacro %}

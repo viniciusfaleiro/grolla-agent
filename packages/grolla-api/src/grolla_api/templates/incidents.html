@@ -11,7 +11,7 @@
     <tr>
       <td class="sev">{{ incident.severity }}</td>
       <td><a href="/incidents/{{ incident.id }}">{{ incident.title }}</a></td>
-      <td>{{ incident.state }}</td>
+      <td>{{ state_labels[incident.state] }}</td>
       <td>{{ incident.services | join(", ") }}</td>
       <td>{{ incident.detected_at.strftime("%d/%m/%Y %H:%M:%S %Z") }}</td>
     </tr>

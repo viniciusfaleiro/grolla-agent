@@ -30,14 +30,14 @@
 
 ## 4. grolla-web
 
-- [ ] 4.1 War room:
+- [x] 4.1 War room:
   - cabeçalho com estado, severidade, duração, IC e TTA, TTM e TTR;
   - ações permitidas no estado atual;
   - chat;
   - timeline com autor;
   - polling HTMX;
   - cookie do autor.
-- [ ] 4.2 Rotas de ação e de chat, com erros de ação inválida mostrados na página; testes; README; `make check` verde.
+- [x] 4.2 Rotas de ação e de chat, com erros de ação inválida mostrados na página; testes; README; `make check` verde.
 
 ## 5. grolla-e2e
 
