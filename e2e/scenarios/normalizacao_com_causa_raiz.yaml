@@ -1,0 +1,67 @@
+# A normalização fecha a história: depois da causa raiz confirmada, o último alerta resolvido
+# gera o card "Incidente normalizado" com a duração, a causa raiz e o plano que foi sugerido.
+name: normalização traz a causa raiz
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Taxa de erro alta no fecha-historia-api
+              service_name: fecha-historia-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no fecha-historia-api
+              description: A taxa de erro HTTP 5xx do fecha-historia-api está em 7,2%.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=120
+            fingerprint: e2e-fecha-historia-1
+then:
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [fecha-historia-api, "Causa raiz · P1"]
+      count: 1
+      timeout_seconds: 90
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: resolved
+        version: "4"
+        alerts:
+          - <<: *alerta
+            status: resolved
+            endsAt: "2026-01-01T10:20:00Z"
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [fecha-historia-api, "Causa raiz · P1"]
+      then:
+        - fecha-historia-api
+        - Incidente normalizado
+        - "Normalizado: durou"
+        - Plano de ação sugerido
+        - Fazer rollback do fecha-historia-api para o deploy anterior
+      timeout_seconds: 60
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [fecha-historia-api]
+      count: 4

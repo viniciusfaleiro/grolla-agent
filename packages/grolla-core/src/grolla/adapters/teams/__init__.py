@@ -10,6 +10,7 @@ from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Action,
     Analysis,
+    AnalysisStatus,
     Evaluation,
     Evidence,
     Hypothesis,
@@ -111,7 +112,29 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
     ]
     if kind is NotificationKind.INCIDENT_OPENED:
         body.append(_section("Vou checar", [f"- {check}" for check in INITIAL_CHECKS]))
+    if kind is NotificationKind.INCIDENT_NORMALIZED and notification.verification is not None:
+        body.extend(_outcome(notification.verification))
     return body
+
+
+def _outcome(verification: Verification) -> list[dict[str, Any]]:
+    """Desfecho da investigação no card de normalização: fecha a história do incidente."""
+    if verification.status in (AnalysisStatus.PENDING, AnalysisStatus.RUNNING):
+        return [_section("Causa raiz", [VERIFICATION_RUNNING])]
+    if verification.root_cause:
+        sections = [_section("Causa raiz", [_clip(verification.root_cause)])]
+        if verification.actions:
+            steps = [_action(a) for a in verification.actions]
+            sections.append(_section("Plano de ação sugerido", _limit(steps, MAX_PLAN_STEPS)))
+        return sections
+    if verification.partial_reason is not None:
+        reason = PARTIAL_REASON_TEXT[verification.partial_reason]
+        return [
+            _section("Causa raiz", [f"Causa raiz não confirmada: validação parcial ({reason})"])
+        ]
+    missing = verification.missing.strip()
+    text = f"Causa raiz não confirmada. Faltou: {_clip(missing)}" if missing else NO_ROOT_CAUSE_TEXT
+    return [_section("Causa raiz", [text])]
 
 
 def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[str, Any]]:
@@ -169,6 +192,9 @@ def _verification_body(
         body.append(_section("O que faltou", [_clip(verification.missing)]))
     return body
 
+
+VERIFICATION_RUNNING = "Validação em andamento: a causa raiz aparecerá na página do incidente."
+NO_ROOT_CAUSE_TEXT = "Causa raiz não confirmada."
 
 # O Workflow do Teams recusa mensagens grandes; o card resume e a página do incidente tem tudo.
 MAX_EVALUATIONS = 8

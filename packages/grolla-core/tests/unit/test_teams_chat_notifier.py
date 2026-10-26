@@ -402,3 +402,48 @@ def test_card_uses_only_elements_the_test_console_renders() -> None:
         types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
         assert types <= allowed
         assert {a["type"] for a in card["actions"]} == {"Action.OpenUrl"}
+
+
+def normalized_card(verification: Verification | None) -> list[str]:
+    card = replace(
+        notification(NotificationKind.INCIDENT_NORMALIZED),
+        summary="Normalizado: durou 32 min",
+        verification=verification,
+    )
+    return texts(adaptive_card(card))
+
+
+def test_normalization_closes_the_story_with_the_root_cause() -> None:
+    verification = make_verification(UUID(int=1))
+    lines = normalized_card(verification)
+
+    assert lines[0] == "Incidente normalizado · P2"
+    assert "Normalizado: durou 32 min" in lines
+    section = {title: lines[i + 1] for i, title in enumerate(lines[:-1])}
+    assert section["Causa raiz"] == verification.root_cause
+    assert section["Plano de ação sugerido"].startswith(f"- {verification.actions[0].action}")
+
+
+def test_normalization_during_validation_points_to_the_page() -> None:
+    running = make_verification(UUID(int=1), status=AnalysisStatus.RUNNING)
+
+    assert "Validação em andamento" in "\n".join(normalized_card(running))
+
+
+def test_normalization_without_confirmed_cause_says_what_was_missing() -> None:
+    unconfirmed = replace(
+        make_verification(UUID(int=1)), root_cause=None, actions=(), missing="faltou o log do banco"
+    )
+
+    expected = "Causa raiz não confirmada. Faltou: faltou o log do banco"
+    assert expected in normalized_card(unconfirmed)
+
+
+def test_partial_validation_on_normalization_says_why() -> None:
+    partial = make_verification(UUID(int=1), status=AnalysisStatus.PARTIAL)
+
+    assert any("validação parcial (tempo esgotado)" in line for line in normalized_card(partial))
+
+
+def test_normalization_without_validation_has_no_outcome() -> None:
+    assert "Causa raiz" not in normalized_card(None)

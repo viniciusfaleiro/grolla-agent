@@ -145,6 +145,7 @@ class Decision:
 
 
 GROUPING_REASON = "mesmo serviço"
+MINUTES_PER_HOUR = 60
 DEFAULT_SEVERITY_REASON = "severidade padrão"
 URGENT = frozenset({Severity.P0, Severity.P1})
 
@@ -247,10 +248,18 @@ def decide_resolved(
     notifications: tuple[Notification, ...] = ()
     if incident.firing and not updated.firing:
         events.append(_event(updated, now, EventType.INCIDENT_NORMALIZED, {}))
-        notifications = (
-            _notification(NotificationKind.INCIDENT_NORMALIZED, updated, alert, page_url),
-        )
+        card = _notification(NotificationKind.INCIDENT_NORMALIZED, updated, alert, page_url)
+        summary = f"Normalizado: durou {duration_text(now - incident.detected_at)}"
+        notifications = (replace(card, summary=summary),)
     return _decision(updated, events, notifications, now)
+
+
+def duration_text(duration: timedelta) -> str:
+    """ "32 min" ou "1 h 05 min"; menos de 1 minuto conta como 1."""
+    minutes = max(1, round(duration.total_seconds() / 60))
+    if minutes < MINUTES_PER_HOUR:
+        return f"{minutes} min"
+    return f"{minutes // MINUTES_PER_HOUR} h {minutes % MINUTES_PER_HOUR:02d} min"
 
 
 def _alert_data(alert: Alert) -> dict[str, Any]:

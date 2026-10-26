@@ -11,7 +11,13 @@ from grolla.domain.incidents import (
     SeverityPolicy,
     SeverityRule,
 )
-from grolla.testing.builders import T0, make_alert, make_incident, make_notification
+from grolla.testing.builders import (
+    T0,
+    make_alert,
+    make_incident,
+    make_notification,
+    make_verification,
+)
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
@@ -130,6 +136,37 @@ async def test_resolved_alerts_normalize_the_incident() -> None:
         e.type for e in await repository.events_of(incident.id)
     ]
     assert repository.outbox[-1].notification.kind is NotificationKind.INCIDENT_NORMALIZED
+
+
+async def test_normalization_card_carries_the_verification() -> None:
+    repository = InMemoryIncidentRepository()
+    alert = make_alert(labels=team_alert())
+    await receive_alerts([alert], repository, POLICY, FakeClock(T0))
+    [incident] = await repository.list_incidents(10)
+    verification = make_verification(incident.id)
+    repository.verifications[incident.id] = verification
+    resolved = make_alert(
+        fingerprint=alert.fingerprint, status=AlertStatus.RESOLVED, labels=team_alert()
+    )
+
+    await receive_alerts([resolved], repository, POLICY, FakeClock(T0 + timedelta(minutes=32)))
+
+    card = repository.outbox[-1].notification
+    assert card.kind is NotificationKind.INCIDENT_NORMALIZED
+    assert card.verification == verification
+    assert card.summary == "Normalizado: durou 32 min"
+
+
+async def test_normalization_without_verification_has_none() -> None:
+    repository = InMemoryIncidentRepository()
+    alert = make_alert(labels=team_alert())
+    resolved = make_alert(
+        fingerprint=alert.fingerprint, status=AlertStatus.RESOLVED, labels=team_alert()
+    )
+
+    await receive_alerts([alert, resolved], repository, POLICY, FakeClock(T0))
+
+    assert repository.outbox[-1].notification.verification is None
 
 
 async def test_resolved_alert_without_incident_is_ignored() -> None:
