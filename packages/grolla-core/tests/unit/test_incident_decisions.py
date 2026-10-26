@@ -253,3 +253,38 @@ def test_resolving_one_of_two_alerts_only_records_the_resolution() -> None:
     assert len(decision.incident.firing) == 1
     assert types(decision) == [EventType.ALERT_RESOLVED]
     assert decision.notifications == ()
+
+
+@pytest.mark.parametrize("state", [IncidentState.RESOLVED, IncidentState.DISCARDED])
+def test_closed_incident_does_not_receive_new_alerts(state: IncidentState) -> None:
+    closed = make_incident(
+        services=("authorizer-api",), state=state, firing=frozenset({"fp-antigo"})
+    )
+
+    decision = firing(candidates=(closed,), minutes=2)
+
+    assert decision.incident is not None
+    assert decision.incident.id == NEW_ID
+    assert decision.request_analysis
+
+
+@pytest.mark.parametrize("state", [IncidentState.HANDLING, IncidentState.MITIGATED])
+def test_grouped_alert_keeps_the_state_chosen_by_a_human(state: IncidentState) -> None:
+    handled = make_incident(services=("authorizer-api",), state=state, severity=Severity.P3)
+
+    decision = firing({"severity": "critical"}, candidates=(handled,))
+
+    assert decision.incident is not None
+    assert decision.incident.state is state
+    assert decision.incident.severity is Severity.P1
+    assert EventType.STATE_CHANGED not in types(decision)
+
+
+def test_resolving_an_alert_of_a_closed_incident_does_not_normalize_it() -> None:
+    alert = make_alert(status=AlertStatus.RESOLVED)
+    closed = make_incident(state=IncidentState.RESOLVED, firing=frozenset({alert.fingerprint}))
+
+    decision = decide_resolved(alert, closed, T0, page_url)
+
+    assert types(decision) == [EventType.ALERT_RESOLVED]
+    assert decision.notifications == ()

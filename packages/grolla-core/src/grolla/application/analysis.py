@@ -146,7 +146,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
         async with deadline:
             draft = await model.investigate(brief, toolbox, budget)
     except Exception as error:  # qualquer falha vira parcial: a análise sempre chega
-        reason = _reason(error, timed_out=deadline.expired())
+        reason = failure_reason(error, timed_out=deadline.expired())
         analysis = partial(pending, reason, toolbox.evaluations, clock.now())
     else:
         analysis = complete(pending, draft, toolbox.evaluations, clock.now())
@@ -189,7 +189,8 @@ def _running(job: AnalysisJob) -> Analysis:
     )
 
 
-def _reason(error: Exception, *, timed_out: bool) -> PartialReason:
+def failure_reason(error: Exception, *, timed_out: bool) -> PartialReason:
+    """Por que a investigação não terminou; também é o motivo de uma resposta do chat falhar."""
     if isinstance(error, TimeoutError) and timed_out:
         return PartialReason.TIMEOUT
     if isinstance(error, BudgetExceededError):
@@ -284,7 +285,7 @@ async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os port
             draft = await model.verify(brief, analysis, toolbox, budget)
         verification = verified(pending, draft, toolbox.evaluations, clock.now())
     except Exception as error:  # qualquer falha vira parcial: o card da causa raiz sempre sai
-        reason = _reason(error, timed_out=deadline.expired())
+        reason = failure_reason(error, timed_out=deadline.expired())
         verification = verification_partial(pending, reason, toolbox.evaluations, clock.now())
     await _finish_verification(queue, incident, verification, budget.usages, policy)
     return True

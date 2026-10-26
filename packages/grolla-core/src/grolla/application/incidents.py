@@ -60,7 +60,9 @@ class IncidentUnitOfWork(Protocol):
         ...
 
     async def active_incidents(self, service: str, since: datetime) -> list[Incident]:
-        """Incidentes do serviço com alerta disparando ou último alerta desde `since`."""
+        """Incidentes abertos (`OPEN_STATES`) do serviço com alerta disparando ou último alerta
+        desde `since`.
+        """
         ...
 
     async def incident_firing(self, fingerprint: str) -> Incident | None: ...
