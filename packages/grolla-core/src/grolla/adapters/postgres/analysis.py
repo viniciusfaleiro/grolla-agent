@@ -79,21 +79,29 @@ async def _record(
 
 
 async def record_usages(
-    connection: AsyncConnection, incident_id: UUID, usages: Sequence[LlmUsage], at: datetime
+    connection: AsyncConnection,
+    incident_id: UUID | None,
+    usages: Sequence[LlmUsage],
+    at: datetime,
+    study_run_id: int | None = None,
 ) -> None:
-    """Uso do modelo por etapa, na transação de quem encerra a fase."""
+    """Uso do modelo por etapa, na transação de quem encerra a fase.
+
+    O uso é de um incidente ou, no estudo do ambiente, de uma rodada (`study_run_id`).
+    """
     if not usages:
         return
     await connection.execute(
         sa.text(
-            "INSERT INTO llm_usage (incident_id, stage, model, input_tokens,"
+            "INSERT INTO llm_usage (incident_id, study_run_id, stage, model, input_tokens,"
             " output_tokens, cache_read_tokens, cache_creation_tokens, at)"
-            " VALUES (:incident_id, :stage, :model, :input_tokens, :output_tokens,"
-            " :cache_read_tokens, :cache_creation_tokens, :at)"
+            " VALUES (:incident_id, :study_run_id, :stage, :model, :input_tokens,"
+            " :output_tokens, :cache_read_tokens, :cache_creation_tokens, :at)"
         ),
         [
             {
                 "incident_id": incident_id,
+                "study_run_id": study_run_id,
                 "stage": usage.stage,
                 "model": usage.model,
                 "input_tokens": usage.input_tokens,

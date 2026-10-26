@@ -81,6 +81,9 @@ def upgrade() -> None:
         );
         CREATE INDEX study_runs_open ON study_runs (requested_at)
             WHERE status IN ('pendente', 'em_andamento');
+        -- No máximo uma rodada pendente: pedidos simultâneos não duplicam o estudo.
+        CREATE UNIQUE INDEX study_runs_one_pending ON study_runs ((true))
+            WHERE status = 'pendente';
 
         CREATE TABLE service_studies (
             service text PRIMARY KEY,
@@ -90,7 +93,9 @@ def upgrade() -> None:
         );
 
         -- O uso do LLM do estudo não é de um incidente: aponta a rodada.
+        -- Os tokens da rodada são a soma desse uso.
         ALTER TABLE llm_usage ADD COLUMN study_run_id bigint REFERENCES study_runs (id);
+        CREATE INDEX llm_usage_study_run ON llm_usage (study_run_id);
         """
     )
 
