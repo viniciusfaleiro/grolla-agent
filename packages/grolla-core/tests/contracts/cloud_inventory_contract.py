@@ -12,6 +12,7 @@ from datetime import timedelta
 import pytest
 from grolla.application.investigation import (
     NO_CLOUD_RESOURCES,
+    SHARED_RESOURCES,
     CloudInventory,
     ToolResult,
     ToolUnavailableError,
@@ -78,3 +79,34 @@ class CloudInventoryContract:
             await unavailable_cloud.changes(service, SINCE)
         with pytest.raises(ToolUnavailableError):
             await unavailable_cloud.alarms(service)
+
+
+class CloudOverviewContract:
+    """`overview`: a visão geral da nuvem do estudo do ambiente.
+
+    Fica fora de `CloudInventoryContract` para o adapter ganhar a suíte quando implementar. O
+    adapter sobrescreve `cloud` (com ao menos um recurso sem a tag `service`) e
+    `unavailable_cloud`.
+    """
+
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        raise NotImplementedError
+
+    async def test_overview_returns_a_compact_summary_with_the_shared_group(
+        self, cloud: CloudInventory
+    ) -> None:
+        result = await cloud.overview()
+
+        assert_compact(result)
+        assert SHARED_RESOURCES in result.summary
+
+    async def test_unavailable_cloud_raises_tool_unavailable(
+        self, unavailable_cloud: CloudInventory
+    ) -> None:
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_cloud.overview()

@@ -9,11 +9,17 @@ from datetime import datetime
 from typing import Any
 
 from grolla.application.investigation import (
+    BINARY_FILE,
     NO_CLOUD_RESOURCES,
+    NO_DEPENDENCIES,
     NO_REPOSITORY,
+    READ_LIMIT,
     STAGE_INVESTIGATION,
+    STAGE_LEARNING,
+    STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
+    TRUNCATED,
     AlertRule,
     InvestigationBrief,
     LearningBrief,
@@ -28,7 +34,14 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
-from grolla.domain.memory import DossierDraft, LearningDraft, SynthesisDraft
+from grolla.domain.incidents import IncidentState
+from grolla.domain.memory import (
+    ENVIRONMENT,
+    DossierDraft,
+    LearningDraft,
+    SubjectKind,
+    SynthesisDraft,
+)
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -38,19 +51,28 @@ class FakeTelemetry:
     """Telemetria roteirizada por ferramenta.
 
     `results` troca a resposta de uma ferramenta (`query_metric`, `search_logs`, `find_traces`);
-    as ferramentas em `failing` levantam `error` (ToolUnavailableError por padrão). Cada chamada
-    fica em `calls`.
+    `rules` e `services` são as regras de alerta e os serviços ativos; `dependencies` mapeia
+    serviço → resumo das dependências (fora do mapa, NO_DEPENDENCIES). As consultas em
+    `failing` (inclusive `alert_rules`, `active_services` e `dependencies`) levantam `error`
+    (ToolUnavailableError por padrão). Cada chamada fica em `calls`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — cada consulta da telemetria é roteirizável no teste
         self,
         results: Mapping[str, ToolResult] | None = None,
         failing: Iterable[str] = (),
         error: type[Exception] = ToolUnavailableError,
+        *,
+        rules: Sequence[AlertRule] = (),
+        services: Sequence[str] = (),
+        dependencies: Mapping[str, str] | None = None,
     ) -> None:
         self.results = dict(results or {})
         self.failing = set(failing)
         self.error = error
+        self.rules = list(rules)
+        self.services = list(services)
+        self.dependency_map = dict(dependencies or {})
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def query_metric(
@@ -72,32 +94,51 @@ class FakeTelemetry:
         return self._answer("find_traces", args, f"nenhum trace com erro de {service} na janela")
 
     async def alert_rules(self) -> list[AlertRule]:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+        self._called("alert_rules", {})
+        return list(self.rules)
 
     async def active_services(self, since: datetime) -> list[str]:
-        raise NotImplementedError
+        self._called("active_services", {"since": since})
+        return list(self.services)
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
-        raise NotImplementedError
+        self._called("dependencies", {"service": service, "start": start, "end": end})
+        summary = self.dependency_map.get(service)
+        if summary is None:
+            return ToolResult(NO_DEPENDENCIES, None)
+        return ToolResult(summary, FAKE_SOURCE_URL)
 
-    def _answer(self, tool: str, args: dict[str, Any], default: str) -> ToolResult:
+    def _called(self, tool: str, args: dict[str, Any]) -> None:
         self.calls.append((tool, args))
         if tool in self.failing:
             raise self.error(f"{tool} fora do ar no fake")
+
+    def _answer(self, tool: str, args: dict[str, Any], default: str) -> ToolResult:
+        self._called(tool, args)
         return self.results.get(tool, ToolResult(default, FAKE_SOURCE_URL))
 
 
 class FakeChangeHistory:
-    """Histórico de mudanças roteirizado: `deploys` mapeia serviço → resumo dos deploys.
+    """Histórico de mudanças roteirizado: `deploys` mapeia serviço → resumo dos deploys e
+    `files` mapeia serviço → {caminho: conteúdo} do repositório.
 
-    Serviço fora do mapa responde NO_REPOSITORY; com `unavailable`, toda chamada levanta
-    ToolUnavailableError. Cada chamada fica em `calls` como (serviço, since).
+    Serviço fora dos dois mapas responde NO_REPOSITORY; com `unavailable`, toda chamada levanta
+    ToolUnavailableError. Cada chamada de `recent_deploys` fica em `calls` como (serviço, since)
+    e cada `read_file` em `reads` como (serviço, caminho).
     """
 
-    def __init__(self, deploys: Mapping[str, str] | None = None, unavailable: bool = False) -> None:
+    def __init__(
+        self,
+        deploys: Mapping[str, str] | None = None,
+        unavailable: bool = False,
+        *,
+        files: Mapping[str, Mapping[str, str]] | None = None,
+    ) -> None:
         self.deploys = dict(deploys or {})
+        self.files = {service: dict(paths) for service, paths in (files or {}).items()}
         self.unavailable = unavailable
         self.calls: list[tuple[str, datetime]] = []
+        self.reads: list[tuple[str, str]] = []
 
     async def recent_deploys(self, service: str, since: datetime) -> ToolResult:
         self.calls.append((service, since))
@@ -108,10 +149,28 @@ class FakeChangeHistory:
         return ToolResult(self.deploys[service], f"https://pipelines.interno/{service}")
 
     async def read_file(self, service: str, path: str) -> ToolResult:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+        self.reads.append((service, path))
+        if self.unavailable:
+            raise ToolUnavailableError("histórico de mudanças fora do ar no fake")
+        if service not in self.deploys and service not in self.files:
+            return ToolResult(NO_REPOSITORY, None)
+        files = self.files.get(service, {})
+        url = f"https://repositorio.interno/{service}/{path}"
+        folder = path.rstrip("/")
+        if folder not in files:
+            inside = sorted(p for p in files if not folder or p.startswith(f"{folder}/"))
+            if inside or not folder:
+                return ToolResult("\n".join(inside) or "pasta vazia", url)
+            return ToolResult(f"arquivo não encontrado: {path}", None)
+        content = files[folder]
+        if "\x00" in content:
+            return ToolResult(f"{BINARY_FILE}: {path}", url)
+        if len(content) > READ_LIMIT:
+            return ToolResult(f"{content[:READ_LIMIT]}\n[{TRUNCATED} em {READ_LIMIT}]", url)
+        return ToolResult(content, url)
 
 
-CLOUD_TOOLS = ("resources", "changes", "alarms")
+CLOUD_TOOLS = ("resources", "changes", "alarms", "overview")
 
 
 class FakeCloudInventory:
@@ -119,7 +178,8 @@ class FakeCloudInventory:
 
     Serviço sem recursos no mapa responde NO_CLOUD_RESOURCES; sem mudanças ou alarmes no mapa,
     responde que não há. As consultas em `failing` (nomes de `CLOUD_TOOLS`) levantam
-    ToolUnavailableError. Cada chamada fica em `calls` como (consulta, serviço).
+    ToolUnavailableError. Cada chamada fica em `calls` como (consulta, serviço); a visão geral
+    (`overview`) responde o texto do mesmo nome, com o serviço vazio em `calls`.
     """
 
     def __init__(
@@ -128,7 +188,10 @@ class FakeCloudInventory:
         changes: Mapping[str, str] | None = None,
         alarms: Mapping[str, str] | None = None,
         failing: Iterable[str] = (),
+        *,
+        overview: str = "sem serviço: rede vpc-lab (available)",
     ) -> None:
+        self.overview_text = overview
         self.answers = {
             "resources": dict(resources or {}),
             "changes": dict(changes or {}),
@@ -149,7 +212,10 @@ class FakeCloudInventory:
         return self._answer("alarms", service, f"não há alarmes ativos para {service}")
 
     async def overview(self) -> ToolResult:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+        self.calls.append(("overview", ""))
+        if "overview" in self.failing:
+            raise ToolUnavailableError("overview da nuvem fora do ar no fake")
+        return ToolResult(self.overview_text, "https://console.nuvem.interno/")
 
     def _answer(self, tool: str, service: str, default: str) -> ToolResult:
         self.calls.append((tool, service))
@@ -187,6 +253,14 @@ class ScriptedLanguageModel:
     Em `reply`, o mesmo roteiro com `chat_calls`, `chat_error`, `chat_delay` e `chat` (a
     resposta devolvida), gastando o uso com a etapa `warroom_chat`. Cada (contexto, pergunta)
     recebido fica em `questions`.
+
+    Em `learn`, sem ferramentas: gasta um uso da etapa `learning` e levanta `learning_error` ou
+    devolve `learning` (por padrão, um episódio e o dossiê de cada serviço do incidente). Em
+    `study_service`, faz `study_calls`, gasta com a etapa `study` e levanta o erro de
+    `study_errors` do serviço ou devolve o dossiê do serviço com os links consultados. Em
+    `synthesize`, gasta com a etapa `study` e levanta `synthesis_error` ou devolve `synthesis`
+    (por padrão, só o dossiê do ambiente). Os briefs ficam em `learning_briefs`, `study_briefs`
+    e `synthesis_briefs`.
     """
 
     def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
@@ -205,7 +279,22 @@ class ScriptedLanguageModel:
         chat_calls: ToolCalls = (),
         chat_error: Exception | None = None,
         chat_delay: float = 0.0,
+        learning: LearningDraft | None = None,
+        learning_error: Exception | None = None,
+        study_calls: ToolCalls = (),
+        study_errors: Mapping[str, Exception] | None = None,
+        synthesis: SynthesisDraft | None = None,
+        synthesis_error: Exception | None = None,
     ) -> None:
+        self.learning = learning
+        self.learning_error = learning_error
+        self.study_calls = list(study_calls)
+        self.study_errors = dict(study_errors or {})
+        self.synthesis = synthesis
+        self.synthesis_error = synthesis_error
+        self.learning_briefs: list[LearningBrief] = []
+        self.study_briefs: list[ServiceStudyBrief] = []
+        self.synthesis_briefs: list[SynthesisBrief] = []
         self.draft = draft or make_draft()
         self.calls = list(calls)
         self.error = error
@@ -265,15 +354,50 @@ class ScriptedLanguageModel:
         return self.verification
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
-        raise NotImplementedError  # contrato da memória viva: implementado pelo grolla-dominio
+        self.learning_briefs.append(brief)
+        budget.spend(replace(self.usage, stage=STAGE_LEARNING))
+        if self.learning_error is not None:
+            raise self.learning_error
+        incident = brief.incident
+        return self.learning or LearningDraft(
+            episode_title=incident.title,
+            episode_body=f"Sintomas e causa de {incident.title}.",
+            noise=incident.state is IncidentState.DISCARDED,
+            dossiers=tuple(
+                DossierDraft(
+                    s, SubjectKind.SERVICE, f"Dossiê de {s}: aprendido com {incident.title}."
+                )
+                for s in incident.services
+            ),
+        )
 
     async def study_service(
         self, brief: ServiceStudyBrief, toolbox: Toolbox, budget: TokenBudget
     ) -> DossierDraft:
-        raise NotImplementedError
+        self.study_briefs.append(brief)
+        usage = replace(self.usage, stage=STAGE_STUDY)
+        await self._play(0.0, self.study_calls, usage, toolbox, budget)
+        error = self.study_errors.get(brief.service)
+        if error is not None:
+            raise error
+        rules = ", ".join(rule.name for rule in brief.rules) or "nenhuma"
+        return DossierDraft(
+            brief.service,
+            SubjectKind.SERVICE,
+            f"Dossiê de {brief.service}. Alertas: {rules}.",
+            tuple(dict.fromkeys(e.url for e in toolbox.evaluations if e.url)),
+        )
 
     async def synthesize(self, brief: SynthesisBrief, budget: TokenBudget) -> SynthesisDraft:
-        raise NotImplementedError
+        self.synthesis_briefs.append(brief)
+        budget.spend(replace(self.usage, stage=STAGE_STUDY))
+        if self.synthesis_error is not None:
+            raise self.synthesis_error
+        services = ", ".join(d.subject for d in brief.services) or "nenhum"
+        environment = DossierDraft(
+            ENVIRONMENT, SubjectKind.ENVIRONMENT, f"Ambiente com os serviços: {services}."
+        )
+        return self.synthesis or SynthesisDraft(environment, ())
 
     async def _play(
         self, delay: float, calls: ToolCalls, usage: LlmUsage, toolbox: Toolbox, budget: TokenBudget
