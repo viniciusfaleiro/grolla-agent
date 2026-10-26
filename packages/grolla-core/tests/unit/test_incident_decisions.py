@@ -14,6 +14,7 @@ from grolla.domain.incidents import (
     SeverityRule,
     decide_firing,
     decide_resolved,
+    duration_text,
     worst,
 )
 from grolla.testing.builders import T0, make_alert, make_incident
@@ -226,6 +227,20 @@ def test_resolving_the_last_firing_alert_normalizes_the_incident() -> None:
     ]
     [card] = decision.notifications
     assert card.kind is NotificationKind.INCIDENT_NORMALIZED
+    assert card.summary == "Normalizado: durou 10 min"
+
+
+@pytest.mark.parametrize(
+    ("duration", "text"),
+    [
+        (timedelta(seconds=20), "1 min"),
+        (timedelta(minutes=32), "32 min"),
+        (timedelta(minutes=59, seconds=40), "1 h 00 min"),
+        (timedelta(hours=2, minutes=5), "2 h 05 min"),
+    ],
+)
+def test_duration_text(duration: timedelta, text: str) -> None:
+    assert duration_text(duration) == text
 
 
 def test_resolving_one_of_two_alerts_only_records_the_resolution() -> None:

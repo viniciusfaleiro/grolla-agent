@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -15,6 +15,7 @@ from grolla.domain.incidents import (
     Incident,
     IncidentEvent,
     Notification,
+    NotificationKind,
     SeverityPolicy,
     decide_firing,
     decide_resolved,
@@ -147,11 +148,15 @@ async def receive_alerts(
         if not labels_match(alert.labels, policy.label_filter):
             continue
         async with repository.transaction() as uow:
-            await _receive(alert, uow, policy, clock)
+            await _receive(alert, uow, repository, policy, clock)
 
 
 async def _receive(
-    alert: Alert, uow: IncidentUnitOfWork, policy: IntakePolicy, clock: Clock
+    alert: Alert,
+    uow: IncidentUnitOfWork,
+    repository: IncidentRepository,
+    policy: IntakePolicy,
+    clock: Clock,
 ) -> None:
     if not await uow.register_alert(alert):
         return  # reenvio
@@ -179,6 +184,10 @@ async def _receive(
     if decision.request_analysis:
         await uow.request_analysis(decision.incident.id, now)
     for notification in decision.notifications:
+        if notification.kind is NotificationKind.INCIDENT_NORMALIZED:
+            # A normalização fecha a história: leva o desfecho da validação, se houver.
+            verification = await repository.verification_of(notification.incident_id)
+            notification = replace(notification, verification=verification)  # noqa: PLW2901
         await uow.enqueue(notification, now)
 
 
