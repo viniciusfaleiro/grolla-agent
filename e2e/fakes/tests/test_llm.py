@@ -306,3 +306,100 @@ def test_reset_brings_the_verification_back_to_complete() -> None:
     _, final = verification_turns(client)
 
     assert json.loads(final["content"][0]["text"])["root_cause"]
+
+
+# ---- Chat do war room: reconhecido pelo schema com `reply`
+
+CHAT_SCHEMA: dict[str, Any] = {"type": "object", "properties": {"reply": {"type": "string"}}}
+CHAT_MESSAGE = (
+    "Incidente: Pedidos falhando\nServiços: pedidos-db, pedidos-api\n\n"
+    "Chat:\n- Ana: Pergunta: antiga\n\n"
+    "Pergunta: olha os logs do pedidos-db desde 21:40"
+)
+
+
+def chat_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        **request(messages),
+        "output_config": {"format": {"type": "json_schema", "schema": CHAT_SCHEMA}},
+    }
+
+
+def chat_turns(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A primeira resposta (ferramentas) e a final do chat."""
+    question = {"role": "user", "content": CHAT_MESSAGE}
+    calls = client.post(PATH, json=chat_request([question])).json()
+    results = [
+        {"type": "tool_result", "tool_use_id": block["id"], "content": "timeout no pool às 21:42"}
+        for block in calls["content"]
+    ]
+    messages = [
+        question,
+        {"role": "assistant", "content": calls["content"]},
+        {"role": "user", "content": results},
+    ]
+    return calls, client.post(PATH, json=chat_request(messages)).json()
+
+
+def test_chat_first_searches_the_logs_of_the_service() -> None:
+    calls, _ = chat_turns(TestClient(create_app()))
+
+    assert calls["stop_reason"] == "tool_use"
+    assert [(block["name"], block["input"]) for block in calls["content"]] == [
+        ("search_logs", {"service": "pedidos-db"})
+    ]
+
+
+def test_chat_answers_citing_the_logs_and_the_question() -> None:
+    _, final = chat_turns(TestClient(create_app()))
+
+    assert final["stop_reason"] == "end_turn"
+    answer = json.loads(final["content"][0]["text"])
+    assert set(answer) == {"reply"}
+    assert answer["reply"].startswith(
+        'Consultei os logs de pedidos-db: timeout no pool às 21:42 Sobre "olha os logs do '
+        'pedidos-db desde 21:40":'
+    )
+
+
+def test_chat_down_mode_answers_overloaded_and_leaves_the_analysis_alone() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"chat_mode": "fora_do_ar"})
+
+    chat = client.post(PATH, json=chat_request([{"role": "user", "content": CHAT_MESSAGE}]))
+
+    assert chat.status_code == 529
+    assert first_turn(client)["stop_reason"] == "tool_use"
+    _, final = verification_turns(client)
+    assert final["stop_reason"] == "end_turn"
+
+
+def test_other_modes_do_not_change_the_chat() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar", "verification_mode": "fora_do_ar"})
+
+    _, final = chat_turns(client)
+
+    assert final["stop_reason"] == "end_turn"
+
+
+def test_slow_chat_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grolla_fakes.llm, "SLOW_SECONDS", 0.2)
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"chat_mode": "lenta"})
+    start = time.monotonic()
+
+    response = client.post(PATH, json=chat_request([{"role": "user", "content": CHAT_MESSAGE}]))
+
+    assert time.monotonic() - start >= 0.2
+    assert response.status_code == 200
+
+
+def test_reset_brings_the_chat_back_to_complete() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"chat_mode": "fora_do_ar"})
+    client.post("/_control/reset")
+
+    _, final = chat_turns(client)
+
+    assert final["stop_reason"] == "end_turn"

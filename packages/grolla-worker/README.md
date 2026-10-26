@@ -30,6 +30,8 @@ do procrastinate.
 | **Análises presas** | Encerra como parcial ("interrompida") a análise que ficou em andamento além de `timeout + 2 min`, quando o worker caiu no meio dela | periódico `reap_stuck_analyses` (todo minuto, fila `analysis`, `lock`) |
 | **Validação até a causa raiz** | Reivindica as validações pedidas pela análise inicial com hipóteses e valida cada hipótese com o modelo de linguagem (as mesmas ferramentas, mais as de nuvem), até a fila esvaziar. Cada validação termina concluída (causa raiz e plano de ação, ou "não confirmada" e o que faltou) ou parcial, com o card "Causa raiz" no canal | periódico `run_verifications` (`* * * * * */5`, fila `analysis`, `queueing_lock`) |
 | **Validações presas** | Encerra como parcial ("interrompida") a validação em andamento além de `verification_timeout + 2 min` | periódico `reap_stuck_verifications` (todo minuto, fila `analysis`, `lock`) |
+| **Respostas do chat do war room** | Reivindica as perguntas feitas ao agente no chat do war room e responde cada uma com o modelo de linguagem (as mesmas ferramentas da investigação, inclusive as de nuvem), até a fila esvaziar. Toda pergunta termina com uma resposta, ou "não consegui responder: <motivo>" | periódico `run_replies` (`* * * * * */2`, fila `analysis`, `queueing_lock`) |
+| **Respostas presas** | Responde "não consegui responder: interrompida" à pergunta que ficou em andamento além do limite, quando o worker caiu no meio | periódico `reap_stuck_replies` (todo minuto, fila `analysis`, `lock`) |
 | **Entrega de cards** | Entrega a outbox de notificações no canal do time (Adaptive Card via Workflow do Teams), em ordem por incidente, com retentativa e espera crescente; registra no incidente a entrega ou a desistência | periódico `deliver_notifications` (`* * * * * */5`, uma rodada por vez com `queueing_lock` e `lock`) |
 
 ## 🏗 Arquitetura
@@ -39,7 +41,7 @@ O processo roda **dois laços do procrastinate**:
 | Fila | Concorrência | Jobs |
 |---|---|---|
 | `default` | 1 | `heartbeat`, `deliver_notifications` |
-| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications` |
+| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies` |
 
 Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises e
 validações recebem os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a

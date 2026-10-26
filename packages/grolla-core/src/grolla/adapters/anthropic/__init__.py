@@ -4,10 +4,11 @@ A cada turno o modelo pede ferramentas do `Toolbox` (tool_use) ou devolve o resu
 que o structured outputs (`output_config.format`) obriga a seguir o schema do rascunho. O uso
 de cada resposta passa pelo `TokenBudget` antes de qualquer outra coisa.
 
-As duas fases usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`) e a
+As três chamadas usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`), a
 validação das hipóteses até a causa raiz (`verify`, etapa `verification`, com modelo e
-`effort` próprios). Na validação, um plano com passo de investigação ganha uma única mensagem
-de correção; se vier de novo, o resultado é inválido.
+`effort` próprios) e a resposta no chat do war room (`reply`, etapa `warroom_chat`, idem, com o
+resultado no schema `{"reply": string}`). Na validação, um plano com passo de investigação
+ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
 """
 
 import asyncio
@@ -26,8 +27,10 @@ from anthropic.types import (
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
+    CHAT_PROMPT,
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
+    STAGE_WARROOM_CHAT,
     SYSTEM_PROMPT,
     VERIFICATION_PROMPT,
     InvalidAnalysisError,
@@ -137,6 +140,14 @@ VERIFICATION_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
+# Schema da resposta do chat: só o texto, que vai para o chat como está.
+CHAT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"reply": {"type": "string"}},
+    "required": ["reply"],
+    "additionalProperties": False,
+}
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -210,6 +221,10 @@ class _Verification(_Strict):
     missing: str
 
 
+class _Reply(_Strict):
+    reply: str
+
+
 class ClaudeLanguageModel:
     def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
@@ -247,7 +262,14 @@ class ClaudeLanguageModel:
         toolbox: Toolbox,
         budget: TokenBudget,
     ) -> ChatDraft:
-        raise NotImplementedError
+        del brief  # o contexto montado pela application já traz o incidente
+        phase = _Phase(CHAT_PROMPT, CHAT_SCHEMA, self._chat, STAGE_WARROOM_CHAT)
+        messages: list[MessageParam] = [{"role": "user", "content": chat_text(context, question)}]
+        async with self._client() as client:
+            try:
+                return _chat_draft(await _loop(client, phase, messages, toolbox, budget))
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
 
     async def verify(
         self,
@@ -410,6 +432,21 @@ def _verification(response: Message) -> VerificationDraft:
         actions=tuple(Action(a.action, a.target, a.expected, a.link) for a in draft.actions),
         missing=draft.missing,
     )
+
+
+def chat_text(context: str, question: str) -> str:
+    """Mensagem do chat: o contexto do incidente e, por último, a pergunta."""
+    return f"{context}\n\nPergunta: {question}"
+
+
+def _chat_draft(response: Message) -> ChatDraft:
+    try:
+        draft = _Reply.model_validate_json(_final_text(response))
+    except ValidationError as error:
+        raise InvalidAnalysisError("resultado fora do formato da resposta do chat") from error
+    if not draft.reply.strip():
+        raise InvalidAnalysisError("resposta do chat vazia")
+    return ChatDraft(text=draft.reply.strip())
 
 
 def _describe(error: anthropic.APIError) -> str:

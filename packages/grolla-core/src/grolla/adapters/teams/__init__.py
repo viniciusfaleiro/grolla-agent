@@ -118,12 +118,18 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
         _headline(_HEADLINES[kind], notification, _COLORS[kind]),
         *_identity(notification),
         _text(notification.summary),
-        {"type": "TextBlock", "text": notification.evidence, "wrap": True, "isSubtle": True},
     ]
+    if notification.evidence.strip():  # nas ações humanas, o motivo e as ações registradas
+        body.append(
+            {"type": "TextBlock", "text": notification.evidence, "wrap": True, "isSubtle": True}
+        )
+    verification = notification.verification
     if kind is NotificationKind.INCIDENT_OPENED:
         body.append(_section("Vou checar", [f"- {check}" for check in INITIAL_CHECKS]))
-    if kind is NotificationKind.INCIDENT_NORMALIZED and notification.verification is not None:
-        body.extend(_outcome(notification.verification))
+    if kind is NotificationKind.INCIDENT_NORMALIZED and verification is not None:
+        body.extend(_outcome(verification))
+    if kind is NotificationKind.INCIDENT_RESOLVED and verification and verification.root_cause:
+        body.append(_section("Causa raiz", [_clip(verification.root_cause)]))
     return body
 
 
