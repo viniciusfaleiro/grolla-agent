@@ -3,7 +3,6 @@
 ## Purpose
 
 Transformar alertas em incidentes: agrupamento determinístico por serviço, estados do ciclo de vida e o log de eventos imutável de onde o incidente é projetado.
-
 ## Requirements
 ### Requirement: Alerta do mesmo serviço entra no incidente ativo
 Um alerta disparando SHALL entrar num incidente existente quando o incidente tem o mesmo serviço do alerta e teve atividade de alerta nos últimos 15 minutos (janela configurável) ou ainda tem algum alerta disparando. Havendo mais de um candidato, SHALL entrar no de atividade mais recente. Sem candidato, SHALL abrir um incidente novo. O motivo do agrupamento SHALL ficar registrado no evento.
@@ -44,4 +43,11 @@ Todo fato sobre um incidente (alerta recebido, agrupado, resolvido, mudança de 
 #### Scenario: Timeline reconstruída
 - **WHEN** um incidente recebeu dois alertas e escalou de severidade
 - **THEN** a lista de eventos do incidente mostra, em ordem, a detecção, o agrupamento e a mudança de severidade
+
+### Requirement: Incidente encerrado não recebe alertas novos
+Um alerta disparando SHALL NOT entrar num incidente Resolvido ou Descartado. Ele SHALL abrir um incidente novo, ou entrar noutro incidente ativo do mesmo serviço.
+
+#### Scenario: Alerta depois do encerramento
+- **WHEN** um incidente do `pedidos-api` foi encerrado há 2 minutos e chega um alerta novo do `pedidos-api`
+- **THEN** um incidente novo é aberto
 

@@ -61,3 +61,36 @@ O card da análise inicial SHALL avisar que as hipóteses estão sendo validadas
 - **WHEN** a validação confirma "RDS grolla-lab-db parado manualmente às 21:42"
 - **THEN** o canal recebe "Causa raiz · P1" com a causa, as hipóteses confirmada e rejeitada e a ação "religar o RDS grolla-lab-db"
 
+### Requirement: Normalização fecha a história do incidente
+O card "Incidente normalizado" SHALL trazer a duração do incidente, da detecção até a normalização, e o desfecho da investigação, conforme o estado da validação:
+- **confirmada**: a causa raiz e o plano de ação que foi sugerido;
+- **sem confirmação**: "causa raiz não confirmada" e o que faltou;
+- **ainda em andamento**: aviso de que a causa raiz aparecerá na página do incidente;
+- **sem validação**: o card SHALL omitir a seção.
+
+O card SHALL manter o botão Abrir incidente.
+
+#### Scenario: Normalizou depois da causa raiz
+- **WHEN** um incidente com causa raiz confirmada tem o último alerta resolvido 32 minutos depois da detecção
+- **THEN** o card "Incidente normalizado" diz "durou 32 min" e traz a causa raiz e o plano de ação
+
+#### Scenario: Normalizou durante a validação
+- **WHEN** o último alerta resolve enquanto a validação ainda roda
+- **THEN** o card diz que a validação está em andamento e que a causa raiz aparecerá na página do incidente
+
+### Requirement: Cards das ações humanas
+O agente SHALL postar no canal um card curto quando alguém assume como IC, muda a severidade ou marca mitigado, citando o autor.
+
+No encerramento, SHALL postar o card "Incidente encerrado", com:
+- a duração e o TTR;
+- quem encerrou;
+- o motivo;
+- a causa raiz da validação, se houver;
+- as ações registradas pelo time.
+
+No descarte, SHALL postar "Incidente descartado" com o motivo. As mensagens do chat SHALL NOT ir para o canal.
+
+#### Scenario: Encerramento no canal
+- **WHEN** "Ana" encerra o incidente com o motivo "rollback do build .3"
+- **THEN** o canal recebe "Incidente encerrado" com duração, "por Ana", o motivo, a causa raiz e as ações registradas
+
