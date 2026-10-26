@@ -7,6 +7,15 @@ from grolla.application.analysis import (
 )
 from grolla.application.chat import reap_stuck_replies, run_next_reply
 from grolla.application.incidents import deliver_notifications
+from grolla.application.memory import (
+    STUDY_AUTHOR_SYSTEM,
+    StudyMode,
+    reap_stuck_learnings,
+    reap_stuck_studies,
+    request_study,
+    run_next_learning,
+    run_next_study,
+)
 from grolla.bootstrap import WorkerContainer
 
 from grolla_worker.heartbeat import HEARTBEAT_CRON, beat
@@ -22,6 +31,8 @@ ANALYSES_CRON = "* * * * * */5"
 VERIFICATIONS_CRON = "* * * * * */5"
 REPLIES_CRON = "* * * * * */2"  # quem pergunta no chat está olhando a página
 REAPER_CRON = "* * * * *"
+LEARNINGS_CRON = "* * * * * */10"
+STUDIES_CRON = "* * * * *"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -65,6 +76,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             cloud=container.cloud,
             clock=container.clock,
             policy=container.analysis,
+            memory=container.memory,
         ):
             pass
 
@@ -81,6 +93,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             cloud=container.cloud,
             clock=container.clock,
             policy=container.analysis,
+            memory=container.memory,
         ):
             pass
 
@@ -117,6 +130,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             cloud=container.cloud,
             clock=container.clock,
             policy=container.analysis,
+            memory=container.memory,
         ):
             pass
 
@@ -131,5 +145,75 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
         await reap_stuck_replies(
             container.chat_queue, container.repository, container.clock, container.analysis
         )
+
+    # O aprendizado de cada incidente encerrado: uma chamada ao modelo, sem ferramentas.
+    @app.periodic(cron=LEARNINGS_CRON)
+    @app.task(name="run_learnings", queue=ANALYSIS_QUEUE, queueing_lock="run_learnings")
+    async def learnings(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_learning(
+            queue=container.learning_queue,
+            memory=container.memory,
+            repository=container.repository,
+            model=container.model,
+            clock=container.clock,
+            policy=container.memory_policy,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_learnings",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_learnings",
+        lock="reap_stuck_learnings",
+    )
+    async def reap_learnings(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_learnings(
+            container.learning_queue, container.clock, container.memory_policy
+        )
+
+    # Uma rodada de estudo por vez (lock): ela percorre todos os serviços do domínio.
+    @app.periodic(cron=STUDIES_CRON)
+    @app.task(
+        name="run_studies", queue=ANALYSIS_QUEUE, queueing_lock="run_studies", lock="run_studies"
+    )
+    async def studies(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_study(
+            studies=container.studies,
+            memory=container.memory,
+            model=container.model,
+            telemetry=container.telemetry,
+            changes=container.changes,
+            cloud=container.cloud,
+            clock=container.clock,
+            policy=container.memory_policy,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_studies",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_studies",
+        lock="reap_stuck_studies",
+    )
+    async def reap_studies(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_studies(container.studies, container.clock, container.memory_policy)
+
+    study = container.config.memory.study
+    if container.memory_policy.study is not None and study is not None:
+        # O estudo diário só pede a rodada; quem estuda é o `run_studies`.
+        @app.periodic(cron=study.cron)
+        @app.task(
+            name="schedule_daily_study", queue=DEFAULT_QUEUE, queueing_lock="schedule_daily_study"
+        )
+        async def daily_study(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+            await request_study(
+                studies=container.studies,
+                memory=container.memory,
+                mode=StudyMode.DAILY,
+                author=STUDY_AUTHOR_SYSTEM,
+                clock=container.clock,
+            )
 
     return app

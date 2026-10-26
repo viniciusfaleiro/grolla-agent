@@ -1,7 +1,8 @@
 """Port da memória do agente: onde a base de conhecimento, os episódios e as notas vivem.
 
 Fica num módulo próprio porque as ferramentas da investigação (`recall`, `remember`) e os casos
-de uso da memória usam o mesmo port.
+de uso da memória usam o mesmo port. `memory_for` também fica aqui, para a análise, a validação e
+o chat a usarem sem import circular com `grolla.application.memory` (que reexporta).
 """
 
 from collections.abc import Sequence
@@ -10,6 +11,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from grolla.domain.incidents import Alert, Incident
 from grolla.domain.memory import Memory, MemoryContext, MemoryVersion, SubjectKind
 
 
@@ -68,3 +70,14 @@ class MemoryStore(Protocol):
     async def versions(self, memory_id: UUID) -> list[MemoryVersion]:
         """Mais recentes primeiro."""
         ...
+
+
+async def memory_for(
+    memory: MemoryStore | None, incident: Incident, alerts: Sequence[Alert]
+) -> MemoryContext:
+    """A memória para investigar o incidente; vazia sem memória ligada."""
+    if memory is None:
+        return MemoryContext()
+    names = list(dict.fromkeys(alert.rule_name for alert in alerts))
+    text = " ".join([incident.title, *(alert.summary for alert in alerts)])
+    return await memory.context_for(incident.services, names, text)

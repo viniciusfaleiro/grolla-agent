@@ -9,6 +9,7 @@ from grolla.domain.chat import ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, NotificationKind
 from grolla.domain.war_room import (
     AssumeCommander,
+    DiscardIncident,
     HumanAction,
     InvalidActionError,
     RecordAction,
@@ -117,6 +118,25 @@ async def test_closing_card_without_actions_or_verification(world: World) -> Non
     card = world.repository.outbox[-1].notification
     assert card.evidence == "Motivo: falso alarme"
     assert card.verification is None
+
+
+@pytest.mark.parametrize("action", [Resolve("rollback"), DiscardIncident("alarme falso")])
+async def test_closing_the_incident_asks_for_the_learning(
+    world: World, action: HumanAction
+) -> None:
+    incident_id = await world.open_incident(IncidentState.HANDLING)
+
+    await world.act(incident_id, action)
+
+    assert world.repository.learning_requests == {incident_id: world.clock.now()}
+
+
+async def test_other_actions_do_not_ask_for_the_learning(world: World) -> None:
+    incident_id = await world.open_incident()
+
+    await world.act(incident_id, AssumeCommander())
+
+    assert world.repository.learning_requests == {}
 
 
 async def test_question_is_recorded_pending_with_its_event(world: World) -> None:
