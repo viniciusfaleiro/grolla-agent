@@ -6,6 +6,7 @@ from uuid import UUID
 import grolla_api.app
 import pytest
 from fastapi.testclient import TestClient
+from grolla.application import war_room
 from grolla.application.clock import Clock
 from grolla.application.incidents import IncidentRepository
 from grolla.application.war_room import IncidentNotFoundError
@@ -33,7 +34,7 @@ from grolla_api.war_room import AUTHOR_COOKIE, format_duration
 
 @dataclass
 class WarRoomStub:
-    """Stub local de `act` e `ask` com o contrato, até os casos de uso do domínio chegarem."""
+    """Espião dos casos de uso reais `act` e `ask`: registra a chamada e delega."""
 
     repository: InMemoryIncidentRepository
     actions: list[tuple[HumanAction, str]] = field(default_factory=list[tuple[HumanAction, str]])
@@ -49,19 +50,15 @@ class WarRoomStub:
         clock: Clock,
         page_url: Callable[[UUID], str],
     ) -> Incident:
-        del page_url  # o card é do domínio; aqui só importa a rota
-        incident = await repository.get_incident(incident_id)
-        if incident is None:
-            raise IncidentNotFoundError(str(incident_id))
-        if isinstance(action, Resolve | DiscardIncident) and not action.reason:
-            raise InvalidActionError("informe o motivo")
         self.actions.append((action, author))
-        if isinstance(action, AssumeCommander):
-            incident = replace(
-                incident, state=IncidentState.HANDLING, commander=author, handling_at=clock.now()
-            )
-            self.repository.incidents[incident_id] = incident
-        return incident
+        return await war_room.act(
+            repository=repository,
+            incident_id=incident_id,
+            action=action,
+            author=author,
+            clock=clock,
+            page_url=page_url,
+        )
 
     async def ask(
         self,
@@ -71,13 +68,8 @@ class WarRoomStub:
         text: str,
         clock: Clock,
     ) -> None:
-        if await repository.get_incident(incident_id) is None:
-            raise IncidentNotFoundError(str(incident_id))
-        if not text:
-            raise InvalidActionError("escreva a mensagem")
         self.questions.append((author, text))
-        message = ChatMessage(0, incident_id, author, text, clock.now())
-        self.repository.add_message(message, wants_reply=True)
+        await war_room.ask(repository, incident_id, author, text, clock)
 
 
 NOW = T0 + timedelta(minutes=12)
@@ -246,7 +238,9 @@ def test_each_action_reads_its_form_fields(
     case: tuple[str, dict[str, str], HumanAction],
 ) -> None:
     name, form, expected = case
-    incident = add_incident(repository, state=IncidentState.HANDLING)
+    # Reabrir só vale para mitigado; as demais ações valem em tratamento.
+    state = IncidentState.MITIGATED if name == "reopen" else IncidentState.HANDLING
+    incident = add_incident(repository, state=state)
 
     response = ana.post(f"/incidents/{incident.id}/actions/{name}", data=form)
 
@@ -263,7 +257,8 @@ def test_closing_without_reason_is_refused_with_the_message(
     response = ana.post(f"/incidents/{incident.id}/actions/{name}", data={"motivo": "  "})
 
     assert response.status_code == 422
-    assert '<p class="error">informe o motivo</p>' in response.text
+    assert "motivo" in response.text
+    assert "é obrigatório" in response.text
     assert response.headers["HX-Retarget"] == "#war-room-error"
     assert response.headers["HX-Reswap"] == "innerHTML"
 
@@ -314,8 +309,8 @@ def test_unknown_action_or_incident_is_not_found(
     ("state", "shown", "hidden"),
     [
         (IncidentState.INFORMED, ["assume", "resolve", "discard"], ["mitigate", "reopen"]),
-        (IncidentState.HANDLING, ["mitigate", "severity", "record"], ["assume", "reopen"]),
-        (IncidentState.MITIGATED, ["reopen", "resolve"], ["assume", "mitigate"]),
+        (IncidentState.HANDLING, ["assume", "mitigate", "severity", "record"], ["reopen"]),
+        (IncidentState.MITIGATED, ["assume", "reopen", "resolve"], ["mitigate"]),
         (IncidentState.RESOLVED, [], ["assume", "severity", "record", "resolve", "discard"]),
         (IncidentState.DISCARDED, [], ["assume", "severity", "resolve"]),
     ],
@@ -519,7 +514,7 @@ def test_empty_message_is_refused(ana: TestClient, repository: InMemoryIncidentR
     response = ana.post(f"/incidents/{incident.id}/chat", data={"texto": ""})
 
     assert response.status_code == 422
-    assert "escreva a mensagem" in response.text
+    assert "escreva a pergunta" in response.text
     assert response.headers["HX-Retarget"] == "#chat-error"
 
 

@@ -140,7 +140,7 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
     async def war_room_context(incident: Incident, author: str | None) -> dict[str, Any]:
         return {
             "incident": incident,
-            "header": header_of(incident, services.clock.now()),
+            "header": header_of(incident, services.clock.now(), author),
             "author": author,
             "analysis": await repository.analysis_of(incident.id),
             "verification": await repository.verification_of(incident.id),

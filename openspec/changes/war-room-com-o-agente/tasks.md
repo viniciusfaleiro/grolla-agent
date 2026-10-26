@@ -10,23 +10,23 @@
 
 ## 1. grolla-dominio
 
-- [ ] 1.1 `decide_action`: todas as ações, transições válidas e inválidas, horários, eventos com autor e cards.
-- [ ] 1.2 Agrupamento ignorando incidentes fora de `OPEN_STATES`.
-- [ ] 1.3 `act` e `ask`, e `run_next_reply`/`reap_stuck_replies` (limites, teto por incidente, resposta sempre chega), `chat_context` e `CHAT_PROMPT`.
-- [ ] 1.4 Fakes e suítes de contrato do `ChatQueue`, de `incident_for_update`, de `chat_of` e de `LanguageModel.reply`. Commit cedo.
-- [ ] 1.5 Pisos de cobertura e `make check` verde.
+- [x] 1.1 `decide_action`: todas as ações, transições válidas e inválidas, horários, eventos com autor e cards.
+- [x] 1.2 Agrupamento ignorando incidentes fora de `OPEN_STATES`.
+- [x] 1.3 `act` e `ask`, e `run_next_reply`/`reap_stuck_replies` (limites, teto por incidente, resposta sempre chega), `chat_context` e `CHAT_PROMPT`.
+- [x] 1.4 Fakes e suítes de contrato do `ChatQueue`, de `incident_for_update`, de `chat_of` e de `LanguageModel.reply`. Commit cedo.
+- [x] 1.5 Pisos de cobertura e `make check` verde.
 
 ## 2. grolla-persistencia
 
-- [ ] 2.1 Migração 0005, os campos novos na projeção e `incident_for_update` com `FOR UPDATE`.
-- [ ] 2.2 `chat_messages`, `ChatQueue` com `SKIP LOCKED` e `chat_of`. `active_incidents` só com estados abertos.
-- [ ] 2.3 Integração passando nas suítes de contrato; README do core; `make check` verde.
+- [x] 2.1 Migração 0005, os campos novos na projeção e `incident_for_update` com `FOR UPDATE`.
+- [x] 2.2 `chat_messages`, `ChatQueue` com `SKIP LOCKED` e `chat_of`. `active_incidents` só com estados abertos.
+- [x] 2.3 Integração passando nas suítes de contrato; README do core; `make check` verde.
 
 ## 3. grolla-integracoes
 
-- [ ] 3.1 `reply` no adapter da Anthropic (laço de ferramentas, resposta em texto, etapa `warroom_chat`) e o modo de chat no LLM fake.
-- [ ] 3.2 Cards: IC assumido, severidade alterada por humano, mitigado, encerrado (duração, autor, motivo, causa raiz e ações) e descartado.
-- [ ] 3.3 Jobs `run_replies` e `reap_stuck_replies` no worker; READMEs; `make check` verde.
+- [x] 3.1 `reply` no adapter da Anthropic (laço de ferramentas, resposta em texto, etapa `warroom_chat`) e o modo de chat no LLM fake.
+- [x] 3.2 Cards: IC assumido, severidade alterada por humano, mitigado, encerrado (duração, autor, motivo, causa raiz e ações) e descartado.
+- [x] 3.3 Jobs `run_replies` e `reap_stuck_replies` no worker; READMEs; `make check` verde.
 
 ## 4. grolla-web
 
@@ -41,18 +41,18 @@
 
 ## 5. grolla-e2e
 
-- [ ] 5.1 Cenários de assumir, mitigar e encerrar com cards. Ação inválida recusada.
-- [ ] 5.2 Chat com resposta e consulta registrada, chat com LLM fora do ar e alerta depois do encerramento abrindo incidente novo. `make check` verde.
+- [x] 5.1 Cenários de assumir, mitigar e encerrar com cards. Ação inválida recusada.
+- [x] 5.2 Chat com resposta e consulta registrada, chat com LLM fora do ar e alerta depois do encerramento abrindo incidente novo. `make check` verde.
 
 ## 6. Integração (agente pai)
 
-- [ ] 6.1 Juntar os branches e resolver conflitos.
-- [ ] 6.2 Fazer o code review do todo entregue, com os ajustes que couberem.
+- [x] 6.1 Juntar os branches e resolver conflitos.
+- [x] 6.2 Fazer o code review do todo entregue, com os ajustes que couberem.
 - [ ] 6.3 Laboratório:
   - repetir o cenário "banco fora";
   - perguntar no chat "o banco já voltou?" depois de religar o RDS;
   - assumir, mitigar e encerrar pelo war room.
-- [ ] 6.4 Registrar no `design.md` os desvios de contrato.
+- [x] 6.4 Registrar no `design.md` os desvios de contrato.
 - [ ] 6.5 Revisar e atualizar os READMEs do pai e de cada componente.
 - [ ] 6.6 Rodar `make e2e` e garantir todos os cenários verdes.
 - [ ] 6.7 Rodar `make fmt && make check` e garantir tudo verde.

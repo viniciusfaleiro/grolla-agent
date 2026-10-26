@@ -39,8 +39,9 @@ _ALWAYS = ("severity", "record", "discard-hypothesis", "resolve", "discard")
 ALLOWED_ACTIONS: Mapping[IncidentState, frozenset[str]] = {
     IncidentState.DETECTED: frozenset({"assume", *_ALWAYS}),
     IncidentState.INFORMED: frozenset({"assume", *_ALWAYS}),
-    IncidentState.HANDLING: frozenset({"mitigate", *_ALWAYS}),
-    IncidentState.MITIGATED: frozenset({"reopen", *_ALWAYS}),
+    # Outra pessoa pode assumir como IC a qualquer momento; o domínio recusa o próprio IC.
+    IncidentState.HANDLING: frozenset({"assume", "mitigate", *_ALWAYS}),
+    IncidentState.MITIGATED: frozenset({"assume", "reopen", *_ALWAYS}),
     IncidentState.RESOLVED: frozenset(),
     IncidentState.DISCARDED: frozenset(),
 }
@@ -122,16 +123,22 @@ class Header:
     actions: frozenset[str]
 
 
-def header_of(incident: Incident, now: datetime) -> Header:
-    """Duração até agora, ou até o encerramento; TTA, TTM e TTR a partir da detecção."""
+def header_of(incident: Incident, now: datetime, author: str | None = None) -> Header:
+    """Duração até agora, ou até o encerramento; TTA, TTM e TTR a partir da detecção.
+
+    "Assumir" some só para quem já é o IC: outra pessoa pode assumir a qualquer momento.
+    """
     detected = incident.detected_at
+    actions = ALLOWED_ACTIONS[incident.state]
+    if incident.commander is not None and incident.commander == author:
+        actions = actions - {"assume"}
     return Header(
         state=STATE_LABELS[incident.state],
         duration=format_duration((incident.resolved_at or now) - detected),
         tta=format_duration(_since(detected, incident.handling_at)),
         ttm=format_duration(_since(detected, incident.mitigated_at)),
         ttr=format_duration(_since(detected, incident.resolved_at)),
-        actions=ALLOWED_ACTIONS[incident.state],
+        actions=actions,
     )
 
 

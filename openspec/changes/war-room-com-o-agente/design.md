@@ -241,6 +241,20 @@ O HTMX é servido como estático.
 | `grolla-web` | Cabeçalho, ações, chat e polling com HTMX, cookie do autor e console |
 | `grolla-e2e` | Cenários: assumir e encerrar com card; ação inválida recusada; chat com resposta e consulta; chat com LLM fora do ar; alerta depois do encerramento abre incidente novo |
 
+## Desvios de contrato combinados na implementação
+
+1. **Evento `agent_message`.** Leva `{reply_to, ok, text}`, sem `message_id`, porque o id da resposta só existe depois do INSERT dentro do `answer`.
+2. **Status da resposta.** O `ChatQueue.answer` lê o desfecho em `reply.reply_status`: `FAILED` vira `falhou`, e `None` ou `ANSWERED` vira `respondida`. Esse status é gravado na pergunta. A resposta fica com `reply_status` nulo e `reply_to` apontando para a pergunta.
+3. **`ask` em incidente inexistente** levanta `IncidentNotFoundError`, como o `act`. Texto vazio levanta `InvalidActionError`.
+4. **Alerta agrupado não mexe em quem conduz.** Ele só reclassifica o estado de incidentes Detectados ou Informados; Em tratamento e Mitigado ficam como o humano deixou. Um alerta resolvido em incidente encerrado só é registrado, sem card.
+5. **O IC atual assumir de novo é recusado** ("Ana já é o IC"). Outra pessoa pode assumir a qualquer momento, e o war room esconde o botão só para o próprio IC (code review do agente pai).
+6. **Formato dos cards.**
+   - Encerramento: `summary` = "Encerrado por Ana · durou X"; `evidence` = "Motivo: …", seguido de "Ações do time:" com uma linha por ação; `verification` anexada.
+   - Ações: "Ana assumiu como IC", "P1 → P3 por Ana" e "Mitigado por Ana".
+7. **Mensagem do chat.** Vai ao modelo como `f"{context}\n\nPergunta: {question}"`, e o resultado vem pelo schema `{"reply"}`. O LLM fake reconhece a fase pela propriedade do schema: `verdicts`, `reply` ou análise.
+8. **Polling com `?visto=<versão>`.** Sem novidade, a resposta é 204 e o HTMX não troca nada. Assim um `<details>` aberto não fecha a cada 3 s.
+9. **Testes da web.** Usam um espião sobre o `act` e o `ask` reais, em vez do stub provisório (code review do agente pai).
+
 ## Risks / Trade-offs
 
 - [Nome livre sem autenticação] → só rede interna. Fica registrado em toda ação. O SSO é da fase 2.
