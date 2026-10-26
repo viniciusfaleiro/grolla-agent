@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import quote
 
-from grolla.application.memory import ServiceStudy, StudyMode, StudyStatus
+from grolla.application.memory import NO_BUDGET, ServiceStudy, StudyMode, StudyStatus
 from grolla.application.memory_store import SubjectSummary
 from grolla.domain.memory import ENVIRONMENT, Memory, MemoryKind, SourceKind, SubjectKind
 
@@ -34,9 +34,6 @@ STUDY_STATUS_LABELS = {
     StudyStatus.DONE: "concluído",
     StudyStatus.FAILED: "falhou",
 }
-
-# Motivo que o estudo grava no serviço que não coube no orçamento da rodada.
-NO_BUDGET_REASON = "sem orçamento nesta rodada"
 
 SUBJECT_KIND_NAMES = {
     SubjectKind.ENVIRONMENT: "ambiente",
@@ -129,8 +126,8 @@ class StudyProgress:
 def study_progress(services: Sequence[ServiceStudy]) -> StudyProgress:
     return StudyProgress(
         studied=tuple(s for s in services if s.ok),
-        pending=tuple(s for s in services if not s.ok and s.reason == NO_BUDGET_REASON),
-        failed=tuple(s for s in services if not s.ok and s.reason != NO_BUDGET_REASON),
+        pending=tuple(s for s in services if not s.ok and s.reason == NO_BUDGET),
+        failed=tuple(s for s in services if not s.ok and s.reason != NO_BUDGET),
     )
 
 

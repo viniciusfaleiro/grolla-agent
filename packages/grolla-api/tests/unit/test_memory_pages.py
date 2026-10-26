@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from grolla.application.memory import ServiceStudy, StudyMode, StudyStatus
+from grolla.application.memory import NO_BUDGET, ServiceStudy, StudyMode, StudyStatus
 from grolla.domain.analysis import Analysis, AnalysisStatus, SeenBefore
 from grolla.domain.memory import (
     AGENT_AUTHOR,
@@ -21,7 +21,7 @@ from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
 from grolla_api.app import Services, create_app
-from grolla_api.memory_pages import NO_BUDGET_REASON, source_of
+from grolla_api.memory_pages import source_of
 from grolla_api.war_room import AUTHOR_COOKIE, rich_text
 
 NOW = T0 + timedelta(days=2)
@@ -39,8 +39,8 @@ def studies() -> InMemoryStudyQueue:
 
 
 @pytest.fixture
-def learnings() -> InMemoryLearningQueue:
-    return InMemoryLearningQueue()
+def learnings(repository: InMemoryIncidentRepository) -> InMemoryLearningQueue:
+    return InMemoryLearningQueue(repository)
 
 
 @pytest.fixture
@@ -193,7 +193,7 @@ async def test_home_shows_the_last_study_and_each_service(
     assert run is not None
     for study in (
         ServiceStudy("pedidos-api", NOW, ok=True, reason=None),
-        ServiceStudy("captura-api", None, ok=False, reason=NO_BUDGET_REASON),
+        ServiceStudy("captura-api", None, ok=False, reason=NO_BUDGET),
         ServiceStudy("estorno-api", None, ok=False, reason="repositório não encontrado"),
     ):
         await studies.service_done(run, study, ())
@@ -218,7 +218,7 @@ async def test_home_lists_failed_learnings_with_the_incident(
 ) -> None:
     incident = make_incident()
     repository.incidents[incident.id] = incident
-    learnings.request(incident.id, incident.title, NOW)
+    repository.learning_requests[incident.id] = NOW
     for _ in range(2):
         job = await learnings.claim(NOW)
         assert job is not None
