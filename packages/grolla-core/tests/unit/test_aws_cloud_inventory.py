@@ -543,7 +543,7 @@ async def test_overview_of_an_empty_account(session: StubbedSession) -> None:
 
 
 async def test_overview_shows_at_most_the_limit(session: StubbedSession) -> None:
-    many = {
+    many: dict[str, Any] = {
         "ResourceTagMappingList": [
             {"ResourceARN": f"arn:aws:sns:{REGION}:{ACCOUNT}:topico-{i:03}", "Tags": []}
             for i in range(205)
