@@ -12,10 +12,12 @@ from typing import Any, Literal, Protocol
 
 from grolla.application.clock import Clock
 from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
+from grolla.domain.chat import ChatDraft
 from grolla.domain.incidents import Alert, Incident
 
 STAGE_INVESTIGATION = "investigation"
 STAGE_VERIFICATION = "verification"
+STAGE_WARROOM_CHAT = "warroom_chat"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -364,6 +366,19 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def reply(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        question: str,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> ChatDraft:
+        """Responde uma pergunta do war room, podendo investigar com as ferramentas;
+        levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
 
 SYSTEM_PROMPT = """\
 Você é o agente de SRE de plantão de um ambiente de adquirência e cartões. Um alerta acabou de \
@@ -446,6 +461,9 @@ fosse conhecida.
 
 Escreva em português, de forma direta, para engenheiros de plantão.
 """
+
+
+CHAT_PROMPT = ""  # comportamento do agente no chat do war room (grolla-dominio escreve)
 
 
 def verification_text(brief: InvestigationBrief, analysis: Analysis) -> str:

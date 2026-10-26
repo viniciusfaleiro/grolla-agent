@@ -13,6 +13,7 @@ from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import (
     FakeChatNotifier,
     InMemoryAnalysisQueue,
+    InMemoryChatQueue,
     InMemoryIncidentRepository,
     InMemoryNotificationOutbox,
 )
@@ -58,6 +59,7 @@ async def container() -> AsyncIterator[WorkerContainer]:
         notifier=FakeChatNotifier(),
         repository=repository,
         analysis_queue=InMemoryAnalysisQueue(repository),
+        chat_queue=InMemoryChatQueue(repository),
         model=ScriptedLanguageModel(),
         telemetry=FakeTelemetry(),
         changes=FakeChangeHistory(),

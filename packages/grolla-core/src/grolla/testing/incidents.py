@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from grolla.application.analysis import AnalysisJob
+from grolla.application.chat import ChatJob
 from grolla.application.incidents import (
     InvalidAlertPayloadError,
     NotificationFailedError,
@@ -17,6 +18,7 @@ from grolla.application.incidents import (
 )
 from grolla.application.investigation import LlmUsage
 from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
+from grolla.domain.chat import ChatMessage
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -94,6 +96,9 @@ class InMemoryIncidentRepository:
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         return [alert for owner, alert in self.links if owner == incident_id]
 
+    async def chat_of(self, incident_id: UUID) -> list[ChatMessage]:
+        raise NotImplementedError
+
     async def verification_of(self, incident_id: UUID) -> Verification | None:
         return self.verifications.get(incident_id)
 
@@ -144,6 +149,12 @@ class InMemoryUnitOfWork:
         outbox = self._repository.outbox
         next_id = max((entry.id for entry in outbox), default=0) + 1
         outbox.append(OutboxEntry(next_id, notification, next_attempt_at=at))
+
+    async def incident_for_update(self, incident_id: UUID) -> Incident | None:
+        raise NotImplementedError
+
+    async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        raise NotImplementedError
 
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
         """Um pedido por incidente: pedir de novo mantém o primeiro."""
@@ -353,3 +364,29 @@ class FakeAlertIngress:
         if not isinstance(payload, Mapping) or "alerts" not in payload:
             raise InvalidAlertPayloadError("payload sem a lista de alertas")
         return list(self.alerts)
+
+
+class InMemoryChatQueue:
+    """Fila das perguntas do chat sobre o estado de um `InMemoryIncidentRepository`."""
+
+    def __init__(self, repository: InMemoryIncidentRepository) -> None:
+        self._repository = repository
+
+    async def claim(self, now: datetime) -> ChatJob | None:
+        raise NotImplementedError
+
+    async def stuck(self, started_before: datetime) -> list[ChatJob]:
+        raise NotImplementedError
+
+    async def answer(
+        self,
+        job: ChatJob,
+        reply: ChatMessage,
+        events: Sequence[IncidentEvent],
+        usages: Sequence[LlmUsage],
+        at: datetime,
+    ) -> None:
+        raise NotImplementedError
+
+    async def chat_tokens(self, incident_id: UUID) -> int:
+        raise NotImplementedError

@@ -51,6 +51,7 @@ from grolla.domain.analysis import (
     VerificationDraft,
     check_plan,
 )
+from grolla.domain.chat import ChatDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -210,17 +211,20 @@ class _Verification(_Strict):
 
 
 class ClaudeLanguageModel:
-    def __init__(
+    def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
         api_key: str,
         settings: ModelSettings,
+        *,
         base_url: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
         verification: ModelSettings | None = None,
+        chat: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
         self._verification = verification or settings  # etapa `verification` herda a da análise
+        self._chat = chat or settings  # etapa `warroom_chat` também herda
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -234,6 +238,16 @@ class ClaudeLanguageModel:
                 return _draft(await _loop(client, phase, messages, toolbox, budget))
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def reply(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        question: str,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> ChatDraft:
+        raise NotImplementedError
 
     async def verify(
         self,

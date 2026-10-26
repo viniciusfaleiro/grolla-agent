@@ -22,6 +22,7 @@ from grolla.application.investigation import (
     ToolUnavailableError,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
+from grolla.domain.chat import ChatDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -197,6 +198,16 @@ class ScriptedLanguageModel:
         if self.error is not None:
             raise self.error
         return self.draft
+
+    async def reply(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        question: str,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> ChatDraft:
+        raise NotImplementedError
 
     async def verify(
         self,

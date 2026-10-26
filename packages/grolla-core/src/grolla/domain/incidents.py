@@ -33,6 +33,21 @@ def labels_match(labels: Mapping[str, str], match: Mapping[str, str]) -> bool:
 class IncidentState(StrEnum):
     DETECTED = "detectado"
     INFORMED = "informado"
+    HANDLING = "em_tratamento"
+    MITIGATED = "mitigado"
+    RESOLVED = "resolvido"
+    DISCARDED = "descartado"
+
+
+# Resolvido e Descartado são finais: não recebem alertas nem ações.
+OPEN_STATES = frozenset(
+    {
+        IncidentState.DETECTED,
+        IncidentState.INFORMED,
+        IncidentState.HANDLING,
+        IncidentState.MITIGATED,
+    }
+)
 
 
 class AlertStatus(StrEnum):
@@ -65,6 +80,10 @@ class Incident:
     detected_at: datetime
     last_alert_at: datetime
     firing: frozenset[str]  # fingerprints disparando
+    commander: str | None = None  # IC: quem assumiu no war room
+    handling_at: datetime | None = None  # TTA
+    mitigated_at: datetime | None = None  # TTM
+    resolved_at: datetime | None = None  # TTR (encerrado ou descartado)
 
 
 class EventType(StrEnum):
@@ -83,6 +102,15 @@ class EventType(StrEnum):
     VERIFICATION_REQUESTED = "verification_requested"
     VERIFICATION_COMPLETED = "verification_completed"
     VERIFICATION_PARTIAL = "verification_partial"
+    COMMANDER_ASSIGNED = "commander_assigned"
+    ACTION_RECORDED = "action_recorded"
+    HYPOTHESIS_DISCARDED = "hypothesis_discarded"
+    INCIDENT_MITIGATED = "incident_mitigated"
+    INCIDENT_REOPENED = "incident_reopened"
+    INCIDENT_RESOLVED = "incident_resolved"
+    INCIDENT_DISCARDED = "incident_discarded"
+    HUMAN_MESSAGE = "human_message"
+    AGENT_MESSAGE = "agent_message"
 
 
 @dataclass(frozen=True)
@@ -100,6 +128,11 @@ class NotificationKind(StrEnum):
     ROOT_CAUSE = "root_cause"
     SEVERITY_RAISED = "severity_raised"
     INCIDENT_NORMALIZED = "incident_normalized"
+    COMMANDER_ASSIGNED = "commander_assigned"
+    SEVERITY_CHANGED_BY_HUMAN = "severity_changed_by_human"
+    INCIDENT_MITIGATED = "incident_mitigated"
+    INCIDENT_RESOLVED = "incident_resolved"
+    INCIDENT_DISCARDED = "incident_discarded"
 
 
 @dataclass(frozen=True)

@@ -2,11 +2,11 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 Modelos, ações, estados, eventos e kinds novos no domínio, com as assinaturas de `decide_action`.
-- [ ] 0.2 Application: `act`, `ask`, `ChatQueue`, `run_next_reply`, `reap_stuck_replies`, `chat_context`, `LanguageModel.reply`, `incident_for_update` e `chat_of`, com corpos `NotImplementedError`.
-- [ ] 0.3 Stubs no Postgres, no adapter da Anthropic e nos fakes; migração `0005`.
-- [ ] 0.4 `bootstrap`: limites do chat, a etapa `warroom_chat` e o `WorkerContainer.chat_queue`. HTMX como estático na api.
-- [ ] 0.5 `make check` verde com os stubs e commit de contrato.
+- [x] 0.1 Modelos, ações, estados, eventos e kinds novos no domínio, com as assinaturas de `decide_action`.
+- [x] 0.2 Application: `act`, `ask`, `ChatQueue`, `run_next_reply`, `reap_stuck_replies`, `chat_context`, `LanguageModel.reply`, `incident_for_update` e `chat_of`, com corpos `NotImplementedError`.
+- [x] 0.3 Stubs no Postgres, no adapter da Anthropic e nos fakes; migração `0005`.
+- [x] 0.4 `bootstrap`: limites do chat, a etapa `warroom_chat` e o `WorkerContainer.chat_queue`. HTMX como estático na api.
+- [x] 0.5 `make check` verde com os stubs e commit de contrato.
 
 ## 1. grolla-dominio
 

@@ -24,6 +24,7 @@ from grolla.domain.analysis import (
     Verdict,
     Verification,
 )
+from grolla.domain.chat import ChatMessage
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -402,6 +403,12 @@ class PostgresUnitOfWork:
             },
         )
 
+    async def incident_for_update(self, incident_id: UUID) -> Incident | None:
+        raise NotImplementedError
+
+    async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
+        raise NotImplementedError
+
     async def request_analysis(self, incident_id: UUID, at: datetime) -> None:
         await self._connection.execute(
             sa.text(
@@ -474,6 +481,9 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             return [_alert(row) for row in result]
+
+    async def chat_of(self, incident_id: UUID) -> list[ChatMessage]:
+        raise NotImplementedError
 
     async def verification_of(self, incident_id: UUID) -> Verification | None:
         async with self._engine.connect() as connection:

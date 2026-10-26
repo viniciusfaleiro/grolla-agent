@@ -25,6 +25,11 @@ _HEADLINES = {
     NotificationKind.INCIDENT_OPENED: "Estou investigando",
     NotificationKind.ANALYSIS_READY: "Análise pronta",
     NotificationKind.ROOT_CAUSE: "Causa raiz",
+    NotificationKind.COMMANDER_ASSIGNED: "IC assumiu",
+    NotificationKind.SEVERITY_CHANGED_BY_HUMAN: "Severidade alterada",
+    NotificationKind.INCIDENT_MITIGATED: "Incidente mitigado",
+    NotificationKind.INCIDENT_RESOLVED: "Incidente encerrado",
+    NotificationKind.INCIDENT_DISCARDED: "Incidente descartado",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -33,6 +38,11 @@ _COLORS = {
     NotificationKind.INCIDENT_OPENED: "Attention",
     NotificationKind.ANALYSIS_READY: "Accent",
     NotificationKind.ROOT_CAUSE: "Good",
+    NotificationKind.COMMANDER_ASSIGNED: "Accent",
+    NotificationKind.SEVERITY_CHANGED_BY_HUMAN: "Warning",
+    NotificationKind.INCIDENT_MITIGATED: "Good",
+    NotificationKind.INCIDENT_RESOLVED: "Good",
+    NotificationKind.INCIDENT_DISCARDED: "Default",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }
