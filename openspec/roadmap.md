@@ -98,6 +98,15 @@ tag, CloudTrail e CloudWatch. É o S11 adiantado com escopo mínimo. Também cor
 logs (WARN e acima), as séries (1 min, com o minuto da mudança) e os deploys (com a mensagem do
 commit).
 
+## S3.2 · Memória viva
+
+Change `memoria-viva`, adiantada antes do S4 e no lugar do antigo S7. O agente monta a própria
+base de conhecimento estudando o ambiente na primeira subida (alertas do domínio → serviços →
+repositórios → pipelines → AWS → integrações nos traces), mantém em dia com um estudo diário,
+aprende com cada incidente encerrado (episódio + dossiês) e com o que o time ensina no chat,
+lembra na análise ("já vi isso"), na validação e no chat, e pode reaprender do zero pela página
+`/memoria`. Aprende sozinho; o time corrige.
+
 ## S4 · On-call acionado sozinho
 
 - **Valor:** P0/P1 acionam o Spike.sh em minutos, com o link da página do incidente e a análise
@@ -115,9 +124,6 @@ commit).
 - **Valor:** o time foca em resolver; o canal fica informado e o registro em dia.
 - **Investigação profunda (P0/P1):** depois da análise inicial, ciclos até 10 min ou confiança
   mínima; leitura de código pelo mapa serviço → repositório (`read_file`); hipóteses no war room.
-- **Incidentes parecidos (v1):** antes de investigar, busca determinística e textual nos
-  incidentes encerrados (mesmos serviços, regra de alerta, assinatura de erro); o caso parecido
-  vira a primeira hipótese e aparece na análise como "já vi isso no incidente #N".
 - **Escopo:** ciclos de 5 min, update só quando muda (e curto a cada 15 min sem mudança);
   impacto financeiro estimado; chat com o agente no war room; gatilho de ciclo por mensagem ou
   alerta agrupado; proposta de Mitigado e de encerramento após 15 min estáveis, com confirmação
@@ -131,16 +137,15 @@ commit).
   lista com filtros e action items vencidos.
 - **Ports:** `DocumentRenderer`.
 
-## S7 · O agente aprende
+## S7 · Post mortem alimenta a memória
 
-- **Valor:** a cada incidente o agente conhece melhor o ambiente e investiga melhor; o time
-  ouve "já vimos isso" com a causa e a correção do caso passado.
-- **Escopo:** extração de fatos sobre o ambiente ao encerrar incidentes, ao aprovar post mortems
-  e das correções do time no chat; página de conhecimento (propor → confirmar → aposentar, com
-  fonte e data); fatos confirmados entram no contexto da investigação; incidentes parecidos
-  passam a usar também os post mortems aprovados e a confirmação do time ("era o mesmo
-  problema"); revisão de fatos antigos ou contrariados; métricas de acerto do agente por período.
-- **Evals:** investigação com e sem conhecimento acumulado nos mesmos incidentes reais.
+- **Valor:** o que o time escreve no post mortem vira conhecimento, e dá para medir se o agente
+  está acertando mais.
+- **Escopo:** post mortem aprovado alimenta a memória viva (S3.2) pelo mesmo caminho do
+  encerramento; confirmação do time "era o mesmo problema" nos casos de "já vi isso"; métricas de
+  acerto do agente por período (hipótese principal certa, tempo até a hipótese certa, quantas
+  vezes a memória ajudou).
+- **Evals:** investigação com e sem memória nos mesmos incidentes reais.
 
 ## S8 · Menos ruído
 

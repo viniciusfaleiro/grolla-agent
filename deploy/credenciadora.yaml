@@ -56,3 +56,14 @@ azure_devops:
 cloud:
   regions: [us-east-1]
   resource_map: {}            # servico: [arn ou identificador, ...]
+
+# ---- Memória viva ----
+# Aprendizado ao encerrar cada incidente (sempre ligado) e estudo do ambiente: inicial na primeira
+# subida e diário no cron. Sem `study`, o agente não estuda o ambiente sozinho.
+memory:
+  learning_max_tokens: 60000
+  study:
+    cron: "0 6 * * *"          # 06:00 UTC
+    run_max_tokens: 400000      # teto de uma rodada inteira
+    service_max_tokens: 100000  # teto do estudo de um serviço
+    lookback_days: 7            # janela de deploys, traces e métricas do estudo
