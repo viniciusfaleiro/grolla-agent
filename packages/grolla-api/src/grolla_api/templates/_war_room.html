@@ -164,6 +164,14 @@
     <p class="status-line analysis-status">{{ analysis_labels[analysis.status] }}{% if analysis.partial_reason %}: {{ partial_reasons[analysis.partial_reason] }}{% endif %}</p>
     {% if analysis.summary %}<p class="summary">{{ analysis.summary }}</p>{% endif %}
 
+    {% if analysis.seen_before %}
+    {% set seen = analysis.seen_before %}
+    <aside class="seen-before" aria-label="Caso parecido">
+      <p class="seen-before-head">Já vi isso: <a href="/incidents/{{ seen.incident_id }}">{{ seen.title }}</a> <span class="muted">({{ seen.at.strftime("%d/%m") }})</span></p>
+      <p>{{ seen.reason }}</p>
+    </aside>
+    {% endif %}
+
     {% if analysis.hypotheses %}
     <ol class="hypotheses">
       {% for hypothesis in analysis.hypotheses %}

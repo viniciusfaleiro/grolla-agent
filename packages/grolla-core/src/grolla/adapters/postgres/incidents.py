@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.application.incidents import IncidentUnitOfWork, OutboxItem
+from grolla.application.memory import StudyStatus  # `learnings` usa os status das rodadas
 from grolla.domain.analysis import (
     Action,
     Analysis,
@@ -21,6 +22,7 @@ from grolla.domain.analysis import (
     Hypothesis,
     HypothesisVerdict,
     PartialReason,
+    SeenBefore,
     Verdict,
     Verification,
 )
@@ -229,7 +231,30 @@ def _analysis_data(analysis: Analysis) -> dict[str, Any]:
         "partial_reason": None
         if analysis.partial_reason is None
         else analysis.partial_reason.value,
+        "seen_before": seen_before_data(analysis.seen_before),
     }
+
+
+def seen_before_data(seen: SeenBefore | None) -> dict[str, str] | None:
+    if seen is None:
+        return None
+    return {
+        "incident_id": str(seen.incident_id),
+        "title": seen.title,
+        "at": seen.at.isoformat(),
+        "reason": seen.reason,
+    }
+
+
+def _seen_before(data: Mapping[str, Any] | None) -> SeenBefore | None:
+    if data is None:
+        return None
+    return SeenBefore(
+        incident_id=UUID(data["incident_id"]),
+        title=data["title"],
+        at=datetime.fromisoformat(data["at"]),
+        reason=data["reason"],
+    )
 
 
 def _analysis(data: Mapping[str, Any]) -> Analysis:
@@ -246,6 +271,7 @@ def _analysis(data: Mapping[str, Any]) -> Analysis:
         hypotheses=_hypotheses(data["hypotheses"]),
         plan=tuple(data["plan"]),
         partial_reason=None if reason is None else PartialReason(reason),
+        seen_before=_seen_before(data.get("seen_before")),  # cards antigos da outbox não têm
     )
 
 
@@ -484,6 +510,18 @@ class PostgresUnitOfWork:
                 " VALUES (:incident_id, :status, :at) ON CONFLICT (incident_id) DO NOTHING"
             ),
             {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
+        )
+
+    async def request_learning(self, incident_id: UUID, at: datetime) -> None:
+        await self._connection.execute(
+            sa.text(
+                "INSERT INTO learnings (incident_id, status, attempts, requested_at)"
+                " VALUES (:incident_id, :pending, 0, :at)"
+                # Reencerrado: aprende de novo, do zero, com o log completo.
+                " ON CONFLICT (incident_id) DO UPDATE SET status = :pending, attempts = 0,"
+                " requested_at = :at, started_at = NULL, finished_at = NULL, reason = NULL"
+            ),
+            {"incident_id": incident_id, "pending": StudyStatus.PENDING.value, "at": at},
         )
 
     async def enqueue(self, notification: Notification, at: datetime) -> None:

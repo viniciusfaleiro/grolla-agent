@@ -32,6 +32,9 @@ do procrastinate.
 | **Validações presas** | Encerra como parcial ("interrompida") a validação em andamento além de `verification_timeout + 2 min` | periódico `reap_stuck_verifications` (todo minuto, fila `analysis`, `lock`) |
 | **Respostas do chat do war room** | Reivindica as perguntas feitas ao agente no chat do war room e responde cada uma com o modelo de linguagem (as mesmas ferramentas da investigação, inclusive as de nuvem), até a fila esvaziar. Toda pergunta termina com uma resposta, ou "não consegui responder: <motivo>" | periódico `run_replies` (`* * * * * */2`, fila `analysis`, `queueing_lock`) |
 | **Respostas presas** | Responde "não consegui responder: interrompida" à pergunta que ficou em andamento além do limite, quando o worker caiu no meio | periódico `reap_stuck_replies` (todo minuto, fila `analysis`, `lock`) |
+| **Aprender ao encerrar** | Para cada incidente resolvido ou descartado, uma chamada ao modelo, sem ferramentas, escreve o episódio de cada serviço (ruído no descarte) e reescreve os dossiês, com versão; falha é tentada de novo uma vez e fica na página da memória | periódico `run_learnings` (`* * * * * */10`, fila `analysis`) e `reap_stuck_learnings` (todo minuto) |
+| **Estudo do ambiente** | Regras de alerta do domínio → serviços (das regras e os ativos com repositório) → estudo de cada serviço com ferramentas e teto próprio, parando no teto da rodada → síntese do ambiente e das integrações | periódico `run_studies` (todo minuto, fila `analysis`, `lock`) e `reap_stuck_studies` (todo minuto) |
+| **Estudo inicial e diário** | Na subida, com `memory.study` e nenhum dossiê, pede o estudo inicial; o estudo diário pede uma rodada no `memory.study.cron` (só registrado com `memory.study`) | `ensure_initial_study` no `main.py`; periódico `schedule_daily_study` (fila `default`) |
 | **Entrega de cards** | Entrega a outbox de notificações no canal do time (Adaptive Card via Workflow do Teams), em ordem por incidente, com retentativa e espera crescente; registra no incidente a entrega ou a desistência | periódico `deliver_notifications` (`* * * * * */5`, uma rodada por vez com `queueing_lock` e `lock`) |
 
 ## 🏗 Arquitetura
@@ -40,11 +43,11 @@ O processo roda **dois laços do procrastinate**:
 
 | Fila | Concorrência | Jobs |
 |---|---|---|
-| `default` | 1 | `heartbeat`, `deliver_notifications` |
-| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies` |
+| `default` | 1 | `heartbeat`, `deliver_notifications`, `schedule_daily_study` |
+| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies`, `run_learnings`, `reap_stuck_learnings`, `run_studies`, `reap_stuck_studies` |
 
-Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises e
-validações recebem os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
+Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises,
+validações e respostas do chat recebem a memória (`container.memory`) e os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
 seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. O `main.py`
 trata SIGINT/SIGTERM e encerra os dois laços com graça, porque com dois laços os handlers de
 sinal do procrastinate brigariam.

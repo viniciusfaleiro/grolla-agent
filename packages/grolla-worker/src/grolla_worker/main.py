@@ -3,6 +3,7 @@ import logging
 import signal
 
 import procrastinate
+from grolla.application.memory import ensure_initial_study
 from grolla.bootstrap import ConfigError, WorkerContainer, prepare_worker
 
 from grolla_worker.app import ANALYSIS_QUEUE, DEFAULT_QUEUE, build_app
@@ -39,6 +40,10 @@ async def run_workers(app: procrastinate.App, max_parallel: int) -> None:
 async def run(app: procrastinate.App, container: WorkerContainer) -> None:
     try:
         async with app.open_async():
+            # Base vazia com o estudo ligado: pede o estudo inicial do ambiente.
+            await ensure_initial_study(
+                container.studies, container.memory, container.clock, container.memory_policy
+            )
             await run_workers(app, container.config.investigation.max_parallel)
     finally:
         await container.database.dispose()

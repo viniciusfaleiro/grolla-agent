@@ -7,19 +7,24 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from grolla.application.analysis import REAP_GRACE, AnalysisPolicy, failure_reason
+from grolla.application.analysis import (
+    REAP_GRACE,
+    AnalysisPolicy,
+    failure_reason,
+    investigation_brief,
+)
 from grolla.application.clock import Clock
 from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import (
     ChangeHistory,
     CloudInventory,
-    InvestigationBrief,
     LanguageModel,
     LlmUsage,
     Telemetry,
     TokenBudget,
     Toolbox,
 )
+from grolla.application.memory_store import MemoryStore
 from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
@@ -29,6 +34,7 @@ from grolla.domain.analysis import (
 )
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, Incident, IncidentEvent
+from grolla.domain.memory import MemoryContext, Source, SourceKind, memory_text
 
 CHAT_LIMIT_REACHED = "limite do chat deste incidente atingido"
 REPLY_FAILED = "não consegui responder"
@@ -73,14 +79,18 @@ class ChatQueue(Protocol):
         ...
 
 
-def chat_context(
+def chat_context(  # noqa: PLR0913 — o contexto reúne tudo o que o war room já sabe
     incident: Incident,
     analysis: Analysis | None,
     verification: Verification | None,
     events: Sequence[IncidentEvent],
     messages: Sequence[ChatMessage],
+    *,
+    memory: MemoryContext | None = None,
 ) -> str:
-    """Texto compacto com o incidente, a análise, a validação, a timeline e o chat."""
+    """Texto compacto com o incidente, a análise, a validação, a timeline, o chat e a
+    memória (como dado).
+    """
     lines = [
         f"Incidente: {incident.title}",
         f"Estado: {incident.state.value}",
@@ -103,6 +113,9 @@ def chat_context(
     lines += [f"- {m.at:%H:%M:%S} {m.author}: {m.text}" for m in messages[-CONTEXT_MESSAGES:]]
     if not messages:
         lines.append("- nenhuma mensagem")
+    remembered = memory_text(memory or MemoryContext())
+    if remembered:
+        lines += ["", remembered]
     return "\n".join(lines)
 
 
@@ -145,8 +158,12 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
     clock: Clock,
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
+    memory: MemoryStore | None = None,
 ) -> bool:
     """Responde a próxima pergunta; False se não havia. A resposta sempre chega.
+
+    Com a `memory`, o modelo recebe a memória do incidente e pode guardar nela, com `remember`,
+    o que o time explicar (fonte: o autor da pergunta, no chat do incidente).
 
     Com o teto de tokens do chat do incidente atingido, responde CHAT_LIMIT_REACHED sem chamar
     o modelo. Qualquer falha vira "não consegui responder: <motivo>", com as consultas feitas.
@@ -160,17 +177,24 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
     incident = await repository.get_incident(job.incident_id)
     if incident is None:  # a pergunta referencia o incidente: só acontece com dado corrompido
         raise LookupError(f"incidente {job.incident_id} da pergunta não existe")
+    brief = await investigation_brief(repository, memory, incident, clock)
     context = chat_context(
         incident,
         await repository.analysis_of(incident.id),
         await repository.verification_of(incident.id),
         await repository.events_of(incident.id),
         await repository.chat_of(incident.id),
+        memory=brief.memory,
     )
-    brief = InvestigationBrief(
-        incident, tuple(await repository.alerts_of(incident.id)), now=clock.now()
+    toolbox = Toolbox(
+        telemetry,
+        changes,
+        clock,
+        policy.lookback,
+        cloud,
+        memory=memory,
+        remember_as=Source(SourceKind.CHAT, job.author, str(incident.id)),
     )
-    toolbox = Toolbox(telemetry, changes, clock, policy.lookback, cloud)
     budget = TokenBudget(policy.chat_max_tokens)
     deadline = asyncio.timeout(policy.chat_timeout.total_seconds())
     try:

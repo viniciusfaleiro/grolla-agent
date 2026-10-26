@@ -89,6 +89,14 @@ class IncidentUnitOfWork(Protocol):
         """Grava o pedido de análise inicial do incidente, pendente desde `at`."""
         ...
 
+    async def request_learning(self, incident_id: UUID, at: datetime) -> None:
+        """Pede o aprendizado do incidente encerrado, pendente desde `at`.
+
+        Pedido repetido (incidente reaberto e encerrado de novo) volta a pendente, com as
+        tentativas zeradas.
+        """
+        ...
+
 
 class IncidentRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[IncidentUnitOfWork]: ...

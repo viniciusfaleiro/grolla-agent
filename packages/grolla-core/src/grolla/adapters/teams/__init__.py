@@ -15,6 +15,7 @@ from grolla.domain.analysis import (
     Evidence,
     Hypothesis,
     HypothesisVerdict,
+    SeenBefore,
     Verification,
 )
 from grolla.domain.incidents import Notification, NotificationKind
@@ -166,6 +167,8 @@ def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[
             _text(f"Motivo: {PARTIAL_REASON_TEXT[analysis.partial_reason]}"),
             *_identity(notification),
         ]
+    if analysis.seen_before is not None:
+        body.append(_seen_before(notification, analysis.seen_before))
     evaluations = [_evaluation(e) for e in analysis.evaluations]
     body.append(_section("O que avaliei", _limit(evaluations, MAX_EVALUATIONS) or [_NOTHING]))
     if analysis.hypotheses:
@@ -177,6 +180,16 @@ def _analysis_body(notification: Notification, analysis: Analysis) -> list[dict[
     if analysis.hypotheses:  # com hipóteses, a validação foi pedida junto
         body.append({"type": "TextBlock", "text": VERIFYING, "wrap": True, "isSubtle": True})
     return body
+
+
+def _seen_before(notification: Notification, seen: SeenBefore) -> dict[str, Any]:
+    """ "Já vi isso": o incidente passado da memória, com o motivo e o link da página dele.
+
+    O link é o da página deste incidente com o id trocado: a mesma base configurada no YAML.
+    """
+    url = notification.page_url.replace(str(notification.incident_id), str(seen.incident_id))
+    title = f"Já vi isso: {_clip(seen.title)} ({seen.at:%d/%m})"
+    return _section(title, [_clip(seen.reason), f"[Abrir o incidente anterior]({url})"])
 
 
 def _verification_body(

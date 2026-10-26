@@ -22,19 +22,26 @@ from datetime import timedelta
 import pytest
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
+    STAGE_LEARNING,
+    STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
+    AlertRule,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModel,
     LanguageModelError,
+    LearningBrief,
+    ServiceStudyBrief,
+    SynthesisBrief,
     TokenBudget,
     Toolbox,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
 from grolla.domain.chat import ChatDraft
-from grolla.domain.incidents import IncidentState, Severity
+from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
+from grolla.domain.memory import DossierDraft, LearningDraft, MemoryContext, SynthesisDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry
@@ -285,3 +292,119 @@ class ChatReplyContract(LanguageModelFixtures):
     ) -> None:
         with pytest.raises(LanguageModelError):
             await failing_replier.reply(brief, CONTEXT, QUESTION, toolbox, budget)
+
+
+class MemoryModelContract(LanguageModelFixtures):
+    """As etapas da memória viva: `learn`, `study_service` e `synthesize`.
+
+    O adapter sobrescreve `memory_model` (as três respondem um resultado válido e o estudo do
+    serviço chama ao menos uma ferramenta) e `failing_memory_model` (a API responde erro).
+    """
+
+    @pytest.fixture
+    def memory_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_memory_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def learning_brief(self) -> LearningBrief:
+        incident = make_incident(services=(SERVICE,), state=IncidentState.RESOLVED)
+        event = IncidentEvent(
+            incident.id, T0, EventType.INCIDENT_RESOLVED, {"reason": "rollback"}, "Ana"
+        )
+        return LearningBrief(incident, (event,), MemoryContext(), now=T0)
+
+    @pytest.fixture
+    def study_brief(self) -> ServiceStudyBrief:
+        return ServiceStudyBrief(SERVICE, (RULE,), MemoryContext(), now=T0)
+
+    @pytest.fixture
+    def synthesis_brief(self) -> SynthesisBrief:
+        return SynthesisBrief((RULE,), (), MemoryContext(), "sem serviço: vpc-lab", now=T0)
+
+    async def test_learn_returns_an_episode_and_spends_with_its_stage(
+        self, memory_model: LanguageModel, learning_brief: LearningBrief, budget: TokenBudget
+    ) -> None:
+        draft = await memory_model.learn(learning_brief, budget)
+
+        assert isinstance(draft, LearningDraft)
+        assert draft.episode_title.strip()
+        assert draft.episode_body.strip()
+        assert all(d.subject.strip() and d.body.strip() for d in draft.dossiers)
+        assert budget.usages
+        assert {usage.stage for usage in budget.usages} == {STAGE_LEARNING}
+
+    async def test_study_service_calls_tools_and_returns_the_service_dossier(
+        self,
+        memory_model: LanguageModel,
+        study_brief: ServiceStudyBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        draft = await memory_model.study_service(study_brief, toolbox, budget)
+
+        assert isinstance(draft, DossierDraft)
+        assert draft.body.strip()
+        assert toolbox.evaluations
+        assert len(budget.usages) >= 2
+        assert {usage.stage for usage in budget.usages} == {STAGE_STUDY}
+
+    async def test_synthesize_returns_the_environment_dossier(
+        self, memory_model: LanguageModel, synthesis_brief: SynthesisBrief, budget: TokenBudget
+    ) -> None:
+        draft = await memory_model.synthesize(synthesis_brief, budget)
+
+        assert isinstance(draft, SynthesisDraft)
+        assert draft.environment.body.strip()
+        assert all(i.subject.strip() and i.body.strip() for i in draft.integrations)
+        assert {usage.stage for usage in budget.usages} == {STAGE_STUDY}
+
+    async def test_exhausted_budget_stops_every_memory_stage(
+        self,
+        memory_model: LanguageModel,
+        learning_brief: LearningBrief,
+        study_brief: ServiceStudyBrief,
+        synthesis_brief: SynthesisBrief,
+        toolbox: Toolbox,
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await memory_model.learn(learning_brief, TokenBudget(limit=1))
+        with pytest.raises(BudgetExceededError):
+            await memory_model.study_service(study_brief, toolbox, TokenBudget(limit=1))
+        with pytest.raises(BudgetExceededError):
+            await memory_model.synthesize(synthesis_brief, TokenBudget(limit=1))
+
+    async def test_learning_api_failure_raises_language_model_error(
+        self,
+        failing_memory_model: LanguageModel,
+        learning_brief: LearningBrief,
+        synthesis_brief: SynthesisBrief,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_memory_model.learn(learning_brief, budget)
+        with pytest.raises(LanguageModelError):
+            await failing_memory_model.synthesize(synthesis_brief, budget)
+
+    async def test_study_api_failure_raises_language_model_error(
+        self,
+        failing_memory_model: LanguageModel,
+        study_brief: ServiceStudyBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_memory_model.study_service(study_brief, toolbox, budget)
+
+
+RULE = AlertRule(
+    name="Taxa de erro alta",
+    condition="taxa de erro > 5% por 5 min",
+    severity="critical",
+    labels={"service_name": SERVICE},
+    service=SERVICE,
+    url="https://observabilidade.interno/regras/1",
+)

@@ -75,7 +75,8 @@ def test_complete_mode_answers_the_draft_citing_the_tool_results() -> None:
 
     assert body["stop_reason"] == "end_turn"
     draft = json.loads(body["content"][0]["text"])
-    assert set(draft) == {"summary", "hypotheses", "plan"}
+    assert set(draft) == {"summary", "hypotheses", "plan", "seen_before"}
+    assert draft["seen_before"] is None  # sem memória na mensagem
     assert draft["plan"]
     text = json.dumps(draft, ensure_ascii=False)
     for cited in ("achado de recent_deploys", "achado de query_metric", "achado de search_logs"):
@@ -403,3 +404,124 @@ def test_reset_brings_the_chat_back_to_complete() -> None:
     _, final = chat_turns(client)
 
     assert final["stop_reason"] == "end_turn"
+
+
+# ---- Memória: "já vi isso", estudo, síntese e aprendizado
+
+PAST = "0193a3a0-7c1e-7000-8000-000000000042"
+MEMORY = (
+    "<memoria>\nMemória do agente.\n\n## Episódios\n"
+    f"### [episodio] estudo-api: estudo-api com 5xx (aprendido, 20/10/2026, incidente {PAST})\n"
+    "Pool esgotado depois do deploy.\n</memoria>"
+)
+
+
+def answer_after_tools(client: TestClient, payload: dict[str, Any]) -> dict[str, Any]:
+    """Primeira volta (ferramentas) e a resposta final, com os resultados roteirizados."""
+    calls = client.post(PATH, json=payload).json()["content"]
+    results = [
+        {"type": "tool_result", "tool_use_id": b["id"], "content": RESULTS.get(b["name"], "ok")}
+        for b in calls
+    ]
+    messages = [
+        *payload["messages"],
+        {"role": "assistant", "content": calls},
+        {"role": "user", "content": results},
+    ]
+    return client.post(PATH, json={**payload, "messages": messages}).json()
+
+
+RESULTS = {
+    "read_file": "/README.md de estudo-api:\n# estudo-api",
+    "service_dependencies": "1 dependência(s) vistas nos traces de estudo-api entre 10:00 UTC "
+    "e 11:00 UTC: banco postgresql estudo (estudo-db): 4200 chamadas, 0,3% com erro, p99 35 ms",
+}
+
+
+def test_analysis_with_an_episode_in_the_memory_says_seen_before() -> None:
+    client = TestClient(create_app())
+    brief = f"{BRIEF}\n\n{MEMORY}"
+
+    final = answer_after_tools(client, request([{"role": "user", "content": brief}]))
+
+    draft = json.loads(final["content"][0]["text"])
+    assert draft["seen_before"]["incident_id"] == PAST
+    assert "estudo-api com 5xx" in draft["seen_before"]["reason"]
+
+
+def memory_request(prop: str, content: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    schema = {"type": "object", "properties": {prop: {"type": "string"}}}
+    return {
+        **request([{"role": "user", "content": content}]),
+        "tools": tools,
+        "output_config": {"format": {"type": "json_schema", "schema": schema}},
+    }
+
+
+STUDY_TOOLS = [
+    {
+        "name": "read_file",
+        "description": "lê",
+        "input_schema": {
+            "type": "object",
+            "properties": {"service": {"type": "string"}, "path": {"type": "string"}},
+            "required": ["service", "path"],
+        },
+    },
+    tool("service_dependencies", ["service"]),
+]
+
+
+def test_study_reads_the_readme_and_the_dependencies_and_cites_the_rules() -> None:
+    client = TestClient(create_app())
+    brief = "Serviço: estudo-api\n\nRegras de alerta:\n- Taxa de erro alta no estudo-api"
+    payload = memory_request("dossier", brief, STUDY_TOOLS)
+
+    first = client.post(PATH, json=payload).json()
+    final = answer_after_tools(client, payload)
+
+    assert [(b["name"], b["input"]) for b in first["content"]] == [
+        ("read_file", {"service": "estudo-api", "path": "README.md"}),
+        ("service_dependencies", {"service": "estudo-api"}),
+    ]
+    dossier = json.loads(final["content"][0]["text"])["dossier"]
+    assert "Taxa de erro alta no estudo-api" in dossier
+    assert "Integração: estudo-db chamada por estudo-api" in dossier
+
+
+def test_synthesis_writes_the_environment_and_one_dossier_per_integration() -> None:
+    client = TestClient(create_app())
+    services = "### estudo-api\nIntegração: estudo-db chamada por estudo-api\n"
+    payload = memory_request("environment", services, [])
+
+    body = client.post(PATH, json=payload).json()
+
+    result = json.loads(body["content"][0]["text"])
+    assert "estudo-api" in result["environment"]
+    assert result["integrations"] == [
+        {"subject": "estudo-db", "body": "# estudo-db\n\nDependência chamada por estudo-api."}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("closing", "noise"), [("incident_resolved", False), ("incident_discarded", True)]
+)
+def test_learning_writes_the_episode_of_the_service(closing: str, noise: bool) -> None:
+    client = TestClient(create_app())
+    brief = f"Incidente: estudo-api com 5xx\nServiços: estudo-api\nEventos:\n- {closing}"
+
+    body = client.post(PATH, json=memory_request("episode_title", brief, [])).json()
+
+    learned = json.loads(body["content"][0]["text"])
+    assert learned["episode_title"] == "estudo-api: estudo-api com 5xx"
+    assert learned["noise"] is noise
+    assert learned["dossiers"] == []
+
+
+def test_memory_phases_ignore_the_analysis_mode() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar"})
+
+    response = client.post(PATH, json=memory_request("environment", "nada", []))
+
+    assert response.status_code == 200

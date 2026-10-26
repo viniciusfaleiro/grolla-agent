@@ -4,16 +4,20 @@ Espera o stack do profile `e2e` do compose de pé (o `make e2e` sobe e derruba).
 reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e confere (`then`).
 
 Ações: `http` (corpo em `json` ou em `form` urlencoded, e `cookies`), `expect_status`,
+`expect_page` (espera o GET responder 200 com todos os trechos `contains` no HTML),
 `wait_for_db_row`, `expect_db_count`, `expect_fake_requests` (contagem exata por trechos do
-corpo), `expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da
-com `then`) e `capture` (guarda a primeira coluna da primeira linha de um SQL com um nome; o
-`{nome}` é trocado pelo valor no `path` e no `sql` dos passos seguintes). O modo do LLM fake se
-troca com `http` em `POST /_control/llm`.
+corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos),
+`expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da com
+`then`) e `capture` (guarda a primeira coluna da primeira linha de um SQL com um nome; o `{nome}`
+é trocado pelo valor no `path`, no `sql` e nos `contains` dos passos seguintes). O modo do LLM
+fake se troca com `http` em `POST /_control/llm`.
 
-O banco não é limpo entre cenários: cada cenário usa serviços e fingerprints próprios e filtra
-as consultas e os cards por eles.
+O banco não é limpo entre cenários (só o `make e2e` o recria, uma vez por rodada): cada cenário
+usa serviços e fingerprints próprios e filtra as consultas e os cards por eles. A memória do
+agente também persiste, e o estudo inicial roda uma vez, na subida do worker.
 """
 
+import html
 import json
 import time
 from pathlib import Path
@@ -65,14 +69,20 @@ def fill(text: str, captured: Captured) -> str:
     return text
 
 
+def filled(key: str, value: Any, captured: Captured) -> Any:
+    """Troca os capturados no `path`, no `sql` e em cada trecho de `contains`."""
+    if key in ("path", "sql"):
+        return fill(cast(str, value), captured)
+    if key == "contains":
+        return [fill(text, captured) for text in cast(list[str], value)]
+    return value
+
+
 def run_step(step: Step, captured: Captured) -> None:
     (action, args), *extra = step.items()
     if extra:
         raise ValueError(f"um passo tem uma ação só: {step}")
-    args: dict[str, Any] = {
-        key: fill(value, captured) if key in ("path", "sql") else value
-        for key, value in args.items()
-    }
+    args: dict[str, Any] = {key: filled(key, value, captured) for key, value in args.items()}
     match action:
         case "http":
             response = http(args["service"], args.get("method", "GET"), args["path"], args)
@@ -81,6 +91,10 @@ def run_step(step: Step, captured: Captured) -> None:
         case "expect_status":
             response = http(args["service"], args.get("method", "GET"), args["path"])
             assert response.status_code == args["status"], response.text
+        case "expect_page":
+            expect_page(
+                args["service"], args["path"], args["contains"], args.get("timeout_seconds", 30)
+            )
         case "wait_for_db_row":
             wait_for_db_row(args["sql"], args["at_least"], args["timeout_seconds"])
         case "capture":
@@ -95,6 +109,8 @@ def run_step(step: Step, captured: Captured) -> None:
                 cast(list[str], args.get("contains") or []),
                 args.get("timeout_seconds", 30),
             )
+        case "wait_for_fake_request":
+            wait_for_fake_request(args["path"], args["contains"], args.get("timeout_seconds", 30))
         case "expect_fake_request_order":
             expect_fake_request_order(
                 args["path"],
@@ -130,6 +146,20 @@ def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:
     pytest.fail(f"esperava ao menos {at_least} em `{sql}`, achei {count} em {timeout_seconds}s")
 
 
+def expect_page(service: str, path: str, contains: list[str], timeout_seconds: float) -> None:
+    """Espera o GET da página responder 200 com todos os trechos (o HTML vem desescapado)."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        response = http(service, "GET", path)
+        page = html.unescape(response.text)
+        missing = [text for text in contains if text not in page]
+        if (response.status_code == 200 and not missing) or time.monotonic() >= deadline:
+            break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    assert response.status_code == 200, f"GET {path}: {response.status_code}"
+    assert not missing, f"faltou {missing} em GET {path} em {timeout_seconds}s"
+
+
 def fake_request_bodies(path: str) -> list[str]:
     recorded = cast(list[dict[str, Any]], http("fakes", "GET", "/_control/requests").json())
     return [
@@ -147,6 +177,15 @@ def first_match(bodies: list[str], contains: list[str]) -> int | None:
 
 def matching_fake_requests(path: str, contains: list[str]) -> int:
     return sum(all(text in body for text in contains) for body in fake_request_bodies(path))
+
+
+def wait_for_fake_request(path: str, contains: list[str], timeout_seconds: float) -> None:
+    """Espera ao menos uma requisição ao fake em `path` com todos os trechos."""
+    deadline = time.monotonic() + timeout_seconds
+    while matching_fake_requests(path, contains) == 0:
+        if time.monotonic() >= deadline:
+            pytest.fail(f"nenhuma requisição a {path} com {contains} em {timeout_seconds}s")
+        time.sleep(POLL_INTERVAL_SECONDS)
 
 
 def expect_fake_request_order(

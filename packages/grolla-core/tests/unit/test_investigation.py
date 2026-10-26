@@ -49,7 +49,7 @@ def toolbox(
     )
 
 
-def test_specs_are_the_seven_neutral_tools_with_closed_arguments() -> None:
+def test_specs_are_the_neutral_tools_with_closed_arguments() -> None:
     specs = {spec.name: spec.input_schema for spec in toolbox().specs()}
 
     assert {name: set(schema["properties"]) for name, schema in specs.items()} == {
@@ -60,6 +60,9 @@ def test_specs_are_the_seven_neutral_tools_with_closed_arguments() -> None:
         "cloud_resources": {"service"},
         "cloud_changes": {"service"},
         "cloud_alarms": {"service"},
+        "read_file": {"service", "path"},
+        "service_dependencies": {"service"},
+        "cloud_overview": set(),
     }
     assert {name: schema["required"] for name, schema in specs.items()} == {
         "query_metric": ["service", "signal"],
@@ -69,6 +72,9 @@ def test_specs_are_the_seven_neutral_tools_with_closed_arguments() -> None:
         "cloud_resources": ["service"],
         "cloud_changes": ["service"],
         "cloud_alarms": ["service"],
+        "read_file": ["service", "path"],
+        "service_dependencies": ["service"],
+        "cloud_overview": [],
     }
     descriptions = " ".join(spec.description for spec in toolbox().specs())
     assert "nuvem" in descriptions

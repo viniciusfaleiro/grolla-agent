@@ -12,15 +12,17 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.telemetry_contract import TelemetryContract
+from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
 from grolla.adapters.signoz.telemetry import READ_TOOLS, SignozTelemetry
-from grolla.application.investigation import Telemetry, ToolUnavailableError
+from grolla.application.investigation import NO_DEPENDENCIES, Telemetry, ToolUnavailableError
+from grolla.domain.incidents import UNKNOWN_SERVICE
 from mcp.server.lowlevel import Server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "signoz_mcp"
 URL = "http://signoz-mcp:8000/mcp"
 BASE = "https://signoz.interno"
+QUIET = "servico-sem-traces"  # sem spans de saída
 START = datetime(2026, 10, 25, 10, 0, tzinfo=UTC)
 END = START + timedelta(hours=1)
 
@@ -33,7 +35,16 @@ CATALOG: list[dict[str, Any]] = fixture("tools_list")["tools"]
 
 
 def span_counts(arguments: dict[str, Any]) -> Any:
-    """Como o SigNoz real: o total sem filtro e, com error=true, só os spans com erro."""
+    """Como o SigNoz real: o total sem filtro e, com error=true, só os spans com erro.
+
+    Com `groupBy` é a agregação das dependências (escalar, por campo de destino).
+    """
+    if arguments.get("groupBy"):
+        if arguments["service"] == QUIET:
+            return fixture("dependencies_empty")
+        if arguments["aggregation"] == "p99":
+            return fixture("dependencies_p99")
+        return fixture("dependencies_errors" if arguments.get("error") else "dependencies_count")
     return fixture(
         "aggregate_traces_errors" if arguments.get("error") else "aggregate_traces_count"
     )
@@ -45,7 +56,19 @@ def default_answers() -> dict[str, Any]:
         "signoz_search_logs": fixture("search_logs"),
         "signoz_search_traces": fixture("search_traces_errors"),
         "signoz_get_service_top_operations": fixture("top_operations"),
+        "signoz_list_alert_rules": fixture("list_alert_rules"),
+        "signoz_get_alert": rule_definition,
+        "signoz_list_services": fixture("list_services"),
     }
+
+
+def rule_definition(arguments: dict[str, Any]) -> Any:
+    """A definição real de uma regra, com o id e o nome da regra pedida."""
+    listed = {r["ruleId"]: r for r in fixture("list_alert_rules")["data"]}
+    answer = fixture("get_alert")
+    rule = listed[arguments["id"]]
+    answer["data"].update(id=rule["ruleId"], alert=rule["alert"], labels=rule["labels"])
+    return answer
 
 
 class FakeSignozMcp:
@@ -80,8 +103,18 @@ class FakeSignozMcp:
         text = answer if isinstance(answer, str) else json.dumps(answer)
         return CallToolResult(content=[TextContent(text=text)])
 
-    def telemetry(self, timeout_seconds: float = 5.0) -> SignozTelemetry:
-        return SignozTelemetry(URL, BASE, timeout_seconds, httpx2.ASGITransport(app=self.app))
+    def telemetry(
+        self,
+        timeout_seconds: float = 5.0,
+        service_labels: tuple[str, ...] = ("service_name", "service.name"),
+    ) -> SignozTelemetry:
+        return SignozTelemetry(
+            URL,
+            BASE,
+            timeout_seconds,
+            httpx2.ASGITransport(app=self.app),
+            service_labels=service_labels,
+        )
 
 
 @pytest.fixture
@@ -98,6 +131,21 @@ class TestSignozTelemetryContract(TelemetryContract):
     def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
         mcp.failing = True
         return mcp.telemetry()
+
+
+class TestSignozEnvironmentTelemetryContract(EnvironmentTelemetryContract):
+    @pytest.fixture
+    def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.failing = True
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def quiet_service(self) -> str:
+        return QUIET
 
 
 def schema(tool: str) -> dict[str, Any]:
@@ -323,3 +371,140 @@ async def test_unreachable_server_is_unavailable() -> None:
 
     with pytest.raises(ToolUnavailableError, match="signoz_search_logs"):
         await telemetry.search_logs("authorizer-api", None, START, END)
+
+
+# ---- Memória: regras de alerta, serviços ativos e dependências
+
+
+async def test_alert_rules_bring_the_readable_condition_and_the_service(
+    mcp: FakeSignozMcp,
+) -> None:
+    rules = await mcp.telemetry().alert_rules()
+
+    assert [name for name, _ in mcp.calls] == [
+        "signoz_list_alert_rules",
+        "signoz_get_alert",
+        "signoz_get_alert",
+    ]
+    assert mcp.calls[0][1] == {"limit": "1000", "offset": "0"}
+    pedidos = rules[1]
+    assert pedidos.name == "Erros 5xx na pedidos-api"
+    assert pedidos.service == "pedidos-api"
+    assert pedidos.severity == "critical"
+    assert pedidos.labels["team"] == "credenciadora"
+    assert pedidos.condition == (
+        "count() de spans com service.name = 'pedidos-api' AND has_error = true acima de 20 "
+        "(pelo menos uma vez) na janela de 5m. Resumo: Spans com erro na pedidos-api acima de "
+        "20 em 5 min"
+    )
+    assert pedidos.url == f"{BASE}/alerts/overview?ruleId=01a174f4-af14-7500-8aa9-e7907b82ff20"
+    assert rules[0].service == "authorizer-api"
+
+
+async def test_rule_without_service_label_and_disabled_rule(mcp: FakeSignozMcp) -> None:
+    listing = fixture("list_alert_rules")
+    listing["data"][0]["labels"] = {"severity": "warning", "time": "credenciadora"}
+    listing["data"][1]["disabled"] = True
+    mcp.answers["signoz_list_alert_rules"] = listing
+    mcp.answers["signoz_get_alert"] = fixture("get_alert")
+
+    rules = await mcp.telemetry(service_labels=("service",)).alert_rules()
+
+    assert [r.name for r in rules] == ["Erros 5xx na pedidos-api"]  # o nome vem da definição
+    assert rules[0].service == UNKNOWN_SERVICE
+
+
+async def test_rule_listed_with_the_condition_skips_the_definition(mcp: FakeSignozMcp) -> None:
+    definition = fixture("get_alert")["data"]
+    definition["ruleId"] = definition["id"]
+    definition["condition"] = {
+        "compositeQuery": {"queries": [{"spec": {"name": "A", "query": "rate(x[5m]) > 1"}}]},
+        "op": "2",
+        "target": 1,
+        "matchType": "3",
+    }
+    definition["evalWindow"] = "1h0m0s"
+    definition["annotations"] = {}
+    mcp.answers["signoz_list_alert_rules"] = {"data": [definition]}
+
+    [rule] = await mcp.telemetry().alert_rules()
+
+    assert [name for name, _ in mcp.calls] == ["signoz_list_alert_rules"]
+    assert rule.condition == "rate(x[5m]) > 1 abaixo de 1 (na média) na janela de 1h"
+
+
+async def test_unknown_condition_shape_is_said(mcp: FakeSignozMcp) -> None:
+    answer = fixture("get_alert")
+    answer["data"]["condition"] = {"compositeQuery": {"builderQueries": {}}}
+    mcp.answers["signoz_get_alert"] = answer
+
+    rules = await mcp.telemetry().alert_rules()
+
+    assert rules[0].condition.startswith("condição em formato não reconhecido na janela de 5m")
+
+
+async def test_listings_follow_the_pagination(mcp: FakeSignozMcp) -> None:
+    first, second = fixture("list_services"), fixture("list_services")
+    first["data"] = first["data"][:2]
+    first["pagination"] = {"total": 3, "offset": 0, "hasMore": True, "nextOffset": 2}
+    second["data"] = second["data"][2:]
+
+    def pages(arguments: dict[str, Any]) -> Any:
+        return first if arguments["offset"] == "0" else second
+
+    mcp.answers["signoz_list_services"] = pages
+
+    services = await mcp.telemetry().active_services(START)
+
+    assert sorted(services) == ["authorizer-api", "captura-api", "pedidos-api"]
+    assert [arguments["offset"] for _, arguments in mcp.calls] == ["0", "2"]
+    assert mcp.calls[0][1]["start"] == str(int(START.timestamp() * 1000))
+
+
+async def test_dependencies_are_the_outgoing_spans_with_calls_errors_and_p99(
+    mcp: FakeSignozMcp,
+) -> None:
+    result = await mcp.telemetry().dependencies("pedidos-api", START, END)
+
+    assert sorted(arguments["aggregation"] for _, arguments in mcp.calls) == [
+        "count",
+        "count",
+        "p99",
+    ]
+    for _, arguments in mcp.calls:
+        assert arguments["filter"] == "kind_string IN ('Client', 'Producer')"
+        assert arguments["groupBy"] == "peer.service, db.system, db.name, server.address"
+        assert arguments["requestType"] == "scalar"
+    assert result.summary == (
+        "2 dependência(s) vistas nos traces de pedidos-api entre 10:00 UTC e 11:00 UTC: "
+        "banco postgresql pedidos: 79367 chamadas, 0,0% com erro, p99 5.002 ms; "
+        "host api.bandeira.example.com: 1520 chamadas, 2,5% com erro, p99 820 ms"
+    )
+    assert result.url == f"{BASE}/traces-explorer"
+
+
+async def test_dependency_names_say_the_kind_and_the_address(mcp: FakeSignozMcp) -> None:
+    answer = fixture("dependencies_count")
+    answer["data"]["data"]["results"][0]["data"] = [
+        ["pagamentos-api", None, None, "10.0.0.1", 30],
+        ["grolla-lab-db", "postgresql", "", None, 20],
+        [None, None, None, None, 10],
+        ["sem-chamadas", None, None, None, 0],
+    ]
+    mcp.answers["signoz_aggregate_traces"] = answer
+
+    result = await mcp.telemetry().dependencies("pedidos-api", START, END)
+
+    assert "3 dependência(s)" in result.summary
+    assert "serviço pagamentos-api (10.0.0.1): 30 chamadas" in result.summary
+    assert "banco postgresql (grolla-lab-db): 20 chamadas" in result.summary
+    assert "destino sem identificação: 10 chamadas" in result.summary
+    assert "sem-chamadas" not in result.summary
+
+
+async def test_service_without_outgoing_spans_has_no_dependencies(mcp: FakeSignozMcp) -> None:
+    mcp.answers["signoz_aggregate_traces"] = fixture("dependencies_empty")
+
+    result = await mcp.telemetry().dependencies("captura-api", START, END)
+
+    assert result.summary.startswith(NO_DEPENDENCIES)

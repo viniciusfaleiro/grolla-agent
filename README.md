@@ -19,7 +19,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-war%20room%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-mem%C3%B3ria%20viva%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -37,9 +37,38 @@ melhores profissionais de SRE** com quem o autor já trabalhou — o Grolla. Che
 separar sinal de ruído, levantar hipóteses com evidência e manter o registro de tudo o que
 aconteceu durante a crise.
 
-E, como um bom SRE, ele **aprende com o tempo**: guarda o que viu em cada incidente e o que
-descobriu sobre o ambiente, e usa isso para investigar melhor — inclusive avisando o time quando
-um problema parecido já aconteceu ("já vi isso no incidente #N").
+E, como um bom SRE, ele **conhece o ambiente que cuida e aprende com o tempo** — é a
+[memória viva](#-a-memória-viva-do-grolla), o coração do agente.
+
+### 🧠 A memória viva do Grolla
+
+O melhor SRE do time não é o que sabe consultar uma métrica: é o que **conhece o ambiente de
+cor** e **lembra do que já viu**. O Grolla mantém uma base de conhecimento própria, que ele
+escreve, consulta e reorganiza sozinho:
+
+- **Estuda o ambiente assim que sobe.** Parte dos alertas do domínio do time, chega aos serviços,
+  lê os `.md` dos repositórios, entende as pipelines, mapeia a infraestrutura na AWS e descobre as
+  integrações pelos traces. O resultado é um **dossiê por assunto** — o ambiente, cada serviço e
+  cada integração — com tudo que importa num troubleshooting: o que faz, de quem depende, como
+  faz deploy, o que cada alerta significa e o que olhar primeiro, o comportamento normal e as
+  fragilidades conhecidas.
+- **Mantém em dia.** Um estudo diário relê os alertas, estuda primeiro o que é novo e atualiza o
+  que ficou velho.
+- **Aprende com cada incidente.** Ao encerrar, escreve o episódio (sintomas, causa, o que resolveu,
+  o que despistou, se era ruído) e reescreve os dossiês afetados.
+- **Aprende com o time.** No chat do war room, uma correção como "isso é normal, é o batch das
+  3h" vira conhecimento na hora ("Guardei: …").
+- **Lembra quando importa.** Toda análise, validação e resposta do chat recebe o dossiê do
+  ambiente, dos serviços e das integrações e os casos parecidos. Quando é o mesmo problema de
+  novo, a análise avisa **"Já vi isso"** com o link do incidente passado e usa a causa de então
+  como primeira hipótese a confirmar.
+- **Aprende sozinho, o time corrige.** Tudo entra na hora como *aprendido*; o que uma pessoa
+  escreve ou confirma vira *confirmado* e prevalece. Na página **Memória** (`/memoria`) o time
+  lê, edita, confirma, esquece, restaura versões, semeia conhecimento — e pode pedir para o
+  Grolla **reaprender o ambiente do zero**. Nada é apagado de fato: toda mudança tem autor e
+  versão.
+
+A memória é tratada como dado, nunca como instrução, e nunca muda severidade nem aciona ninguém.
 
 Duas decisões atravessam o projeto inteiro:
 
@@ -64,6 +93,8 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **Páginas** | Lista de incidentes e página com estado, severidade, análise completa, alertas e timeline | `GET /incidents` · `GET /incidents/{id}` |
 | **War room** | Na página do incidente: assumir como IC, mudar severidade, registrar ação, descartar hipótese, mitigar, reabrir e encerrar ou descartar com motivo. Mostra duração, TTA/TTM/TTR e o autor de cada ação; cada ação vira evento e card no Teams | `POST /incidents/{id}/actions/{acao}` |
 | **Chat com o agente** | Perguntas e pedidos ao agente durante o incidente; ele responde com evidência usando as mesmas ferramentas da investigação, sem executar nada, com teto de tokens por incidente | `POST /incidents/{id}/chat` · job `run_replies` |
+| **🧠 Memória viva** | Base de conhecimento do ambiente montada pelo próprio agente (alertas do domínio → serviços → repositórios → pipelines → AWS → integrações nos traces), estudo diário, episódio de cada incidente encerrado, notas ensinadas no chat, "Já vi isso" na análise e reaprender do zero | `GET /memoria` · jobs `run_studies` e `run_learnings` |
+| **Ferramentas da memória** | `recall` (busca na memória), `read_file` (lê o repositório do serviço), `service_dependencies` (integrações vistas nos traces), `cloud_overview` (arquitetura na nuvem) e `remember` (só no chat) | `grolla.application.investigation.Toolbox` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
 | **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
@@ -74,7 +105,7 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |
 | **Console de testes** | Dispara alarmes, escolhe o roteiro do LLM fake e mostra os cards do agente como num canal do Teams | `http://localhost:9000/_console` |
 
-> Até aqui: todo alerta vira incidente com "estou investigando", a análise inicial, a causa raiz validada com um plano de ação concreto, e o time conduz o incidente no war room conversando com o agente.
+> Até aqui: o agente estuda o ambiente e monta a própria base de conhecimento; todo alerta vira incidente com "estou investigando", a análise inicial (com "já vi isso" quando é repetido), a causa raiz validada com um plano de ação concreto, e o time conduz o incidente no war room conversando com o agente — que aprende com cada incidente e com o que o time ensina.
 > Acionamento do on-call e post mortem chegam nos próximos slices — ver [Roadmap](#-roadmap).
 
 ## 🏛 Arquitetura
@@ -89,7 +120,7 @@ flowchart LR
   worker["grolla-worker<br/>jobs + timers"] --> boot
   boot["bootstrap<br/>liga port → adapter"] --> adapters
   boot --> app
-  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · signoz · teams · anthropic · azure_devops · system_clock"] --> app
+  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · signoz · teams · anthropic · azure_devops · aws · system_clock"] --> app
   app["application<br/>casos de uso + ports"] --> dom["domain<br/>regras puras"]
   adapters --> dom
 ```
@@ -108,7 +139,8 @@ flowchart LR
 `IncidentRepository`, `Scheduler`, `DocumentRenderer` e `Clock`. Cada um nasce no slice que o
 usa, com suíte de contrato, fake e adapter real. Hoje existem `Clock`, `AlertIngress` e `Telemetry`
 (SigNoz), `ChatNotifier` (Teams), `LanguageModel` (Anthropic), `ChangeHistory` (Azure DevOps),
-`CloudInventory` (AWS), `IncidentRepository`, `NotificationOutbox` e `AnalysisQueue` (Postgres).
+`CloudInventory` (AWS), `IncidentRepository`, `NotificationOutbox`, `AnalysisQueue`,
+`ChatQueue`, `MemoryStore`, `LearningQueue` e `StudyQueue` (Postgres).
 
 ## 🧰 Stack
 
@@ -255,10 +287,11 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S3 — O agente investiga cada alerta** · "estou investigando" em segundos e, em até 5 min, a análise: o que avaliou, hipóteses com evidência, plano proposto e botão para o incidente ✅ (aceite em produção junto com o S2)
 - **S3.1 — Até a causa raiz** · validação de cada hipótese, causa raiz com plano de ação concreto e consulta somente leitura à AWS (o S11 adiantado com escopo mínimo) ✅
 - **War room com o agente** · ações humanas (IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat com o agente que investiga sob demanda ✅ (adiantado do S4/S5)
+- **S3.2 — Memória viva** · base de conhecimento do ambiente estudada pelo agente, estudo diário, episódios, aprendizado no chat, "já vi isso" e reaprender do zero ✅ (substitui o antigo S7)
 - **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra)
-- **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, incidentes parecidos, updates, impacto financeiro e proposta de encerramento
+- **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, updates, impacto financeiro e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
-- **S7 — O agente aprende** · memória do ambiente e de incidentes passados: "já vi isso no incidente #N"
+- **S7 — Post mortem alimenta a memória** · post mortems aprovados viram conhecimento e métricas de acerto do agente por período
 - **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · AWS completa (ECS/EKS, quotas, Health, multi-conta)
 
 ## 📄 Licença

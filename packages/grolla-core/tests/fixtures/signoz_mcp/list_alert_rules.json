@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "ruleId": "01a174e6-4d4f-72e7-8f0d-4bc681086a3e",
+      "alert": "Taxa de erro alta no authorizer-api",
+      "alertType": "TRACES_BASED_ALERT",
+      "ruleType": "threshold_rule",
+      "state": "inactive",
+      "disabled": false,
+      "severity": "critical",
+      "labels": {
+        "service_name": "authorizer-api",
+        "severity": "critical",
+        "team": "credenciadora"
+      },
+      "createdAt": "2026-10-25T21:10:12.559186Z",
+      "updatedAt": "2026-10-25T21:10:12.559186Z",
+      "webUrl": "http://signoz:8080/alerts/overview?ruleId=01a174e6-4d4f-72e7-8f0d-4bc681086a3e"
+    },
+    {
+      "ruleId": "01a174f4-af14-7500-8aa9-e7907b82ff20",
+      "alert": "Erros 5xx na pedidos-api",
+      "alertType": "TRACES_BASED_ALERT",
+      "ruleType": "threshold_rule",
+      "state": "inactive",
+      "disabled": false,
+      "severity": "critical",
+      "labels": {
+        "service_name": "pedidos-api",
+        "severity": "critical",
+        "team": "credenciadora",
+        "tentativa": "causa-raiz"
+      },
+      "createdAt": "2026-10-25T21:25:55.092323Z",
+      "updatedAt": "2026-10-25T23:12:24.959724Z",
+      "webUrl": "http://signoz:8080/alerts/overview?ruleId=01a174f4-af14-7500-8aa9-e7907b82ff20"
+    }
+  ],
+  "pagination": {
+    "total": 2,
+    "offset": 0,
+    "limit": 1000,
+    "hasMore": false,
+    "nextOffset": -1
+  }
+}

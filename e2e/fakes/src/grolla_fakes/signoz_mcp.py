@@ -6,6 +6,11 @@ Azure DevOps fake (há 20 min): a partir de 18 min atrás a taxa de erro e a lat
 logs mostram timeout de conexão com o banco (ERROR) e a conexão derrubada pelo servidor (WARN,
 com o IP variando como no Postgres real).
 
+Para a memória, as regras de alerta trazem uma só, "Taxa de erro alta no estudo-api" (labels
+`service_name: estudo-api` e `team: credenciadora`), com a condição em `signoz_get_alert`; os
+serviços ativos são `estudo-api` e `authorizer-api`; e a agregação de dependências (com
+`groupBy`) diz que cada serviço chama o próprio banco: `estudo-api` → `estudo-db`.
+
 O roteiro (`POST /_control/signoz`) fixa a resposta de uma ferramenta ou a faz falhar.
 """
 
@@ -33,11 +38,39 @@ ERROR_SPANS = 12
 
 _ANY: dict[str, Any] = {"type": ["string", "number", "boolean"]}
 TOOLS = {
-    "signoz_aggregate_traces": ["aggregation", "aggregateOn", "groupBy", "service", "error"],
+    "signoz_aggregate_traces": [
+        "aggregation",
+        "aggregateOn",
+        "groupBy",
+        "service",
+        "error",
+        "filter",
+        "limit",
+    ],
     "signoz_search_logs": ["service", "filter", "searchText", "severity", "limit"],
     "signoz_search_traces": ["service", "error", "operation", "limit"],
     "signoz_get_service_top_operations": ["service"],
+    "signoz_list_alert_rules": ["limit", "offset"],
+    "signoz_get_alert": ["id"],
+    "signoz_list_services": ["limit", "offset"],
 }
+
+# Memória: a regra do domínio do time (label `team`, o `alert_filter` do e2e) e o serviço dela,
+# que chama o próprio banco. O id é um UUIDv7 fixo, como os do SigNoz v2.
+RULE_ID = "01a17500-0000-7000-8000-00000000e57d"
+RULE_SERVICE = "estudo-api"
+RULE = {
+    "ruleId": RULE_ID,
+    "alert": f"Taxa de erro alta no {RULE_SERVICE}",
+    "alertType": "TRACES_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "state": "inactive",
+    "disabled": False,
+    "severity": "critical",
+    "labels": {"service_name": RULE_SERVICE, "severity": "critical", "team": "credenciadora"},
+}
+SERVICES = (RULE_SERVICE, "authorizer-api")
+DEPENDENCY_CALLS, DEPENDENCY_ERRORS, DEPENDENCY_P99_NS = 4200, 12, 35_000_000
 _WINDOW = ["start", "end", "timeRange", "requestType", "stepInterval"]
 
 
@@ -119,6 +152,9 @@ def _default(tool: str, arguments: dict[str, Any], now: datetime) -> Any:
     start, end = _window(arguments, now)
     service = str(arguments.get("service") or "servico")
     onset = now - ONSET
+    environment = _environment(tool, arguments, service)
+    if environment is not None:
+        return environment
     if tool == "signoz_aggregate_traces":
         return _aggregate(arguments, start, end, onset)
     if tool == "signoz_search_logs":
@@ -229,6 +265,74 @@ def _top_operations() -> list[dict[str, Any]]:
         {"name": "POST /capture", "p99": 3.1e8, "numCalls": 1500, "errorCount": 2},
         {"name": "GET /health", "p99": 4e6, "numCalls": 720, "errorCount": 0},
     ]
+
+
+def _environment(tool: str, arguments: dict[str, Any], service: str) -> Any:
+    """As leituras do estudo do ambiente; None para as outras ferramentas."""
+    if tool == "signoz_list_alert_rules":
+        return _page([RULE])
+    if tool == "signoz_get_alert":
+        return _rule_definition()
+    if tool == "signoz_list_services":
+        return _page([_service_summary(s) for s in SERVICES])
+    if tool == "signoz_aggregate_traces" and arguments.get("groupBy"):
+        return _dependencies(arguments, service)
+    return None
+
+
+def _page(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Listagem paginada do MCP real: tudo numa página só."""
+    pagination = {"total": len(items), "offset": 0, "hasMore": False, "nextOffset": -1}
+    return {"data": items, "pagination": pagination}
+
+
+def _rule_definition() -> dict[str, Any]:
+    """A definição completa (`signoz_get_alert`), no formato v5 do SigNoz real."""
+    spec = {
+        "name": "A",
+        "stepInterval": 60,
+        "signal": "traces",
+        "aggregations": [{"expression": "count()"}],
+        "filter": {"expression": f"service.name = '{RULE_SERVICE}' AND has_error = true"},
+    }
+    condition = {
+        "compositeQuery": {"queries": [{"type": "builder_query", "spec": spec}]},
+        "op": "1",
+        "target": 20,
+        "matchType": "1",
+        "selectedQueryName": "A",
+    }
+    summary = f"Spans com erro no {RULE_SERVICE} acima de 20 em 5 min"
+    data = {
+        **{k: v for k, v in RULE.items() if k != "ruleId"},
+        "id": RULE_ID,
+        "annotations": {"summary": summary},
+        "condition": condition,
+        "evalWindow": "5m0s",
+        "frequency": "1m0s",
+        "version": "v5",
+    }
+    return {"status": "success", "data": data}
+
+
+def _service_summary(service: str) -> dict[str, Any]:
+    return {"serviceName": service, "numCalls": 50_000, "numErrors": 100, "p99": 2.4e9}
+
+
+def _dependencies(arguments: dict[str, Any], service: str) -> dict[str, Any]:
+    """Spans de saída agrupados: cada serviço chama o próprio banco `<serviço sem -api>-db`."""
+    database = service.removesuffix("-api")
+    if arguments.get("aggregation") == "p99":
+        value: float = DEPENDENCY_P99_NS
+    elif str(arguments.get("error")).lower() == "true":
+        value = DEPENDENCY_ERRORS
+    else:
+        value = DEPENDENCY_CALLS
+    names = ("peer.service", "db.system", "db.name", "server.address")
+    columns = [{"name": n, "queryName": "A", "columnType": "group"} for n in names]
+    columns.append({"name": "__result_0", "queryName": "A", "columnType": "aggregation"})
+    row = [f"{database}-db", "postgresql", database, None, value]
+    return _envelope("scalar", {"queryName": "A", "columns": columns, "data": [row]})
 
 
 def _envelope(kind: str, result: dict[str, Any]) -> dict[str, Any]:

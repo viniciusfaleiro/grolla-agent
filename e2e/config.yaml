@@ -36,3 +36,9 @@ azure_devops:
   projects: [Core]
   service_repo_map:
     autorizador: { project: Core, repo: authorizer-api }
+# Memória viva: o estudo inicial roda na subida do worker, contra os fakes.
+memory:
+  learning_max_tokens: 60000
+  study:
+    run_max_tokens: 400000
+    service_max_tokens: 100000

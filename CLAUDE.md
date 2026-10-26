@@ -40,7 +40,9 @@ sobre o MCP do SigNoz e o Azure DevOps, com análise parcial garantida e `make e
 concreto e consulta somente leitura à AWS. `normalizacao-com-causa-raiz`: card de normalizado
 com duração, causa raiz e plano. `war-room-com-o-agente`: ações humanas na página do incidente
 (IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat em que o
-agente investiga sob demanda. Próximo: S4
+agente investiga sob demanda. `memoria-viva` (S3.2): base de conhecimento do ambiente que o
+agente monta e mantém sozinho (estudo inicial e diário), episódios de cada incidente, aprendizado
+no chat, "já vi isso" na análise, página `/memoria` e reaprender do zero. Próximo: S4
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

@@ -1,0 +1,23 @@
+{# Histórico de um registro: cada versão é o estado ANTES de uma mudança; restaurar volta a ele. #}
+{% from "_macros.html" import when %}
+{% if versions %}
+<ol class="version-items">
+  {% for version in versions %}
+  <li>
+    <p class="version-head">Antes de <strong>{{ version.reason }}</strong>, por {{ display_name(version.author) }} · {{ when(version.at) }}{% if not version.active %} · <span class="badge badge-forgotten">estava esquecido</span>{% endif %}</p>
+    <details>
+      <summary>Ver o texto desta versão</summary>
+      <div class="rich">{{ rich_text(version.body) }}</div>
+    </details>
+    {% if author %}
+    <form hx-post="/memoria/registros/{{ record.id }}/restaurar" hx-confirm="Voltar o registro para esta versão?">
+      <input type="hidden" name="versao" value="{{ version.at.isoformat() }}">
+      <button class="button-quiet">Restaurar esta versão</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Sem versões anteriores.</p>
+{% endif %}

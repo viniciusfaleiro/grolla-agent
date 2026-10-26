@@ -22,6 +22,21 @@ padrão.
 
 Os modos `inconclusiva` na análise inicial e no chat se comportam como `completa`.
 
+Na análise, se a mensagem traz um bloco `<memoria>` com episódio ("### [episodio] ... incidente
+<id>"), o resultado aponta `seen_before` para o primeiro episódio; senão, `seen_before` é null.
+
+As fases da memória são reconhecidas pelo schema (`episode_title`: aprendizado; `dossier`:
+estudo de um serviço; `environment`: síntese) e respondem sempre como `completa`, qualquer que
+seja o modo das outras fases:
+- estudo: pede `read_file` (`README.md`) e `service_dependencies` do serviço da linha
+  "Serviço:"; depois devolve o dossiê com a mensagem recebida inteira (as regras de alerta), os
+  trechos das ferramentas e uma linha "Integração: <dependência> chamada por <serviço>" por
+  dependência vista;
+- síntese: o dossiê do ambiente com os serviços e as integrações, e um dossiê por linha
+  "Integração: ..." da mensagem, citando quem chama;
+- aprendizado: o episódio "<serviço>: <título do incidente>", com `noise` verdadeiro só se a
+  mensagem cita `incident_discarded` ou "descartado", e sem dossiês.
+
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
 """
@@ -49,6 +64,17 @@ _SERVICES_LINE = re.compile(r"Serviços?:\s*([^\n,]+)")
 _HYPOTHESES = "Hipóteses da análise inicial:"
 _HYPOTHESIS_LINE = re.compile(r"^- (.+?) \(confiança [^)]*\)$")
 _QUESTION = "Pergunta:"
+STUDY_TOOLS = ("read_file", "service_dependencies")
+_ARGUMENTS = {"path": "README.md"}  # argumentos de texto obrigatórios que não são o serviço
+_INCIDENT_LINE = re.compile(r"Incidente:\s*([^\n]+)")
+# Cabeçalho de episódio do bloco <memoria>: "### [episodio] svc: título (..., incidente <id>)".
+_EPISODE = re.compile(
+    r"### \[episodio\] [^:\n]+: (?P<title>[^\n]*?) \([^\n]*?incidente "
+    r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+)
+# Nome de cada dependência no resumo de `service_dependencies`: "banco x (nome): N chamadas".
+_DEPENDENCY = re.compile(r"(?:\(([^)]+)\)|(?:serviço|host) ([^\s:;(]+)): \d+ chamadas")
+_INTEGRATION_LINE = re.compile(r"Integração: (\S+) chamada por (\S+)")
 
 
 class LlmMode(StrEnum):
@@ -62,6 +88,17 @@ class Phase(StrEnum):
     ANALYSIS = "analise"
     VERIFICATION = "validacao"
     CHAT = "chat"
+    LEARNING = "aprendizado"
+    STUDY = "estudo"
+    SYNTHESIS = "sintese"
+
+
+# Fases da memória, pela propriedade que só o schema delas tem; sempre no modo `completa`.
+_MEMORY_PHASES = {
+    "episode_title": Phase.LEARNING,
+    "dossier": Phase.STUDY,
+    "environment": Phase.SYNTHESIS,
+}
 
 
 class LlmControl(BaseModel):
@@ -86,6 +123,11 @@ def llm_router(state: FakesState) -> APIRouter:
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         body: dict[str, Any] = await request.json()
         current = phase(body)
+        if current in _MEMORY_PHASES.values():
+            state.requests.append(
+                RecordedRequest(method="POST", path=MESSAGES_PATH, body=body, status=200)
+            )
+            return JSONResponse(memory_reply(body, current))
         modes = {
             Phase.ANALYSIS: state.llm_mode,
             Phase.VERIFICATION: state.llm_verification_mode,
@@ -122,6 +164,9 @@ def phase(body: dict[str, Any]) -> Phase:
     output_format: dict[str, Any] = output.get("format") or {}
     schema: dict[str, Any] = output_format.get("schema") or {}
     properties: dict[str, Any] = schema.get("properties") or {}
+    for key, memory_phase in _MEMORY_PHASES.items():
+        if key in properties:
+            return memory_phase
     if "verdicts" in properties:
         return Phase.VERIFICATION
     if "reply" in properties:
@@ -150,7 +195,84 @@ def reply(body: dict[str, Any]) -> dict[str, Any]:
     results = _tool_results(body["messages"])
     if not results:
         return _message(body, _tool_calls(body, FIRST_TOOLS), "tool_use")
-    return _final(body, _draft(results))
+    seen = seen_before(_first_text(body["messages"][0]))
+    return _final(body, {**_draft(results), "seen_before": seen})
+
+
+def seen_before(text: str) -> dict[str, str] | None:
+    """ "Já vi isso": o primeiro episódio do bloco <memoria> da mensagem, se houver."""
+    _, _, memory = text.partition("<memoria>")
+    memory, _, _ = memory.partition("</memoria>")
+    match = _EPISODE.search(memory)
+    if match is None:
+        return None
+    reason = f"mesmo serviço e mesmo sintoma do episódio {match.group('title').strip()}"
+    return {"incident_id": match.group("id"), "reason": reason}
+
+
+def memory_reply(body: dict[str, Any], current: Phase) -> dict[str, Any]:
+    """Aprendizado, estudo de um serviço e síntese, com conteúdo determinístico."""
+    first = _first_text(body["messages"][0])
+    if current is Phase.LEARNING:
+        return _final(body, _learned(first))
+    if current is Phase.SYNTHESIS:
+        return _final(body, _synthesized(first))
+    results = _tool_results(body["messages"])
+    if not results:
+        return _message(body, _tool_calls(body, STUDY_TOOLS), "tool_use")
+    return _final(body, {"dossier": _dossier(_service(first), first, results)})
+
+
+def _learned(text: str) -> dict[str, Any]:
+    title = _INCIDENT_LINE.search(text)
+    incident = title.group(1).strip() if title else "incidente"
+    service = _service(text)
+    noise = "incident_discarded" in text or "descartad" in text.lower()
+    outcome = "alarme falso, descartado pelo time" if noise else "resolvido pelo time"
+    return {
+        "episode_title": f"{service}: {incident}",
+        "episode_body": (
+            f"O incidente {incident} no {service} foi {outcome}. Causa vista na investigação: "
+            "erro de conexão com o banco depois do último deploy."
+        ),
+        "noise": noise,
+        "dossiers": [],
+    }
+
+
+def _dossier(service: str, brief: str, results: dict[str, str]) -> str:
+    """Dossiê do serviço: cita a mensagem recebida (com as regras) e o que as ferramentas
+    mostraram; cada dependência vira uma linha "Integração: <dep> chamada por <serviço>".
+    """
+    dependencies = results.get("service_dependencies", "")
+    lines = [f"# {service}", "", "## O que recebi para estudar", brief.strip(), ""]
+    lines += ["## Repositório", _excerpt(results.get("read_file", "sem leitura"), 400), ""]
+    lines += ["## Dependências", _excerpt(dependencies or "nenhuma consultada", 400), ""]
+    names = dict.fromkeys(m.group(1) or m.group(2) for m in _DEPENDENCY.finditer(dependencies))
+    lines += [f"Integração: {name} chamada por {service}" for name in names]
+    return "\n".join(lines)
+
+
+def _synthesized(text: str) -> dict[str, Any]:
+    callers: dict[str, list[str]] = {}
+    for name, caller in _INTEGRATION_LINE.findall(text):
+        callers.setdefault(name.strip(), []).append(caller.strip())
+    services = sorted({c for found in callers.values() for c in found})
+    environment = (
+        "# Ambiente\n\nServiços estudados: "
+        + (", ".join(services) or "nenhum")
+        + ". Integrações vistas nos traces: "
+        + (", ".join(callers) or "nenhuma")
+        + "."
+    )
+    integrations = [
+        {
+            "subject": name,
+            "body": f"# {name}\n\nDependência chamada por {', '.join(sorted(set(found)))}.",
+        }
+        for name, found in callers.items()
+    ]
+    return {"environment": environment, "integrations": integrations}
 
 
 def _final(body: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -216,7 +338,7 @@ def _arguments(schema: dict[str, Any], service: str) -> dict[str, Any]:
         elif prop.get("type") == "boolean":
             arguments[name] = True
         else:
-            arguments[name] = service if name == "service" else "erro"
+            arguments[name] = _ARGUMENTS.get(name, "erro") if name != "service" else service
     return arguments
 
 
@@ -293,6 +415,7 @@ def _draft(results: dict[str, str]) -> dict[str, Any]:
             "Comparar a taxa de erro antes e depois do último deploy",
             "Avaliar o rollback do último deploy com o time dono do serviço",
         ],
+        "seen_before": None,
     }
 
 

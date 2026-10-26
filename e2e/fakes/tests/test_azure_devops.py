@@ -84,3 +84,45 @@ def test_requests_are_recorded_with_the_query() -> None:
             "status": 200,
         }
     ]
+
+
+ITEMS = f"{BASE}/git/repositories/estudo-api/items"
+
+
+def test_repository_says_its_default_branch() -> None:
+    response = TestClient(create_app()).get(f"{BASE}/git/repositories/estudo-api", headers=AUTH)
+
+    assert response.json()["defaultBranch"] == "refs/heads/main"
+
+
+def test_readme_comes_with_the_content() -> None:
+    client = TestClient(create_app())
+
+    response = client.get(
+        ITEMS, params={"path": "/README.md", "includeContent": "true"}, headers=AUTH
+    )
+
+    assert response.status_code == 200
+    item = response.json()
+    assert item["path"] == "/README.md"
+    assert item["content"].startswith("# estudo-api\n")
+    assert "estudo-db" in item["content"]
+
+
+def test_root_listing_and_missing_file() -> None:
+    client = TestClient(create_app())
+
+    listing = client.get(ITEMS, params={"path": "/", "recursionLevel": "OneLevel"}, headers=AUTH)
+    missing = client.get(ITEMS, params={"path": "/nao-existe.md"}, headers=AUTH)
+
+    paths = [item["path"] for item in listing.json()["value"]]
+    assert paths == ["/", "/README.md", "/azure-pipelines.yml", "/src"]
+    assert missing.status_code == 404
+
+
+def test_items_require_the_pat_and_follow_the_failure_script() -> None:
+    client = TestClient(create_app())
+
+    assert client.get(ITEMS, params={"path": "/README.md"}).status_code == 401
+    client.post("/_control/azure-devops", json={"status": 503})
+    assert client.get(ITEMS, params={"path": "/README.md"}, headers=AUTH).status_code == 503

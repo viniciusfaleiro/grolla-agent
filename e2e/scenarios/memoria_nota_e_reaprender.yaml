@@ -1,0 +1,95 @@
+# Bia semeia uma nota no estudo-api pela página: a nota fica confirmada, com ela como fonte, e
+# entra na memória da próxima análise do serviço. Depois Bia pede "reaprender o ambiente": os
+# dossiês são esquecidos (com versão, autora e motivo) e refeitos pelo estudo, e a nota
+# confirmada continua ativa. Depende do estudo inicial, que cria o dossiê do estudo-api.
+name: nota da página entra na análise e sobrevive ao reaprender
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  # Reaprender só depois do estudo inicial, para as duas rodadas não se sobreporem.
+  - wait_for_db_row:
+      sql: SELECT count(*) FROM study_runs WHERE mode = 'inicial' AND status = 'concluido'
+      at_least: 1
+      timeout_seconds: 180
+  - http:
+      service: api
+      method: POST
+      path: /memoria/estudo-api/notas
+      cookies: { grolla_author: Bia }
+      form: { texto: o estudo-api depende do autorizador e do Redis de sessão }
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'nota' AND active AND subject = 'estudo-api'
+        AND confidence = 'confirmado' AND source_kind = 'pessoa' AND source_author = 'Bia'
+        AND body = 'o estudo-api depende do autorizador e do Redis de sessão'
+      count: 1
+  - expect_page:
+      service: api
+      path: /memoria/estudo-api
+      contains: [o estudo-api depende do autorizador e do Redis de sessão, confirmado, Bia]
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no estudo-api
+              service_name: estudo-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 5,4% no estudo-api
+              description: A taxa de erro HTTP 5xx do estudo-api está em 5,4% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=150
+            fingerprint: e2e-estudo-1
+  # A nota vai como dado na memória entregue à análise inicial do incidente.
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains: [estudo-api, o estudo-api depende do autorizador e do Redis de sessão]
+      timeout_seconds: 60
+  - http:
+      service: api
+      method: POST
+      path: /memoria/reaprender
+      cookies: { grolla_author: Bia }
+      form: { confirmar: sim }
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM study_runs WHERE mode = 'reaprender' AND author = 'Bia'
+        AND status = 'concluido'
+      at_least: 1
+      timeout_seconds: 240
+then:
+  # Dossiês esquecidos com a versão de Bia e refeitos depois pelo estudo.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories m WHERE m.kind = 'dossie' AND m.active
+        AND m.subject IN ('ambiente', 'estudo-api') AND m.confidence = 'aprendido'
+        AND EXISTS (SELECT 1 FROM memory_versions v WHERE v.memory_id = m.id
+        AND v.author = 'Bia' AND v.reason = 'reaprender o ambiente' AND v.at < m.updated_at)
+      count: 2
+  # A nota confirmada não é esquecida pelo reaprender.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories m WHERE m.kind = 'nota' AND m.active
+        AND m.subject = 'estudo-api' AND m.confidence = 'confirmado' AND m.source_author = 'Bia'
+        AND NOT EXISTS (SELECT 1 FROM memory_versions v WHERE v.memory_id = m.id
+        AND v.reason = 'reaprender o ambiente')
+      count: 1
+  - expect_page:
+      service: api
+      path: /memoria/estudo-api
+      contains:
+        - o estudo-api depende do autorizador e do Redis de sessão
+        - Taxa de erro alta no estudo-api

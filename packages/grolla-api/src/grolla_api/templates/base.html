@@ -17,7 +17,10 @@
 <body>
 <header class="topbar">
   <a class="brand" href="/incidents"><img src="/static/grolla-avatar.svg" alt=""><strong>Grolla</strong></a>
-  <nav><a href="/incidents"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidentes</a></nav>
+  <nav>
+    <a href="/incidents"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidentes</a>
+    <a href="/memoria"{% if nav == "memory" %} aria-current="page"{% endif %}>Memória</a>
+  </nav>
   {% if author %}
   <div class="me">
     <span>Você é <strong>{{ author }}</strong></span>

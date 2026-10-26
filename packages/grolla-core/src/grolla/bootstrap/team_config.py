@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.analysis import AnalysisPolicy
 from grolla.application.incidents import IntakePolicy
+from grolla.application.memory import MemoryPolicy, StudyPolicy
 from grolla.bootstrap.settings import ConfigError
 from grolla.domain.incidents import Severity, SeverityPolicy, SeverityRule
 
@@ -46,7 +47,9 @@ class StageConfig(_Section):
 
 
 class LlmConfig(_Section):
-    stages: dict[Literal["investigation", "verification", "warroom_chat"], StageConfig]
+    stages: dict[
+        Literal["investigation", "verification", "warroom_chat", "learning", "study"], StageConfig
+    ]
 
 
 class TelemetryConfig(_Section):
@@ -73,6 +76,20 @@ class CloudConfig(_Section):
     resource_map: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
 
+class StudyConfig(_Section):
+    """Estudo do ambiente: inicial na primeira subida e diário no `cron`."""
+
+    cron: str = "0 6 * * *"
+    run_max_tokens: int = Field(default=400_000, gt=0)
+    service_max_tokens: int = Field(default=100_000, gt=0)
+    lookback_days: int = Field(default=7, gt=0)
+
+
+class MemoryConfig(_Section):
+    learning_max_tokens: int = Field(default=60_000, gt=0)
+    study: StudyConfig | None = None  # sem a seção, nenhum estudo do ambiente roda
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -93,6 +110,7 @@ class TeamConfig(BaseModel):
     signoz: TelemetryConfig | None = None
     azure_devops: ChangeHistoryConfig | None = None
     cloud: CloudConfig | None = None  # sem a seção, as ferramentas de nuvem dizem que não há
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -109,6 +127,20 @@ class TeamConfig(BaseModel):
             chat_timeout=timedelta(seconds=self.investigation.chat_timeout_seconds),
             chat_max_tokens=self.investigation.chat_max_tokens,
             chat_max_tokens_per_incident=self.investigation.chat_max_tokens_per_incident,
+        )
+
+    def memory_policy(self) -> MemoryPolicy:
+        study = self.memory.study
+        return MemoryPolicy(
+            learning_max_tokens=self.memory.learning_max_tokens,
+            study=None
+            if study is None
+            else StudyPolicy(
+                alert_filter=self.alert_filter,
+                run_max_tokens=study.run_max_tokens,
+                service_max_tokens=study.service_max_tokens,
+                lookback=timedelta(days=study.lookback_days),
+            ),
         )
 
     def intake_policy(self) -> IntakePolicy:
