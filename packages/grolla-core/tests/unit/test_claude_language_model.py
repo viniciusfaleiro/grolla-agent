@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import httpx2
 import pytest
-from contracts.language_model_contract import LanguageModelContract
+from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
@@ -554,6 +554,19 @@ async def reply(
     return await chatter(handler).reply(
         brief(), CONTEXT, QUESTION, toolbox or RecordingToolbox(), budget or RecordingBudget()
     )
+
+
+class TestClaudeChatReplyContract(ChatReplyContract):
+    @pytest.fixture
+    def replying_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return chatter(ScriptedApi(tool_use, ok(final({"reply": "Os erros pararam às 10:20."}))))
+
+    @pytest.fixture
+    def failing_replier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return chatter(ScriptedApi(response, response, response))
 
 
 async def test_reply_runs_the_tools_and_returns_the_text() -> None:
