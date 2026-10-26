@@ -10,6 +10,10 @@ O adapter sobrescreve três fixtures, cada uma o adapter com um roteiro do trans
 E as mesmas três para a validação (`verify`): `verifying_model`, `failing_verifier` e
 `invalid_verifier`. A `analysis` validada vem pronta.
 
+A resposta no chat do war room (`reply`) tem a suíte própria, `ChatReplyContract`, com as
+fixtures `replying_model` (chama ao menos uma ferramenta e responde em texto) e
+`failing_replier` (a API responde erro).
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -19,6 +23,7 @@ import pytest
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
+    STAGE_WARROOM_CHAT,
     BudgetExceededError,
     InvalidAnalysisError,
     InvestigationBrief,
@@ -28,6 +33,7 @@ from grolla.application.investigation import (
     Toolbox,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
+from grolla.domain.chat import ChatDraft
 from grolla.domain.incidents import IncidentState, Severity
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
@@ -36,7 +42,31 @@ from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry
 SERVICE = "authorizer-api"
 
 
-class LanguageModelContract:
+class LanguageModelFixtures:
+    """Toolbox, orçamento e brief comuns às suítes do modelo de linguagem."""
+
+    @pytest.fixture
+    def toolbox(self) -> Toolbox:
+        return Toolbox(
+            FakeTelemetry(),
+            FakeChangeHistory({SERVICE: "1 deploy: 2.4.1 às 09:58 por ana"}),
+            FakeClock(T0),
+            lookback=timedelta(minutes=60),
+        )
+
+    @pytest.fixture
+    def budget(self) -> TokenBudget:
+        return TokenBudget(limit=1_000_000)
+
+    @pytest.fixture
+    def brief(self) -> InvestigationBrief:
+        incident = make_incident(
+            services=(SERVICE,), severity=Severity.P2, state=IncidentState.INFORMED
+        )
+        return InvestigationBrief(incident, (make_alert(service=SERVICE),), now=T0)
+
+
+class LanguageModelContract(LanguageModelFixtures):
     @pytest.fixture
     def model(self) -> LanguageModel:
         raise NotImplementedError
@@ -64,26 +94,6 @@ class LanguageModelContract:
     @pytest.fixture
     def analysis(self, brief: InvestigationBrief) -> Analysis:
         return make_analysis(brief.incident.id)
-
-    @pytest.fixture
-    def toolbox(self) -> Toolbox:
-        return Toolbox(
-            FakeTelemetry(),
-            FakeChangeHistory({SERVICE: "1 deploy: 2.4.1 às 09:58 por ana"}),
-            FakeClock(T0),
-            lookback=timedelta(minutes=60),
-        )
-
-    @pytest.fixture
-    def budget(self) -> TokenBudget:
-        return TokenBudget(limit=1_000_000)
-
-    @pytest.fixture
-    def brief(self) -> InvestigationBrief:
-        incident = make_incident(
-            services=(SERVICE,), severity=Severity.P2, state=IncidentState.INFORMED
-        )
-        return InvestigationBrief(incident, (make_alert(service=SERVICE),), now=T0)
 
     async def test_investigation_returns_a_valid_draft(
         self,
@@ -220,3 +230,58 @@ class LanguageModelContract:
     ) -> None:
         with pytest.raises(InvalidAnalysisError):
             await invalid_verifier.verify(brief, analysis, toolbox, budget)
+
+
+CONTEXT = f"Incidente: Taxa de erro alta\nServiços: {SERVICE}"
+QUESTION = "o rollback resolveu?"
+
+
+class ChatReplyContract(LanguageModelFixtures):
+    @pytest.fixture
+    def replying_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_replier(self) -> LanguageModel:
+        raise NotImplementedError
+
+    async def test_reply_is_a_text(
+        self,
+        replying_model: LanguageModel,
+        brief: InvestigationBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        draft = await replying_model.reply(brief, CONTEXT, QUESTION, toolbox, budget)
+
+        assert isinstance(draft, ChatDraft)
+        assert draft.text.strip()
+
+    async def test_reply_calls_tools_and_spends_with_its_stage(
+        self,
+        replying_model: LanguageModel,
+        brief: InvestigationBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        await replying_model.reply(brief, CONTEXT, QUESTION, toolbox, budget)
+
+        assert toolbox.evaluations
+        assert len(budget.usages) >= 2
+        assert {usage.stage for usage in budget.usages} == {STAGE_WARROOM_CHAT}
+
+    async def test_exhausted_budget_stops_the_reply(
+        self, replying_model: LanguageModel, brief: InvestigationBrief, toolbox: Toolbox
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await replying_model.reply(brief, CONTEXT, QUESTION, toolbox, TokenBudget(limit=1))
+
+    async def test_reply_api_failure_raises_language_model_error(
+        self,
+        failing_replier: LanguageModel,
+        brief: InvestigationBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_replier.reply(brief, CONTEXT, QUESTION, toolbox, budget)

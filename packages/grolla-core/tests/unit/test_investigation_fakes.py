@@ -3,10 +3,12 @@
 import pytest
 from contracts.analysis_queue_contract import AnalysisQueueContract, VerificationQueueContract
 from contracts.change_history_contract import ChangeHistoryContract
+from contracts.chat_queue_contract import ChatQueueContract, WarRoomRepositoryContract
 from contracts.cloud_inventory_contract import CloudInventoryContract
-from contracts.language_model_contract import LanguageModelContract
+from contracts.language_model_contract import ChatReplyContract, LanguageModelContract
 from contracts.telemetry_contract import TelemetryContract
 from grolla.application.analysis import AnalysisQueue
+from grolla.application.chat import ChatQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
     ChangeHistory,
@@ -18,6 +20,7 @@ from grolla.application.investigation import (
 )
 from grolla.testing.incidents import (
     InMemoryAnalysisQueue,
+    InMemoryChatQueue,
     InMemoryIncidentRepository,
     InMemoryNotificationOutbox,
 )
@@ -94,6 +97,33 @@ class TestScriptedLanguageModelContract(LanguageModelContract):
         return ScriptedLanguageModel(
             verification_calls=TOOLS, verification_error=InvalidAnalysisError("fora do schema")
         )
+
+
+class TestScriptedLanguageModelChatContract(ChatReplyContract):
+    @pytest.fixture
+    def replying_model(self) -> LanguageModel:
+        return ScriptedLanguageModel(chat_calls=TOOLS)
+
+    @pytest.fixture
+    def failing_replier(self) -> LanguageModel:
+        return ScriptedLanguageModel(chat_error=LanguageModelError("API fora do ar"))
+
+
+class TestInMemoryWarRoomRepositoryContract(WarRoomRepositoryContract):
+    @pytest.fixture
+    def repository(self) -> IncidentRepository:
+        return InMemoryIncidentRepository()
+
+
+class TestInMemoryChatQueueContract(ChatQueueContract):
+    @pytest.fixture
+    def repository(self) -> IncidentRepository:
+        return InMemoryIncidentRepository()
+
+    @pytest.fixture
+    def queue(self, repository: IncidentRepository) -> ChatQueue:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryChatQueue(repository)
 
 
 class TestInMemoryAnalysisQueueContract(AnalysisQueueContract):
