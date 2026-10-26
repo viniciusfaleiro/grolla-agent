@@ -13,6 +13,7 @@ from grolla.application.investigation import (
     NO_REPOSITORY,
     STAGE_INVESTIGATION,
     STAGE_VERIFICATION,
+    STAGE_WARROOM_CHAT,
     InvestigationBrief,
     LlmUsage,
     Signal,
@@ -162,6 +163,10 @@ class ScriptedLanguageModel:
     Em `verify`, o mesmo roteiro com `verification_calls`, `verification_error`,
     `verification_delay` e `verification` (o rascunho devolvido), gastando o uso com a etapa
     `verification`. As análises recebidas ficam em `verified_analyses`.
+
+    Em `reply`, o mesmo roteiro com `chat_calls`, `chat_error`, `chat_delay` e `chat` (a
+    resposta devolvida), gastando o uso com a etapa `warroom_chat`. Cada (contexto, pergunta)
+    recebido fica em `questions`.
     """
 
     def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
@@ -176,6 +181,10 @@ class ScriptedLanguageModel:
         verification_calls: ToolCalls = (),
         verification_error: Exception | None = None,
         verification_delay: float = 0.0,
+        chat: ChatDraft | None = None,
+        chat_calls: ToolCalls = (),
+        chat_error: Exception | None = None,
+        chat_delay: float = 0.0,
     ) -> None:
         self.draft = draft or make_draft()
         self.calls = list(calls)
@@ -186,6 +195,11 @@ class ScriptedLanguageModel:
         self.verification_calls = list(verification_calls)
         self.verification_error = verification_error
         self.verification_delay = verification_delay
+        self.chat = chat or ChatDraft("O erro caiu para 0,2% depois do rollback.")
+        self.chat_calls = list(chat_calls)
+        self.chat_error = chat_error
+        self.chat_delay = chat_delay
+        self.questions: list[tuple[str, str]] = []
         self.briefs: list[InvestigationBrief] = []
         self.verified_analyses: list[Analysis] = []
         self.tool_answers: list[str] = []
@@ -207,7 +221,13 @@ class ScriptedLanguageModel:
         toolbox: Toolbox,
         budget: TokenBudget,
     ) -> ChatDraft:
-        raise NotImplementedError
+        self.briefs.append(brief)
+        self.questions.append((context, question))
+        usage = replace(self.usage, stage=STAGE_WARROOM_CHAT)
+        await self._play(self.chat_delay, self.chat_calls, usage, toolbox, budget)
+        if self.chat_error is not None:
+            raise self.chat_error
+        return self.chat
 
     async def verify(
         self,
