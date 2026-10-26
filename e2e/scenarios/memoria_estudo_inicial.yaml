@@ -1,0 +1,39 @@
+# Na subida, com `memory.study`, o worker estuda o ambiente: o SigNoz fake tem a regra de alerta
+# "Taxa de erro alta no estudo-api" do time e os traces do estudo-api chamam o banco estudo-db.
+# O estudo grava, como aprendido e com fonte "estudo", o dossiê do serviço (com o significado da
+# regra), o do ambiente e o da integração; as páginas da memória mostram os três.
+name: estudo inicial monta os dossiês do ambiente, do serviço e da integração
+then:
+  - wait_for_db_row:
+      sql: SELECT count(*) FROM study_runs WHERE mode = 'inicial' AND status = 'concluido'
+      at_least: 1
+      timeout_seconds: 180
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'dossie' AND active
+        AND subject = 'estudo-api' AND subject_kind = 'servico'
+        AND confidence = 'aprendido' AND source_kind = 'estudo'
+        AND body LIKE '%Taxa de erro alta no estudo-api%'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'dossie' AND active
+        AND subject = 'ambiente' AND subject_kind = 'ambiente' AND source_kind = 'estudo'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'dossie' AND active
+        AND subject = 'estudo-db' AND subject_kind = 'integracao' AND source_kind = 'estudo'
+      count: 1
+  - expect_page:
+      service: api
+      path: /memoria
+      contains: [estudo-api, estudo-db]
+  - expect_page:
+      service: api
+      path: /memoria/estudo-api
+      contains: [estudo-api, Taxa de erro alta no estudo-api, aprendido]
+  - expect_page:
+      service: api
+      path: /memoria/estudo-db
+      contains: [estudo-db, estudo-api]
