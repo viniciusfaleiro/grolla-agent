@@ -274,6 +274,7 @@ Pedido do usuário depois do teste funcional: UX fácil, amigável, moderna, com
   - Correção: no chat, quando o que sobra não paga duas voltas, a última chamada vai com `tool_choice: none` e um aviso para responder com o que já consultou.
   - A análise e a validação não mudam.
   - Alternativa descartada: só subir o limite, que adia o problema e encarece a resposta.
+- **Respostas curtas (pedido do usuário depois do teste).** As respostas tinham de 150 a 250 palavras, com ressalvas e método, e atrapalhavam o war room. O prompt do chat agora fixa o formato: uma frase de resposta, até 3 evidências, uma sugestão, cerca de 60 palavras, e só as consultas necessárias. Alternativa descartada: limitar `max_tokens`, porque a resposta sairia cortada no meio em vez de curta.
 - **Alternativa mais simples considerada:** só reestilizar o CSS atual. Foi descartada porque não resolve o "próximo passo" nem a cara de chat, que dependem da estrutura.
 
 ## Risks / Trade-offs

@@ -42,6 +42,19 @@ O uso SHALL ser registrado com a etapa `warroom_chat`.
 - **WHEN** o agente já fez várias consultas e o orçamento da resposta não paga mais uma volta
 - **THEN** ele responde com o que já consultou, sem novas consultas, em vez de "não consegui responder"
 
+### Requirement: Resposta curta e direta
+A resposta do agente no chat SHALL ser curta e direta, para não atrapalhar o war room:
+- a primeira linha responde a pergunta numa frase;
+- no máximo três linhas de evidência, com número, horário ou versão e o link quando houver;
+- no máximo uma sugestão de ação;
+- até cerca de 60 palavras, salvo quando pedirem detalhes ou um resumo.
+
+A resposta SHALL NOT repetir a pergunta, o contexto do incidente ou a análise, nem explicar como o agente investigou. O agente SHALL fazer só as consultas necessárias para responder.
+
+#### Scenario: Pergunta de sim ou não
+- **WHEN** "Ana" pergunta "o rollback resolveu?"
+- **THEN** a primeira linha responde sim ou não com o número que sustenta, seguida de no máximo três evidências curtas
+
 ### Requirement: Chat com cara de chat
 O chat SHALL se parecer com um aplicativo de mensagens:
 - as mensagens de quem está vendo à direita e as dos outros à esquerda, com nome e horário;

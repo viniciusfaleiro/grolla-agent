@@ -64,4 +64,5 @@
 - [x] 7.3 Chat com cara de chat: bolhas por autor, Grolla com avatar, markdown mínimo seguro, consultas recolhidas, indicador "investigando…", sugestões com um clique, Enter envia e rolagem automática.
 - [x] 7.4 Timeline legível: trilho vertical, sem eventos de enfileiramento de card.
 - [x] 7.5 Chat responde com o que já consultou quando o orçamento da resposta está acabando (última chamada sem ferramentas).
-- [x] 7.6 Testes da web atualizados, README do `grolla-api`, `make e2e` e `make fmt && make check` verdes.
+- [x] 7.6 Prompt do chat com resposta curta e direta: formato fixo, até 3 evidências, cerca de 60 palavras, só as consultas necessárias.
+- [x] 7.7 Testes da web atualizados, README do `grolla-api`, `make e2e` e `make fmt && make check` verdes.

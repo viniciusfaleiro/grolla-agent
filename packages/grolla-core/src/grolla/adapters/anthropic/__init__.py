@@ -68,8 +68,8 @@ REQUEST_TIMEOUT_SECONDS = 60.0
 # voltas no orçamento, o chat fecha a resposta com o que já consultou.
 WRAP_UP_TURNS = 2
 WRAP_UP = (
-    "O orçamento desta resposta está acabando: responda agora com o que já consultou, "
-    "deixando claro o que não deu para verificar."
+    "O orçamento desta resposta está acabando: responda agora, no formato pedido, com o que já "
+    "consultou e diga em uma linha o que não deu para verificar."
 )
 
 # Cache de 1 h no prefixo estável (ferramentas e system): as análises de um mesmo dia o reusam.
