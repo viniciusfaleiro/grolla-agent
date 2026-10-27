@@ -1,0 +1,91 @@
+# O alarme para e volta: o war room mostra a faixa "Alertas normalizados" na página e no polling
+# da timeline (fora do lugar, junto com a tabela de alertas e o estado), a lista mostra o selo, e
+# o alerta que dispara de novo vira "Voltou a disparar".
+name: faixa do alarme normalizado e de volta no war room
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Erros no alarme-api
+              service_name: alarme-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: erros acima de 20 em 5 min no alarme-api
+              description: 42 requisições com erro no alarme-api nos últimos 5 minutos.
+            startsAt: "2026-01-01T11:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=120
+            fingerprint: e2e-alarme-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'alarme-api' = ANY(services)
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains: ['data-alarm="" data-title="Erros no alarme-api"']
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: resolved
+        version: "4"
+        alerts:
+          - <<: *alerta
+            status: resolved
+            endsAt: "2026-01-01T11:20:00Z"
+then:
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains:
+        - 'data-alarm="normalizado"'
+        - Alertas normalizados</strong> às
+        - nenhum alerta deste incidente está disparando
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}/timeline
+      contains:
+        - 'id="alarm" class="alarm alarm-normalizado" hx-swap-oob="true"'
+        - 'id="alerts" hx-swap-oob="true"'
+        - 'id="incident-status" hx-swap-oob="true"'
+  - expect_page:
+      service: api
+      path: /incidents
+      contains: [✅ alarme normalizado]
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - <<: *alerta
+            startsAt: "2026-01-01T11:30:00Z"
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains: ['data-alarm="voltou"', Voltou a disparar</strong> às]

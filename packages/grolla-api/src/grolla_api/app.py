@@ -144,6 +144,8 @@ from grolla_api.war_room import (
     UTF8_MAX_BYTES,
     action_from,
     ago,
+    alarm_normalized,
+    alarm_of,
     chat_version,
     current_proposal,
     decode_author,
@@ -255,6 +257,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "verification_labels": VERIFICATION_STATUS_LABELS,
     "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
     "ago": ago,
+    "alarm_normalized": alarm_normalized,
     "display_name": display_name,
     "event_detail": event_detail,
     "event_label": event_label,
@@ -394,14 +397,20 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         return found
 
     async def follow_up_context(incident: Incident, author: str | None) -> dict[str, Any]:
-        """Acompanhamento, impacto e proposta: no war room e no polling da timeline."""
+        """O que muda sozinho: estado, alarme, alertas, acompanhamento, impacto e proposta; no
+        war room e no polling da timeline.
+        """
+        events = await repository.events_of(incident.id)
         return {
             "incident": incident,
             "header": header_of(incident, services.clock.now(), author),
             "author": author,
+            "now": services.clock.now(),
+            "alarm": alarm_of(incident, events),
+            "alerts": await repository.alerts_of(incident.id),
             "cycles": recent_cycles(await repository.cycles_of(incident.id)),
             "impact": await follow_up.impact_of(repository, incident, services.impact),
-            "proposal": current_proposal(incident, await repository.events_of(incident.id)),
+            "proposal": current_proposal(incident, events),
         }
 
     async def linked_of(events: list[IncidentEvent]) -> dict[UUID, Incident]:
@@ -491,7 +500,6 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             **await chat_context(found, author),
             **await timeline_context(found),
             **await war_room_context(found, author),
-            "alerts": await repository.alerts_of(found.id),
             "back_to": f"/incidents/{found.id}",
         }
         return templates.TemplateResponse(request, "incident.html", context)

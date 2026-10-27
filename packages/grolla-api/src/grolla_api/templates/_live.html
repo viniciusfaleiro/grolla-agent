@@ -1,0 +1,93 @@
+{# Blocos do war room que mudam sozinhos: a resposta da timeline os troca fora dela
+   (hx-swap-oob) quando chega evento. Os formulários ficam de fora, para não apagar o que se digita. #}
+{% from "_macros.html" import avatar, hhmm, when %}
+{% from "_follow_up.html" import impact_chip, oob_attr %}
+
+{% macro alarm_banner(alarm, header, author, incident, now, oob=False) %}
+{% set labels = {"assume": "Assumir como IC", "mitigate": "Marcar mitigado"} %}
+<div id="alarm" class="alarm{% if alarm %} alarm-{{ alarm.kind }}{% endif %}"{{ oob_attr(oob) }}
+     data-alarm="{{ alarm.kind if alarm else '' }}" data-title="{{ incident.title }}"
+     role="status"{% if not alarm %} hidden{% endif %}>
+  {% if alarm and alarm.kind == "normalizado" %}
+  <span class="alarm-icon" aria-hidden="true">✅</span>
+  <p class="alarm-text"><strong>Alertas normalizados</strong> às {{ hhmm(alarm.at) }} · <span data-ago="{{ alarm.at.isoformat() }}">{{ ago(now - alarm.at) }}</span><span class="muted"> · nenhum alerta deste incidente está disparando</span></p>
+  {% if author and header.primary %}
+  {% if header.primary == "resolve" %}
+  <button class="button-primary" popovertarget="encerrar">Encerrar</button>
+  {% else %}
+  <form hx-post="/incidents/{{ incident.id }}/actions/{{ header.primary }}" hx-target="#war-room" hx-swap="outerHTML"><button class="button-primary">{{ labels[header.primary] }}</button></form>
+  {% endif %}
+  {% endif %}
+  {% elif alarm %}
+  <span class="alarm-icon" aria-hidden="true">⚠️</span>
+  <p class="alarm-text"><strong>Voltou a disparar</strong> às {{ hhmm(alarm.at) }}<span class="muted"> · o alarme tinha normalizado e disparou de novo</span></p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro incident_status(incident, header, impact, oob=False) %}
+<div id="incident-status"{{ oob_attr(oob) }}>
+  <div class="incident-head">
+    <div class="incident-title">
+      <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
+      <h1>{{ incident.title }}</h1>
+    </div>
+    <div class="chips">
+      <span class="state state-{{ incident.state }}">{{ header.state }}</span>
+      {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+      <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
+      {{ impact_chip(impact) }}
+      {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
+    </div>
+  </div>
+
+  <svg class="pulse pulse-{{ incident.state }}" viewBox="0 0 600 44" preserveAspectRatio="none" aria-hidden="true">
+    {% if header.actions %}
+    <path class="pulse-beat" d="M0 22 H200 L214 22 L224 6 L238 38 L250 14 L258 22 H330 L340 22 L348 12 L358 32 L366 22 H600"/>
+    {% else %}
+    <path d="M0 22 H600"/>
+    {% endif %}
+  </svg>
+
+  {% if header.stages %}
+  <ol class="stages" aria-label="Ciclo do incidente">
+    {% for stage in header.stages %}
+    <li class="{{ stage.status }}"{% if stage.status == "atual" %} aria-current="step"{% endif %}>{{ stage.label }}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  <dl class="facts">
+    <div><dt>IC</dt><dd class="commander">{% if incident.commander %}{{ avatar(incident.commander) }}{{ incident.commander }}{% else %}ninguém ainda{% endif %}</dd></div>
+    <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
+    <div><dt title="Tempo até alguém assumir">TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
+    <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
+    <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
+  </dl>
+</div>
+{% endmacro %}
+
+{% macro alerts_table(alerts, oob=False) %}
+<div id="alerts"{{ oob_attr(oob) }}>
+{% if alerts %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
+  <tbody>
+  {% for alert in alerts %}
+    <tr>
+      <td>{{ alert.status }}</td>
+      <td>{{ alert.rule_name }}</td>
+      <td>{{ alert.summary }}</td>
+      <td>{{ when(alert.starts_at) }}</td>
+      <td>{% if alert.source_url %}<a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">Nenhum alerta.</p>
+{% endif %}
+</div>
+{% endmacro %}

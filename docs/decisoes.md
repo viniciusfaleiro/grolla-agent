@@ -57,3 +57,7 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 50 | 27/10 | cluster | Ligar e desligar cluster só pelo YAML (`enabled`) | Pedido do usuário; um interruptor na web exigiria estado e auditoria |
 | 51 | 27/10 | cluster | Secrets nunca lidos, nem os metadados | Listar Secret entrega os valores; a troca aparece como revisão ou reinício |
 | 52 | 27/10 | cluster | Token do EKS gerado no adapter (URL pré-assinada do STS), sem AWS CLI na imagem | Imagem menor e um caminho só de credencial, o da nuvem |
+| 53 | 27/10 | alarme | A faixa do alarme, a tabela de alertas e o estado viajam fora do lugar na resposta da timeline, sem rota nova | Normalizar e voltar a disparar já são eventos; o polling que já existe só responde quando há evento novo |
+| 54 | 27/10 | alarme | Só o bloco de estado é trocado ao vivo, nunca os formulários (`display: contents` mantém o grid) | Trocar o war room inteiro apagaria o que a pessoa digita |
+| 55 | 27/10 | alarme | Aviso e título piscando só na transição com a página aberta; notificação do navegador fora | Abrir a página não é novidade; a notificação pede permissão por pessoa e o título já avisa a aba em segundo plano |
+| 56 | 27/10 | alarme | Selo da lista por `firing` vazio e `last_alert_at > detected_at`, sem ler eventos | Uma consulta por linha seria cara; incidente aberto pelo console sem alerta não ganha o selo |

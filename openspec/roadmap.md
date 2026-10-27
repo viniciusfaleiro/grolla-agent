@@ -216,6 +216,14 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   por cluster no YAML, valores ocultos nos clusters PCI, RBAC só leitura.
 - **Ports:** `ClusterInventory`.
 
+## S11.2 · Alarme normalizado na tela ✅
+
+- **Valor:** quem conduz o incidente percebe na hora que o alarme parou (hora de mitigar ou
+  encerrar) ou voltou a disparar (a mitigação não segurou).
+- **Escopo:** faixa no topo do war room com a ação em destaque, aviso na tela e título piscando na
+  transição, alertas e estado ao vivo, selo "alarme normalizado" na lista.
+- **Ports:** nenhum.
+
 ## Fase 2 (depois do S11)
 
 SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com

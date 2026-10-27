@@ -55,7 +55,9 @@ com o agente fora de incidente em `/console`, gráficos desenhados no servidor e
 pela conversa. `transcricao-de-call` (S10): transcrição enviada no war room vira decisões, ações,
 horários e hipóteses na timeline e no post mortem. `aws-completa` (S11): ECS/EKS, AWS Health,
 cotas e várias contas por role somente leitura. `cluster-somente-leitura`: estado e mudanças do
-serviço no Kubernetes, em vários clusters, com `enabled` e `show_values` por cluster. Pendente: S4 (on-call), que espera a conta no
+serviço no Kubernetes, em vários clusters, com `enabled` e `show_values` por cluster.
+`alarme-normalizado-na-tela`: faixa ao vivo do alarme normalizado ou de volta no war room, aviso
+e título piscando, selo na lista. Pendente: S4 (on-call), que espera a conta no
 Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

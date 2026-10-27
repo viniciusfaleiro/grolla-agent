@@ -14,6 +14,7 @@
     <span class="when">{{ ago(now - incident.detected_at) }}</span>
     <span class="meta">
       <span class="state state-{{ incident.state }}">{{ state_labels[incident.state] }}</span>
+      {% if alarm_normalized(incident) %}<span class="chip chip-ok" title="Nenhum alerta deste incidente está disparando">✅ alarme normalizado</span>{% endif %}
       {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
       {% if incident.commander %}<span>IC {{ incident.commander }}</span>{% endif %}
     </span>

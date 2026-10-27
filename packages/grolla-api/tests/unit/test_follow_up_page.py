@@ -272,7 +272,8 @@ def test_timeline_polling_brings_the_follow_up_out_of_band(
 
     assert 'id="acompanhamento" hx-swap-oob="true"' in fragment
     assert 'id="proposal" hx-swap-oob="true"' in fragment
-    assert 'id="impact" class="impact" hx-swap-oob="true"' in fragment
+    assert 'id="incident-status" hx-swap-oob="true"' in fragment
+    assert 'id="impact" class="impact"' in fragment
     assert "erros estáveis" in fragment
     assert f'hx-post="/incidents/{incident.id}/actions/mitigate"' in fragment
 

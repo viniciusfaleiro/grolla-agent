@@ -700,3 +700,22 @@ a.button-primary:hover { color: var(--brand-ink); }
 .chart-legend { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
 .chart-swatch { width: 14px; height: 3px; border-radius: 2px; background: var(--brand); flex: none; }
 .chart-note { font-size: 0.86rem; color: var(--warn); }
+
+/* Bloco de estado trocado ao vivo: não muda o grid do .conduct. */
+#incident-status { display: contents; }
+
+/* Faixa do alarme: normalizado (verde) ou voltou a disparar (âmbar), com o próximo passo. */
+.alarm { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 1rem; border-radius: var(--radius); border-left: 4px solid var(--ok); background: var(--ok-soft); }
+.alarm[hidden] { display: none; }
+.alarm-voltou { border-left-color: var(--warn); background: var(--warn-soft); }
+.alarm-icon { font-size: 1.25rem; line-height: 1; }
+.alarm-text { flex: 1 1 16rem; margin: 0; }
+.alarm form { margin: 0; }
+.chip-ok { font-weight: 700; color: var(--ok); background: var(--ok-soft); }
+
+/* Aviso da transição do alarme: aparece uma vez, some sozinho ou no clique. */
+.toast { position: fixed; right: 1rem; top: 4.5rem; z-index: 50; max-width: min(24rem, calc(100vw - 2rem)); display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.85rem 1rem; border-radius: var(--radius); background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-left: 4px solid var(--ok); box-shadow: var(--shadow); cursor: pointer; animation: toast-in 0.25s ease-out; }
+.toast-voltou { border-left-color: var(--warn); }
+.toast p { margin: 0; }
+@keyframes toast-in { from { transform: translateY(-0.75rem); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
