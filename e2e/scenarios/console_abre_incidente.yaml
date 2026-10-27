@@ -13,7 +13,7 @@ when:
       method: POST
       path: /console
       cookies: { grolla_author: Ana }
-      form: { texto: o manual-api está lento para fechar pedidos? }
+      form: { texto: "o manual-api está lento para fechar pedidos?" }
   - capture:
       name: sessao
       sql: >-
@@ -59,7 +59,7 @@ then:
   - expect_page:
       service: api
       path: /console/{sessao}
-      contains: [/incidents/{incidente}]
+      contains: ["/incidents/{incidente}"]
   # Ana encerra o incidente, para não sobrar aberto no manual-api.
   - http:
       service: api
