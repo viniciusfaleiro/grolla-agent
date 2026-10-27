@@ -147,6 +147,8 @@
       return;
     }
     const copy = target.closest("[data-copy]");
+    // Comando destrutivo: confirma antes de copiar. O Grolla nunca executa; quem roda é o time.
+    if (copy && copy.dataset.confirm && !window.confirm(copy.dataset.confirm)) return;
     if (copy && navigator.clipboard) {
       navigator.clipboard.writeText(copy.dataset.copy).then(() => {
         const label = copy.querySelector("span");

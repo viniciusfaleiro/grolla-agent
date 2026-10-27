@@ -12,6 +12,7 @@ Regras:
   responder", `ANSWERED` ou `None` para resposta normal); a resposta gravada fica com
   `reply_status=None` e `reply_to` apontando a pergunta;
 - `answer` só grava se a pergunta ainda está em andamento, e uma vez só;
+- a resposta recusada guarda o escopo do pedido em `refusal`;
 - `tokens_since` soma entrada, saída e cache dos usos da etapa `console` desde `since`.
 """
 
@@ -24,6 +25,7 @@ from grolla.application.console import ConsoleJob, ConsoleStore
 from grolla.application.investigation import STAGE_CONSOLE, STAGE_INVESTIGATION
 from grolla.domain.chat import AGENT_AUTHOR, ReplyStatus
 from grolla.domain.console import ChartRequest, ConsoleMessage, ConsoleSession
+from grolla.domain.safety import REFUSALS, Scope
 from grolla.testing.builders import T0, make_evaluations
 from grolla.testing.investigation import fake_usage
 
@@ -190,6 +192,16 @@ class ConsoleStoreContract:
 
         asked, _ = await store.messages(job.session_id)
         assert asked.reply_status is ReplyStatus.ANSWERED
+
+    async def test_refused_reply_keeps_the_scope(self, store: ConsoleStore) -> None:
+        job = await claimed(store)
+        refused = replace(reply_to(job), text=REFUSALS[Scope.OFF_TOPIC], refusal=Scope.OFF_TOPIC)
+
+        await store.answer(job, refused, [], ANSWERED_AT)
+
+        _, answer = await store.messages(job.session_id)
+        assert answer.refusal is Scope.OFF_TOPIC
+        assert answer.text == REFUSALS[Scope.OFF_TOPIC]
 
     async def test_answer_is_recorded_once(self, store: ConsoleStore) -> None:
         job = await claimed(store)

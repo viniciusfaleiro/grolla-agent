@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from html import unescape
 from urllib.parse import parse_qs, quote, unquote
 from uuid import UUID
 
@@ -27,6 +28,7 @@ from grolla.domain.incidents import (
     IncidentState,
     Severity,
 )
+from grolla.domain.safety import is_destructive
 from grolla.domain.transcript import TRANSCRIPT_ORIGIN, HypothesisVerdict, TranscriptItemKind
 from grolla.domain.triage import AGENT_SEVERITY_REASON
 from grolla.domain.war_room import (
@@ -607,16 +609,24 @@ def _link(match: re.Match[str]) -> str:
     return f'<a href="{url}" target="_blank" rel="noopener">{url}</a>{tail}'
 
 
+DESTRUCTIVE_BADGE = Markup('<span class="badge badge-destructive">destrutivo, confira antes</span>')
+
+
+def _code(match: re.Match[str]) -> str:
+    code = f"<code>{match.group(1)}</code>"
+    return f"{code} {DESTRUCTIVE_BADGE}" if is_destructive(unescape(match.group(1))) else code
+
+
 def _inline(text: str) -> str:
     html = str(escape(text))  # escapa antes: só as marcas abaixo viram HTML
-    html = _CODE.sub(r"<code>\1</code>", html)
+    html = _CODE.sub(_code, html)
     html = _BOLD.sub(r"<strong>\1</strong>", html)
     return _LINK.sub(_link, html)
 
 
 def rich_text(text: str) -> Markup:
     """Markdown mínimo e seguro para o texto do agente: títulos, parágrafos, listas, negrito,
-    links.
+    links e código, com o selo de destrutivo no comando que apaga, derruba ou zera algo.
     """
     blocks: list[str] = []
     paragraph: list[str] = []
@@ -771,6 +781,7 @@ class Step:
     expected: str
     link: str | None
     command: str | None  # primeiro trecho entre crases da ação, para copiar
+    destructive: bool = False  # o comando apaga, derruba ou zera algo: selo e copiar confirma
 
 
 @dataclass(frozen=True)
@@ -786,18 +797,17 @@ class Situation:
     steps_from_analysis: bool  # plano da análise: o que investigar, não o que executar
 
 
-def _command(text: str) -> str | None:
-    found = _COMMAND.search(text)
-    return found.group(1) if found else None
+def _step(what: str, target: str = "", expected: str = "", link: str | None = None) -> Step:
+    found = _COMMAND.search(what)
+    command = found.group(1) if found else None
+    destructive = command is not None and is_destructive(command)
+    return Step(what, target, expected, link, command, destructive)
 
 
 def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:
     """Causa confirmada, validação rodando, hipótese mais provável, investigando ou sem análise."""
     if verification is not None and verification.root_cause:
-        steps = tuple(
-            Step(a.action, a.target, a.expected, a.link, _command(a.action))
-            for a in verification.actions
-        )
+        steps = tuple(_step(a.action, a.target, a.expected, a.link) for a in verification.actions)
         confirmed = [v.hypothesis for v in verification.verdicts if v.verdict is Verdict.CONFIRMED]
         title, text = _title_and_text(
             confirmed[0] if confirmed else first_sentence(verification.root_cause),
@@ -805,7 +815,7 @@ def situation_of(analysis: Analysis | None, verification: Verification | None) -
         )
         return Situation("causa", title, text, None, "", steps, False)
     plan = () if analysis is None else analysis.plan
-    analysis_steps = tuple(Step(p, "", "", None, _command(p)) for p in plan)
+    analysis_steps = tuple(_step(p) for p in plan)
     if analysis is None:
         return Situation("sem_analise", "", "", None, "", (), False)
     if analysis.status in _RUNNING:

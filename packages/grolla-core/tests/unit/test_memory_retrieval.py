@@ -40,7 +40,12 @@ from grolla.domain.memory import (
 from grolla.testing.builders import T0, make_alert, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryAnalysisQueue, InMemoryIncidentRepository
-from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry, ScriptedLanguageModel
+from grolla.testing.investigation import (
+    FakeChangeHistory,
+    FakeTelemetry,
+    ScriptedLanguageModel,
+    tool_text,
+)
 from grolla.testing.memory import FakeTextEmbedder, InMemoryMemoryStore
 
 RUNBOOK = """\
@@ -362,7 +367,9 @@ async def test_recall_with_rag_returns_chunks_of_memory_and_documentation() -> N
     memory, note = await indexed_world(embedder)
     tools = rag_toolbox(memory, embedder)
 
-    found = await tools.call("recall", {"subject": "pedidos-api", "query": "liberar conexões"})
+    found = await tool_text(
+        tools, "recall", {"subject": "pedidos-api", "query": "liberar conexões"}
+    )
 
     assert found.startswith("<memoria>")
     assert "## Trechos" in found
@@ -377,7 +384,7 @@ async def test_recall_with_rag_says_nothing_without_chunks_and_has_its_own_descr
     embedder = FakeTextEmbedder()
     tools = rag_toolbox(InMemoryMemoryStore(), embedder)
 
-    nothing = await tools.call("recall", {"subject": "pedidos-api", "query": "pool"})
+    nothing = await tool_text(tools, "recall", {"subject": "pedidos-api", "query": "pool"})
 
     assert nothing == NOTHING_REMEMBERED
     recall = next(spec for spec in tools.specs() if spec.name == "recall")

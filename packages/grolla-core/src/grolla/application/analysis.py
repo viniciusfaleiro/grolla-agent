@@ -111,6 +111,7 @@ class AnalysisPolicy:
     chat_timeout: timedelta = timedelta(minutes=2)
     chat_max_tokens: int = 60_000  # por resposta
     chat_max_tokens_per_incident: int = 400_000
+    chat_messages_per_hour: int = 30  # por autor, chat do war room e console juntos
 
 
 REAP_GRACE = timedelta(minutes=2)  # folga além do timeout antes de dar a análise por perdida

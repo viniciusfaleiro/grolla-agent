@@ -91,3 +91,12 @@ def test_facts_are_placed_by_their_utc_day() -> None:
     october, september = aggregate(MetricsFacts(resolved=(late_night,)), [OCT, SEP])
 
     assert (october.resolved, september.resolved) == (1, 0)
+
+
+def test_refusals_are_counted_by_period() -> None:
+    day = date(2026, 10, 5)
+    facts = MetricsFacts(refusals=(at(day), at(day, 13), at(date(2026, 9, 30))))
+
+    october, september = aggregate(facts, [OCT, SEP])
+
+    assert (october.refused, september.refused) == (2, 1)

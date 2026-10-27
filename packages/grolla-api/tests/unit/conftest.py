@@ -6,6 +6,7 @@ from grolla.domain.incidents import Severity, SeverityPolicy
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import FakeAlertIngress, InMemoryIncidentRepository
 from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
+from grolla.testing.messages import FakeMessageCounter
 from grolla.testing.metrics import InMemoryMetricsReader
 from grolla.testing.post_mortem import FakeDocumentRenderer, InMemoryPostMortemStore
 from grolla_api.app import Services
@@ -43,4 +44,5 @@ def services() -> Services:
         post_mortems=post_mortems,
         renderer=FakeDocumentRenderer(),
         metrics=InMemoryMetricsReader(repository, post_mortems),
+        messages=FakeMessageCounter(),
     )

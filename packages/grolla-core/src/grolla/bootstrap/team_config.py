@@ -43,6 +43,7 @@ class InvestigationConfig(_Section):
     chat_timeout_seconds: int = Field(default=120, gt=0)
     chat_max_tokens: int = Field(default=60_000, gt=0)  # por resposta do agente
     chat_max_tokens_per_incident: int = Field(default=400_000, gt=0)
+    chat_messages_per_hour: int = Field(default=30, gt=0)  # por autor, chat e console juntos
 
 
 class StageConfig(_Section):
@@ -254,6 +255,7 @@ class TeamConfig(BaseModel):
             chat_timeout=timedelta(seconds=self.investigation.chat_timeout_seconds),
             chat_max_tokens=self.investigation.chat_max_tokens,
             chat_max_tokens_per_incident=self.investigation.chat_max_tokens_per_incident,
+            chat_messages_per_hour=self.investigation.chat_messages_per_hour,
         )
 
     def memory_policy(self) -> MemoryPolicy:

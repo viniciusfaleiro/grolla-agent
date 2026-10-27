@@ -61,6 +61,7 @@ from grolla.application.post_mortem import (
     request_regeneration,
     update_action,
 )
+from grolla.application.safety import MessageCounter, RateLimitedError, ensure_under_limit
 from grolla.application.transcript import (
     TranscriptPolicy,
     TranscriptStore,
@@ -145,6 +146,7 @@ from grolla_api.war_room import (
     AUTHOR_COOKIE,
     AUTHOR_COOKIE_MAX_AGE,
     CLOSED_SHOWN,
+    DESTRUCTIVE_BADGE,
     SEVERITIES,
     STATE_LABELS,
     SUGGESTIONS,
@@ -292,6 +294,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "percent": percent,
     "trend_label": trend_label,
     "rich_text": rich_text,
+    "destructive_badge": DESTRUCTIVE_BADGE,
     "visible_events": visible_events,
     "from_transcript": from_transcript,
     "failed_transcript": failed_transcript,
@@ -355,6 +358,15 @@ def error_fragment(message: str, status_code: int, target: str) -> HTMLResponse:
     )
 
 
+def rate_limited(error: RateLimitedError, target: str) -> HTMLResponse:
+    """O aviso do limite por pessoa, com a hora em que o autor pode escrever de novo."""
+    message = (
+        f"Limite de {error.limit} mensagens por hora; "
+        f"tente de novo às {error.retry_at.strftime('%H:%M')}"
+    )
+    return error_fragment(message, status.HTTP_429_TOO_MANY_REQUESTS, target)
+
+
 @dataclass(frozen=True)
 class Services:
     """O que as rotas usam; nos testes, montado com os fakes dos ports."""
@@ -372,11 +384,13 @@ class Services:
     post_mortems: PostMortemStore
     renderer: DocumentRenderer
     metrics: MetricsReader
+    messages: MessageCounter  # limite de mensagens por pessoa no chat e no console
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
     console: ConsoleStore | None = None  # None: console desligado (sem a seção `console`)
     telemetry: Telemetry | None = None  # gráficos do console; sem ela, "gráfico indisponível"
     transcripts: TranscriptStore | None = None  # None: envio de transcrição dá 404
     transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
+    chat_messages_per_hour: int = 30  # por autor, chat e console juntos
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.
@@ -459,6 +473,12 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "merge": merge_suggestion(incident, events, linked),
             "merged_into": merged_into(events, linked),
         }
+
+    async def under_limit(author: str) -> None:
+        """Antes de gravar a pergunta: o chat e o console juntos, por autor, na última hora."""
+        await ensure_under_limit(
+            services.messages, author, services.clock.now(), services.chat_messages_per_hour
+        )
 
     async def chat_context(incident: Incident, author: str | None) -> dict[str, Any]:
         messages = await repository.chat_of(incident.id)
@@ -716,6 +736,10 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CHAT_ERROR)
         found = await incident_or_404(incident_id)
         text = parse_form(await request.body()).get("texto", "")
+        try:
+            await under_limit(author)
+        except RateLimitedError as error:
+            return rate_limited(error, CHAT_ERROR)
         try:
             await ask(repository, found.id, author, text, services.clock)
         except IncidentNotFoundError as error:
@@ -1202,6 +1226,10 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CONSOLE_ERROR)
         text = parse_form(await request.body()).get("texto", "")
         try:
+            await under_limit(author)
+        except RateLimitedError as error:
+            return rate_limited(error, CONSOLE_ERROR)
+        try:
             session = await ask_console(
                 store=store, session_id=None, author=author, text=text, clock=clock
             )
@@ -1244,6 +1272,10 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CONSOLE_ERROR)
         session = await console_session_or_404(session_id)
         text = parse_form(await request.body()).get("texto", "")
+        try:
+            await under_limit(author)
+        except RateLimitedError as error:
+            return rate_limited(error, CONSOLE_ERROR)
         try:
             await ask_console(
                 store=store, session_id=session.id, author=author, text=text, clock=clock

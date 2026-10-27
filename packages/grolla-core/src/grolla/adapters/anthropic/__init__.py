@@ -7,8 +7,8 @@ de cada resposta passa pelo `TokenBudget` antes de qualquer outra coisa.
 As três chamadas usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`), a
 validação das hipóteses até a causa raiz (`verify`, etapa `verification`, com modelo e
 `effort` próprios) e a resposta no chat do war room (`reply`, etapa `warroom_chat`, idem, com o
-resultado no schema `{"reply": string}`). Na validação, um plano com passo de investigação
-ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
+resultado no schema `{"reply": string, "scope": ...}`). Na validação, um plano com passo de
+investigação ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
 
 O acompanhamento da crise (`follow_up`, etapa `follow_up`) roda o mesmo laço, fechando no
 orçamento como o chat, e devolve a tendência, a taxa de erro, o resumo, se algo mudou e até três
@@ -28,8 +28,13 @@ o outro incidente aberto que é o mesmo problema (ou null) e a severidade sugeri
 um com o motivo. Id que não é UUID vira "sem junção", sem invalidar a triagem.
 
 O console de operação (`consult`, etapa `console`, herdando o modelo do chat) roda o mesmo laço,
-fechando no orçamento como o chat, e devolve o texto e os gráficos pedidos (`{text, charts}`, cada
-gráfico com serviço, sinal e janela em minutos); quem filtra os gráficos é o domínio.
+fechando no orçamento como o chat, e devolve o texto e os gráficos pedidos
+(`{text, scope, charts}`, cada gráfico com serviço, sinal e janela em minutos); quem filtra os
+gráficos é o domínio.
+
+O chat e o console devolvem também o escopo do pedido (`dominio`, `fora_do_escopo` ou
+`pedido_de_execucao`); quem troca o texto pela recusa fixa é o núcleo. Escopo fora do enum é
+resultado inválido; ausente (resposta anterior ao campo) vale `dominio`.
 
 A transcrição de call (`extract_transcript`, etapa `transcript`, herdando o modelo do post mortem)
 é uma chamada só, sem ferramentas: as decisões, ações e horários (`items`, cada um com o dono e o
@@ -126,6 +131,7 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import DETERMINISTIC, ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.safety import Scope
 from grolla.domain.transcript import (
     HypothesisCheck,
     TranscriptDraft,
@@ -243,10 +249,13 @@ VERIFICATION_SCHEMA: dict[str, object] = {
 }
 
 # Schema da resposta do chat: só o texto, que vai para o chat como está.
+# Escopo do pedido no chat e no console: quem troca o texto pela recusa fixa é o núcleo.
+_SCOPE = {"type": "string", "enum": [scope.value for scope in Scope]}
+
 CHAT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "properties": {"reply": {"type": "string"}},
-    "required": ["reply"],
+    "properties": {"reply": {"type": "string"}, "scope": _SCOPE},
+    "required": ["reply", "scope"],
     "additionalProperties": False,
 }
 
@@ -294,6 +303,7 @@ SYNTHESIS_SCHEMA = _object(
 # vêm da telemetria. A janela e o número de gráficos são limitados pelo domínio.
 CONSOLE_SCHEMA = _object(
     text=_TEXT,
+    scope=_SCOPE,
     charts={
         "type": "array",
         "items": _object(
@@ -483,6 +493,7 @@ class _Verification(_Strict):
 
 class _Reply(_Strict):
     reply: str
+    scope: Scope = Scope.DOMAIN  # ausente só em resposta anterior ao campo; fora do enum é inválida
 
 
 class _Chart(_Strict):
@@ -494,6 +505,7 @@ class _Chart(_Strict):
 class _Console(_Strict):
     text: str
     charts: list[_Chart]
+    scope: Scope = Scope.DOMAIN  # ausente só em resposta anterior ao campo; fora do enum é inválida
 
 
 class _Cycle(_Strict):
@@ -761,11 +773,12 @@ class ClaudeLanguageModel:
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
         answer = _parsed(_Console, response, "da resposta do console")
-        if not answer.text.strip():
+        if not answer.text.strip() and answer.scope is Scope.DOMAIN:  # a recusa troca o texto
             raise InvalidAnalysisError("resposta do console vazia")
         return ConsoleDraft(
             text=answer.text.strip(),
             charts=tuple(ChartRequest(c.service, c.signal, c.minutes) for c in answer.charts),
+            scope=answer.scope,
         )
 
     async def extract_transcript(
@@ -1039,9 +1052,9 @@ def _chat_draft(response: Message) -> ChatDraft:
         draft = _Reply.model_validate_json(_final_text(response))
     except ValidationError as error:
         raise InvalidAnalysisError("resultado fora do formato da resposta do chat") from error
-    if not draft.reply.strip():
+    if not draft.reply.strip() and draft.scope is Scope.DOMAIN:  # a recusa troca o texto
         raise InvalidAnalysisError("resposta do chat vazia")
-    return ChatDraft(text=draft.reply.strip())
+    return ChatDraft(text=draft.reply.strip(), scope=draft.scope)
 
 
 def _describe(error: anthropic.APIError) -> str:

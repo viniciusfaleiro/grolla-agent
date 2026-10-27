@@ -6,6 +6,7 @@ from uuid import UUID
 from grolla.domain.incidents import EventType, IncidentState
 from grolla.domain.metrics import MetricsFacts
 from grolla.domain.post_mortem import PostMortemStatus
+from grolla.testing.console import InMemoryConsoleStore
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.post_mortem import InMemoryPostMortemStore
 
@@ -16,14 +17,19 @@ class InMemoryMetricsReader:
     """Lê os fatos do repositório e do store em memória.
 
     Aprovados usam o `status_at` do post mortem: a data da aprovação ou, se já foi encerrado, a
-    da última transição (o encerramento), como no banco.
+    da última transição (o encerramento), como no banco. As recusas vêm das respostas com
+    `refusal` do chat e, com o `console`, também do console.
     """
 
     def __init__(
-        self, repository: InMemoryIncidentRepository, post_mortems: InMemoryPostMortemStore
+        self,
+        repository: InMemoryIncidentRepository,
+        post_mortems: InMemoryPostMortemStore,
+        console: InMemoryConsoleStore | None = None,
     ) -> None:
         self.repository = repository
         self.post_mortems = post_mortems
+        self.console = console
 
     async def facts(self, since: datetime) -> MetricsFacts:
         resolved = tuple(
@@ -48,4 +54,12 @@ class InMemoryMetricsReader:
             if previous is None or event.at >= previous[0]:
                 last[event.incident_id] = (event.at, bool(event.data["same"]))
         answers = tuple(answer for answer in last.values() if answer[0] >= since)
-        return MetricsFacts(resolved=resolved, approved=approved, answers=answers)
+        console = self.console.all_messages() if self.console is not None else []
+        refusals = tuple(
+            m.at
+            for m in [*self.repository.messages, *console]
+            if m.refusal is not None and m.at >= since
+        )
+        return MetricsFacts(
+            resolved=resolved, approved=approved, answers=answers, refusals=refusals
+        )

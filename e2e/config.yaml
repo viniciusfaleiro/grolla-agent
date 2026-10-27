@@ -25,6 +25,7 @@ investigation:
   chat_timeout_seconds: 15
   chat_max_tokens: 60000
   chat_max_tokens_per_incident: 400000
+  chat_messages_per_hour: 1000  # os cenários reusam autores; o limite por pessoa tem teste unitário
 llm:
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }

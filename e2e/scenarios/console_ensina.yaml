@@ -29,10 +29,10 @@ then:
   - expect_db_count:
       sql: >-
         SELECT count(*) FROM memories WHERE kind = 'nota' AND active AND subject = 'lote-api'
-        AND confidence = 'confirmado' AND source_author = 'Bia'
+        AND confidence = 'aprendido' AND source_author = 'Bia'
         AND body LIKE '%fechamento às 23h%'
       count: 1
   - expect_page:
       service: api
       path: /memoria/lote-api
-      contains: [fechamento às 23h, confirmado, Bia]
+      contains: [fechamento às 23h, aprendido, Bia]

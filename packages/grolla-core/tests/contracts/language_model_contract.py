@@ -12,7 +12,7 @@ E as mesmas três para a validação (`verify`): `verifying_model`, `failing_ver
 
 A resposta no chat do war room (`reply`) tem a suíte própria, `ChatReplyContract`, com as
 fixtures `replying_model` (chama ao menos uma ferramenta e responde em texto) e
-`failing_replier` (a API responde erro).
+`failing_replier` (a API responde erro). A resposta traz o escopo do pedido (`Scope`).
 
 O ciclo de acompanhamento (`follow_up`) tem a suíte `FollowUpModelContract`, com as fixtures
 `following_model` (chama ao menos uma ferramenta e devolve o ciclo) e `failing_follower` (a API
@@ -25,7 +25,8 @@ A triagem (`triage`) tem a suíte `TriageModelContract`, com as fixtures `triage
 uma triagem válida) e `failing_triage_model` (a API responde erro).
 
 A resposta do console (`consult`) tem a suíte `ConsoleModelContract`, com as fixtures
-`consulting_model` (chama ao menos uma ferramenta e responde em texto, com ou sem gráficos) e
+`consulting_model` (chama ao menos uma ferramenta e responde em texto, com o escopo e com ou sem
+gráficos) e
 `failing_consultant` (a API responde erro).
 
 A extração da transcrição de call (`extract_transcript`) tem a suíte `TranscriptModelContract`,
@@ -77,6 +78,7 @@ from grolla.domain.post_mortem import (
     PostMortemStatus,
     SectionKey,
 )
+from grolla.domain.safety import Scope
 from grolla.domain.transcript import (
     HypothesisVerdict,
     TranscriptDraft,
@@ -305,6 +307,7 @@ class ChatReplyContract(LanguageModelFixtures):
 
         assert isinstance(draft, ChatDraft)
         assert draft.text.strip()
+        assert isinstance(draft.scope, Scope)
 
     async def test_reply_calls_tools_and_spends_with_its_stage(
         self,
@@ -687,6 +690,7 @@ class ConsoleModelContract(LanguageModelFixtures):
 
         assert isinstance(draft, ConsoleDraft)
         assert draft.text.strip()
+        assert isinstance(draft.scope, Scope)
         assert isinstance(draft.charts, tuple)
         for chart in draft.charts:
             assert chart.service.strip()

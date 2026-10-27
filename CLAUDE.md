@@ -60,7 +60,9 @@ serviço no Kubernetes, em vários clusters, com `enabled` e `show_values` por c
 e título piscando, selo na lista. `war-room-redesenhado`: barra fixa, cartão "Agora", hipóteses com
 o veredito e linha do tempo filtrável. `lista-de-incidentes-com-filtros`, `post-mortem-redesenhado` e
 `console-memoria-metricas-redesenhados`: as outras telas na mesma linguagem, com filtros na lista e
-nos post mortems e o console como "Chat", em primeiro no menu. Pendente: S4 (on-call), que espera a conta no
+nos post mortems e o console como "Chat", em primeiro no menu. `agente-cercado`: o agente só investiga e só fala do
+domínio (recusas fixas por escopo, dados externos marcados, nota do chat `aprendido`, selo em comando destrutivo,
+limite por pessoa, teste de capacidade no check e `make evals-seguranca`). Pendente: S4 (on-call), que espera a conta no
 Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

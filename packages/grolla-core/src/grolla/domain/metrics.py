@@ -29,6 +29,7 @@ class MetricsFacts:
     resolved: tuple[datetime, ...] = ()  # resolved_at dos incidentes resolvidos
     approved: tuple[tuple[datetime, AgentEvaluation], ...] = ()  # aprovação e a avaliação
     answers: tuple[tuple[datetime, bool], ...] = ()  # última resposta do "já vi isso"
+    refusals: tuple[datetime, ...] = ()  # respostas recusadas do chat e do console
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class PeriodMetrics:
     seen_before_confirmed: int
     seen_before_rejected: int
     memory_helped: int
+    refused: int = 0
 
 
 MONTHS = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
@@ -96,6 +98,7 @@ def aggregate(facts: MetricsFacts, periods: Sequence[Period]) -> tuple[PeriodMet
                 seen_before_confirmed=sum(1 for same in answers if same),
                 seen_before_rejected=sum(1 for same in answers if not same),
                 memory_helped=sum(1 for e in evaluations if e.memory_helped),
+                refused=sum(1 for at in facts.refusals if _within(at, period)),
             )
         )
     return tuple(result)

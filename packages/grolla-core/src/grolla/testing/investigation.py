@@ -70,6 +70,17 @@ SERIES_POINTS = 12
 SERIES_VALUES: Mapping[Signal, float] = {"taxa_de_erro": 0.2, "latencia_p99": 180.0, "vazao": 42.0}
 
 
+async def tool_text(toolbox: Toolbox, name: str, arguments: Mapping[str, Any]) -> str:
+    """O texto que a ferramenta devolveu ao modelo, sem o envelope de dado externo, que é
+    conferido (`untrusted` com o nome da ferramenta como fonte).
+    """
+    answer = await toolbox.call(name, arguments)
+    head, tail = f'<dados_externos fonte="{name}">\n', "\n</dados_externos>"
+    if not (answer.startswith(head) and answer.endswith(tail)):
+        raise AssertionError(f"resposta de {name} fora do envelope de dado externo: {answer}")
+    return answer[len(head) : -len(tail)]
+
+
 class FakeTelemetry:
     """Telemetria roteirizada por ferramenta.
 

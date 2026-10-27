@@ -5,7 +5,8 @@ reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e co
 
 Ações: `http` (corpo em `json` ou em `form` urlencoded, `cookies`, e `content_type` para
 conferir o início do header da resposta), `expect_status`,
-`expect_page` (espera o GET responder 200 com todos os trechos `contains` no HTML),
+`expect_page` (espera o GET responder 200 com todos os trechos `contains` no HTML e nenhum dos
+trechos `absent`),
 `wait_for_db_row`, `expect_db_count`, `expect_fake_requests` (contagem exata por trechos do
 corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos),
 `expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da com
@@ -76,7 +77,7 @@ def filled(key: str, value: Any, captured: Captured) -> Any:
     """Troca os capturados no `path`, no `sql`, em cada trecho de `contains` e no `form`."""
     if key in ("path", "sql"):
         return fill(cast(str, value), captured)
-    if key == "contains":
+    if key in ("contains", "absent"):
         return [fill(text, captured) for text in cast(list[str], value)]
     if key == "form":
         return {
@@ -98,7 +99,11 @@ def run_step(step: Step, captured: Captured) -> None:
             assert response.status_code == args["status"], response.text
         case "expect_page":
             expect_page(
-                args["service"], args["path"], args["contains"], args.get("timeout_seconds", 30)
+                args["service"],
+                args["path"],
+                cast(list[str], args.get("contains") or []),
+                cast(list[str], args.get("absent") or []),
+                args.get("timeout_seconds", 30),
             )
         case "wait_for_db_row":
             wait_for_db_row(args["sql"], args["at_least"], args["timeout_seconds"])
@@ -178,18 +183,24 @@ def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:
     pytest.fail(f"esperava ao menos {at_least} em `{sql}`, achei {count} em {timeout_seconds}s")
 
 
-def expect_page(service: str, path: str, contains: list[str], timeout_seconds: float) -> None:
-    """Espera o GET da página responder 200 com todos os trechos (o HTML vem desescapado)."""
+def expect_page(
+    service: str, path: str, contains: list[str], absent: list[str], timeout_seconds: float
+) -> None:
+    """Espera o GET da página responder 200 com todos os trechos `contains` e nenhum dos
+    `absent` (o HTML vem desescapado)."""
     deadline = time.monotonic() + timeout_seconds
     while True:
         response = http(service, "GET", path)
         page = html.unescape(response.text)
         missing = [text for text in contains if text not in page]
-        if (response.status_code == 200 and not missing) or time.monotonic() >= deadline:
+        present = [text for text in absent if text in page]
+        ok = response.status_code == 200 and not missing and not present
+        if ok or time.monotonic() >= deadline:
             break
         time.sleep(POLL_INTERVAL_SECONDS)
     assert response.status_code == 200, f"GET {path}: {response.status_code}"
     assert not missing, f"faltou {missing} em GET {path} em {timeout_seconds}s"
+    assert not present, f"sobrou {present} em GET {path} em {timeout_seconds}s"
 
 
 def fake_request_bodies(path: str) -> list[str]:

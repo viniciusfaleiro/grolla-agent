@@ -359,6 +359,9 @@ td { padding: 0.55rem 0.6rem; border-top: 1px solid var(--line); vertical-align:
 .message-mine .avatar { display: none; }
 .message .said { white-space: pre-wrap; }
 .message-failed .bubble { background: var(--warn-soft); }
+.message-refused .bubble { background: var(--surface-2); }
+.refusal { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0; color: var(--muted); }
+.refusal .icon { flex: none; margin-top: 0.15rem; }
 .rich { display: grid; gap: 0.5rem; }
 .rich ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; }
 .rich a { overflow-wrap: anywhere; }
@@ -705,6 +708,7 @@ a.button-primary:hover { color: var(--brand-ink); }
 .badge-ok { background: var(--ok-soft); color: var(--ok); }
 .badge-info { background: var(--brand-soft); color: var(--brand); }
 .badge-warn { background: var(--warn-soft); color: var(--warn); }
+.badge-destructive { background: var(--danger-soft); color: var(--danger); font-size: 0.75rem; padding: 0.1rem 0.5rem; }
 .agora-title { font: 650 clamp(1.25rem, 1.05rem + 0.8vw, 1.6rem)/1.3 var(--display); letter-spacing: -0.01em; max-width: 60ch; margin: 0; text-wrap: balance; }
 .agora-text { color: var(--muted); line-height: 1.55; max-width: 72ch; margin: 0.35rem 0 0; }
 .agora-wait { color: var(--muted); font-weight: 500; }
@@ -724,6 +728,7 @@ a.button-primary:hover { color: var(--brand-ink); }
 .next-move-why, .next-move-note { color: var(--muted); font-size: 0.9rem; }
 .command { display: flex; align-items: center; gap: 0.5rem; background: #1d2129; border-radius: var(--radius); padding: 0.45rem 0.45rem 0.45rem 0.9rem; }
 .command code { flex: 1; background: transparent; color: #e8ecf3; font-size: 0.86rem; overflow-x: auto; white-space: nowrap; padding: 0.3rem 0; }
+.command-destructive { box-shadow: inset 4px 0 0 var(--danger); }
 .button-copy { display: inline-flex; align-items: center; gap: 0.35rem; background: #ffffff; color: #1d2129; border: 0; font-size: 0.82rem; padding: 0.5rem 0.75rem; }
 .more-steps ol { margin: 0.5rem 0 0; padding-left: 1.25rem; display: grid; gap: 0.35rem; font-size: 0.92rem; }
 .signal { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.85rem; padding: 0.75rem 0.95rem; border-radius: var(--radius); background: var(--bg); }

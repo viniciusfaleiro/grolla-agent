@@ -22,6 +22,7 @@ from grolla.application.war_room import ask
 from grolla.domain.analysis import AnalysisStatus
 from grolla.domain.chat import AGENT_AUTHOR, ChatDraft, ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
+from grolla.domain.safety import REFUSALS, Scope
 from grolla.testing.builders import (
     T0,
     make_alert,
@@ -294,3 +295,30 @@ async def test_reply_can_look_at_the_cluster(world: World) -> None:
     _, answer = await world.reply(incident_id)
     assert [e.tool for e in answer.evaluations] == ["cluster_changes"]
     assert world.cluster.calls == [("changes", SERVICE)]
+
+
+@pytest.mark.parametrize("scope", [Scope.OFF_TOPIC, Scope.EXECUTION])
+async def test_request_out_of_the_domain_gets_the_fixed_refusal(world: World, scope: Scope) -> None:
+    incident_id = await world.ask("reinicia o deployment da estoque-api pra mim")
+    model = ScriptedLanguageModel(
+        chat=ChatDraft("Pronto, reiniciei: kubectl delete pod x", scope), chat_calls=TOOLS
+    )
+
+    assert await world.run(model)
+
+    question, answer = await world.reply(incident_id)
+    assert question.reply_status is ReplyStatus.ANSWERED
+    assert (answer.text, answer.refusal, answer.evaluations) == (REFUSALS[scope], scope, ())
+    agent = (await world.repository.events_of(incident_id))[-1]
+    assert agent.data["text"] == REFUSALS[scope]
+    assert {u.stage for _, u, _ in world.repository.usages} == {STAGE_WARROOM_CHAT}
+
+
+async def test_request_in_the_domain_is_not_a_refusal(world: World) -> None:
+    incident_id = await world.ask("qual o comando para voltar ao normal agora?")
+    draft = ChatDraft("kubectl rollout undo deployment/pedidos-api", Scope.DOMAIN)
+
+    assert await world.run(ScriptedLanguageModel(chat=draft))
+
+    _, answer = await world.reply(incident_id)
+    assert (answer.text, answer.refusal) == (draft.text, None)

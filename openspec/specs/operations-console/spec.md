@@ -34,11 +34,11 @@ O agente SHALL poder pedir até 2 gráficos por resposta, cada um com serviço, 
 - **THEN** a página mostra a linha da latência, com o horário no eixo e o valor em ms
 
 ### Requirement: Aprender pelo console
-No console, a ferramenta `remember` SHALL gravar a nota com o autor da pergunta como fonte, confirmada, como no chat do war room.
+No console, a ferramenta `remember` SHALL gravar a nota com o autor da pergunta como fonte e a confiança `aprendido`, e SHALL recusar a nota com cara de ordem, como no chat do war room.
 
 #### Scenario: Time ensina pelo console
 - **WHEN** Ana escreve no console "o batch de conciliação roda às 3h e sobe o p99"
-- **THEN** a memória ganha a nota confirmada com Ana como fonte, e a resposta diz "Guardei: …"
+- **THEN** a memória ganha a nota `aprendido` com Ana como fonte, e a resposta diz "Guardei: …"
 
 ### Requirement: Abrir incidente a partir da conversa
 Numa sessão do console, uma pessoa identificada SHALL poder abrir um incidente com título, serviço e severidade escolhidos. O incidente SHALL seguir o caminho normal: análise inicial, cards e war room. A sessão SHALL mostrar o link para o incidente, e a timeline do incidente SHALL registrar que ele foi aberto pelo console.

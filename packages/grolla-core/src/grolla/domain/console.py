@@ -11,6 +11,7 @@ from uuid import UUID
 
 from grolla.domain.analysis import Evaluation
 from grolla.domain.chat import ReplyStatus
+from grolla.domain.safety import Scope
 
 CHART_SIGNALS = ("taxa_de_erro", "latencia_p99", "vazao")
 MAX_CHARTS = 2
@@ -32,6 +33,7 @@ class ChartRequest:
 class ConsoleDraft:
     text: str
     charts: tuple[ChartRequest, ...] = ()
+    scope: Scope = Scope.DOMAIN
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class ConsoleMessage:
     evaluations: tuple[Evaluation, ...] = ()
     reply_status: ReplyStatus | None = None  # só na pergunta
     reply_to: int | None = None  # só na resposta
+    refusal: Scope | None = None  # só na resposta recusada
 
 
 def session_title(question: str) -> str:

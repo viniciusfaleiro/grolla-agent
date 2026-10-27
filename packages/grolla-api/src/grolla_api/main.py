@@ -23,11 +23,13 @@ def services_from(container: ApiContainer) -> Services:
         post_mortems=container.post_mortems,
         renderer=container.renderer,
         metrics=container.metrics,
+        messages=container.messages,
         impact=container.impact_policy,
         console=container.console if container.console_policy is not None else None,
         telemetry=container.telemetry,
         transcripts=container.transcripts,
         transcript_policy=container.transcript_policy,
+        chat_messages_per_hour=container.config.investigation.chat_messages_per_hour,
     )
 
 

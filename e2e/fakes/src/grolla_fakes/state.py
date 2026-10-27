@@ -35,6 +35,7 @@ class SentAlert(BaseModel):
 
 
 DEFAULT_LLM_MODE = "completa"
+DEFAULT_LLM_SCRIPT = "padrao"
 
 
 class FakesState:
@@ -48,6 +49,7 @@ class FakesState:
         self.llm_follow_up_mode = DEFAULT_LLM_MODE  # o mesmo, nos ciclos de acompanhamento
         self.llm_follow_up: dict[str, Any] = {}  # roteiro do ciclo; vazio = o padrão
         self.llm_triage: dict[str, Any] = {}  # roteiro da triagem; vazio = o padrão
+        self.llm_script = DEFAULT_LLM_SCRIPT  # roteiro de segurança do chat, console e validação
 
     def reset(self) -> None:
         self.scenario = Scenario()
@@ -59,6 +61,7 @@ class FakesState:
         self.llm_follow_up_mode = DEFAULT_LLM_MODE
         self.llm_follow_up = {}
         self.llm_triage = {}
+        self.llm_script = DEFAULT_LLM_SCRIPT
 
     def set_route(self, route: ScriptedRoute) -> None:
         """Troca (ou acrescenta) a rota de mesmo método e caminho no roteiro."""

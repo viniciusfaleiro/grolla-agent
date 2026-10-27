@@ -6,6 +6,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from grolla.domain.analysis import Evaluation
+from grolla.domain.safety import Scope
 
 AGENT_AUTHOR = "agente"
 
@@ -27,6 +28,7 @@ class ChatMessage:
     evaluations: tuple[Evaluation, ...] = ()  # só nas respostas do agente
     reply_status: ReplyStatus | None = None  # só nas perguntas das pessoas
     reply_to: int | None = None  # só nas respostas: a pergunta respondida
+    refusal: Scope | None = None  # só nas respostas recusadas: o escopo do pedido
 
 
 @dataclass(frozen=True)
@@ -34,3 +36,4 @@ class ChatDraft:
     """O que o modelo de linguagem devolve no chat."""
 
     text: str
+    scope: Scope = Scope.DOMAIN
