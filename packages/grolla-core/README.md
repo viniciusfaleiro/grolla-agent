@@ -49,6 +49,7 @@ os deployables só montam o processo.
 | **Repositório de incidentes** | Unidade de trabalho transacional, deduplicação de alertas, log de eventos e projeção | `grolla.adapters.postgres.PostgresIncidentRepository` |
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
+| **Fila dos ciclos de acompanhamento** | `CycleQueue`: candidatos (incidentes abertos com análise, ciclos, pedido antecipado e tokens), enfileiramento idempotente, reivindicação com `SKIP LOCKED`, ciclos presos e encerramento numa transação (ciclo, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresCycleQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
 | **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; trechos com embedding (pgvector) e busca híbrida em SQL (vetor + texto com RRF) no `context_for` e no `search_chunks`; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Memória com RAG (núcleo)** | `chunk_text` recorta por seção `#`/`##` (seção longa por parágrafo, nunca trecho vazio). `index_memory` indexa em lote os registros pendentes (`unindexed`), com o título no trecho do episódio e da nota, e limpa os trechos velhos; `index_documents` indexa os `.md` do serviço no estudo. `query_for` monta a `Query` com vetor (falha do embedder vira consulta só textual). Com `embedder`, `memory_for` usa a busca híbrida (determinístico primeiro, depois RRF de vetor e texto) e traz até 3 trechos de documentação, que `memory_text` mostra no bloco `<documentacao>` (`### [documento] <serviço>: <caminho> — <seção>`, texto e `Link:`); `recall` devolve trechos (`chunks_text`, bloco `<memoria>` com `## Trechos`) | `grolla.application.memory_retrieval` · `grolla.application.memory_store.memory_for` · `grolla.domain.memory.chunk_text` |
@@ -88,6 +89,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0005`: war room: IC e horários do incidente e o chat com o agente (abaixo).
 - `0006`: memória viva: registros, versões, fila do aprendizado e rodadas de estudo (abaixo).
 - `0007`: memória com RAG: extensão `vector` (pgvector) e os trechos indexados (abaixo).
+- `0008`: acompanhamento da crise: ciclos por incidente e o pedido de ciclo antecipado (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -182,6 +184,17 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `verification_of` devolve a validação em qualquer estado, ou `None` se nunca foi pedida. O
   card `root_cause` leva a validação completa no JSON da outbox; cards anteriores à 0004, sem a
   chave, voltam sem validação.
+- `PostgresCycleQueue` (`cycles`, chave `(incident_id, number)`, fila e projeção ao mesmo tempo):
+  `candidates` traz os incidentes em `OPEN_STATES` das severidades pedidas, com o fim da análise
+  inicial, os ciclos em ordem, o pedido antecipado (`follow_ups`) e os tokens da etapa
+  `follow_up`; `enqueue` devolve `False` se o número já existe (`ON CONFLICT DO NOTHING`);
+  `claim` pega o pendente mais antigo com `FOR UPDATE SKIP LOCKED`; `stuck` lista os em
+  andamento desde antes do limite; `finish` grava numa transação, só se o ciclo ainda está
+  `em_andamento`, o ciclo, os eventos, os cards na outbox, o `llm_usage` e apaga o pedido
+  antecipado (`tests/integration/test_postgres_follow_up.py`). `request_cycle` (na unidade de
+  trabalho) grava o pedido antecipado, e um pedido novo substitui o anterior; `cycles_of`
+  devolve os ciclos em ordem de número. O card leva o ciclo e o impacto no JSON da outbox;
+  cards anteriores à 0008 voltam sem eles.
 - `PostgresMemoryStore.context_for` traz o dossiê do ambiente, os dos serviços (na ordem
   pedida) e os das integrações cujo nome aparece no dossiê de um desses serviços; as notas
   ativas e não consolidadas desses assuntos; e até `EPISODE_LIMIT` episódios ativos: primeiro os
@@ -248,7 +261,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py · analysis.py · war_room.py · chat.py
   application/     clock.py · incidents.py · investigation.py · analysis.py · war_room.py · chat.py
-  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, memory, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/ · fastembed/
+  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, follow_up, memory, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/ · fastembed/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py · investigation.py (fakes) · memory.py (memória e embeddings) · builders.py
 tests/             unit/ · integration/ · contracts/
