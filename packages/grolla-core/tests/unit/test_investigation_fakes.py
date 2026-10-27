@@ -2,7 +2,11 @@
 
 import pytest
 from contracts.analysis_queue_contract import AnalysisQueueContract, VerificationQueueContract
-from contracts.change_history_contract import ChangeHistoryContract, RepositoryFilesContract
+from contracts.change_history_contract import (
+    ChangeHistoryContract,
+    RepositoryDocumentsContract,
+    RepositoryFilesContract,
+)
 from contracts.chat_queue_contract import ChatQueueContract, WarRoomRepositoryContract
 from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
 from contracts.language_model_contract import (
@@ -187,6 +191,22 @@ class TestFakeRepositoryFilesContract(RepositoryFilesContract):
             "README.md": "# authorizer-api\nAutoriza transações.",
             large_path: "x" * (READ_LIMIT + 10),
             binary_path: "\x89PNG\x00\x00",
+        }
+        return FakeChangeHistory(files={service: files})
+
+    @pytest.fixture
+    def unavailable_changes(self) -> ChangeHistory:
+        return FakeChangeHistory(unavailable=True)
+
+
+class TestFakeRepositoryDocumentsContract(RepositoryDocumentsContract):
+    @pytest.fixture
+    def changes(self, service: str) -> ChangeHistory:
+        files = {
+            "README.md": "# authorizer-api\nAutoriza transações.",
+            "docs/runbook.md": "## Pool de conexões esgotado\nReinicie as conexões presas.",
+            "docs/Arquitetura.MD": "# Arquitetura\nUm serviço só, com banco próprio e fila.",
+            "src/app.py": "print('oi')",
         }
         return FakeChangeHistory(files={service: files})
 

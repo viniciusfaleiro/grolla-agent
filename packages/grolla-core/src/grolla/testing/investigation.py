@@ -124,8 +124,9 @@ class FakeChangeHistory:
     `files` mapeia serviço → {caminho: conteúdo} do repositório.
 
     Serviço fora dos dois mapas responde NO_REPOSITORY; com `unavailable`, toda chamada levanta
-    ToolUnavailableError. Cada chamada de `recent_deploys` fica em `calls` como (serviço, since)
-    e cada `read_file` em `reads` como (serviço, caminho).
+    ToolUnavailableError. Cada chamada de `recent_deploys` fica em `calls` como (serviço, since),
+    cada `read_file` em `reads` como (serviço, caminho) e cada `documents` em `document_calls`.
+    `documents` devolve os `.md` de `files`, menores primeiro (em bytes), até os limites.
     """
 
     def __init__(
@@ -140,6 +141,7 @@ class FakeChangeHistory:
         self.unavailable = unavailable
         self.calls: list[tuple[str, datetime]] = []
         self.reads: list[tuple[str, str]] = []
+        self.document_calls: list[str] = []
 
     async def recent_deploys(self, service: str, since: datetime) -> ToolResult:
         self.calls.append((service, since))
@@ -152,7 +154,24 @@ class FakeChangeHistory:
     async def documents(
         self, service: str, max_files: int, max_bytes: int
     ) -> list[RepositoryDocument]:
-        raise NotImplementedError  # contrato da memória com RAG: implementado pelo grolla-dominio
+        self.document_calls.append(service)
+        if self.unavailable:
+            raise ToolUnavailableError("histórico de mudanças fora do ar no fake")
+        markdown = sorted(
+            (len(content.encode()), path, content)
+            for path, content in self.files.get(service, {}).items()
+            if path.casefold().endswith(".md")
+        )
+        found: list[RepositoryDocument] = []
+        total = 0
+        for size, path, content in markdown[:max_files]:
+            if total + size > max_bytes:
+                break
+            total += size
+            found.append(
+                RepositoryDocument(path, f"https://repositorio.interno/{service}/{path}", content)
+            )
+        return found
 
     async def read_file(self, service: str, path: str) -> ToolResult:
         self.reads.append((service, path))
