@@ -134,7 +134,8 @@ Duas decisões atravessam o projeto inteiro:
   o LLM só devolve hipóteses, que entram como eventos.
 
 A **[spec de produto](docs/initial-spec.md)** é a fonte de verdade do *o quê*; as specs vivas
-por capacidade ficam em [`openspec/`](openspec/).
+por capacidade ficam em [`openspec/`](openspec/). As decisões que atravessam o projeto, com o racional, estão no
+**[registro de decisões](docs/decisoes.md)**.
 
 ## 🚀 Features
 
