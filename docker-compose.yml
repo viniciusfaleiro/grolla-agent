@@ -47,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: packages/grolla-worker/Dockerfile
+      args:
+        GROLLA_RAG_MODELS: small  # o e2e usa memory.rag.size small; imagem menor e build mais rápido
     image: grolla-worker:local
     profiles: ["e2e"]
     depends_on:
