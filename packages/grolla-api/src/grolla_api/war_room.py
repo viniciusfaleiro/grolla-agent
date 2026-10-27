@@ -18,6 +18,7 @@ from grolla.domain.incidents import (
     IncidentState,
     Severity,
 )
+from grolla.domain.transcript import TRANSCRIPT_ORIGIN, HypothesisVerdict, TranscriptItemKind
 from grolla.domain.triage import AGENT_SEVERITY_REASON
 from grolla.domain.war_room import (
     AssumeCommander,
@@ -331,6 +332,11 @@ def _proposal(value: object) -> Proposal | None:
 
 def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     """O rótulo do evento; o do ciclo já diz a tendência e o resumo."""
+    build = _TRANSCRIPT_LABELS.get(event.type)
+    return build(event) if build else _event_label(event, labels)
+
+
+def _event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     data = event.data
     if event.type is EventType.CYCLE_COMPLETED:
         summary = plain_text(str(data.get("summary", "")))
@@ -380,6 +386,9 @@ def same_problem(form: Mapping[str, str]) -> bool:
 def event_detail(event: IncidentEvent) -> str:
     """Uma linha legível com o que importa do evento; vazio se não há nada a dizer."""
     data = event.data
+    transcript = _TRANSCRIPT_DETAILS.get(event.type)
+    if transcript is not None:
+        return transcript(data)
     if event.type is EventType.CYCLE_COMPLETED:
         return ""  # o rótulo já diz tudo
     if event.type is EventType.CYCLE_PARTIAL:
@@ -394,6 +403,133 @@ def event_detail(event: IncidentEvent) -> str:
         if value:
             return plain_text(str(value))
     return ""
+
+
+ITEM_LABELS = {
+    TranscriptItemKind.DECISION: "Decisão",
+    TranscriptItemKind.ACTION: "Ação",
+    TranscriptItemKind.TIME: "Horário",
+}
+VERDICT_LABELS = {
+    HypothesisVerdict.CONFIRMED: "A call confirmou",
+    HypothesisVerdict.DISCARDED: "A call descartou",
+}
+# Depois do envio, qualquer um destes diz que a leitura terminou.
+TRANSCRIPT_RESULTS = frozenset(
+    {
+        EventType.TRANSCRIPT_ITEM,
+        EventType.TRANSCRIPT_PARTICIPANTS,
+        EventType.TRANSCRIPT_HYPOTHESIS,
+        EventType.TRANSCRIPT_FAILED,
+    }
+)
+
+Data = Mapping[str, object]
+
+
+def _item_label(data: Data) -> str:
+    """'Decisão (transcrição): fazer o rollback' ou 'Ação (transcrição): … · Pedro'."""
+    try:
+        kind = ITEM_LABELS[TranscriptItemKind(str(data.get("kind")))]
+    except ValueError:
+        kind = "Item"
+    owner = data.get("owner")
+    label = f"{kind} ({TRANSCRIPT_ORIGIN}): {data.get('text', '')}"
+    return f"{label} · {owner}" if owner else label
+
+
+def _hypothesis_label(data: Data) -> str:
+    try:
+        verdict = VERDICT_LABELS[HypothesisVerdict(str(data.get("verdict")))]
+    except ValueError:
+        verdict = "A call falou da hipótese"
+    return f"{verdict}: {data.get('hypothesis', '')}"
+
+
+def _quoted(value: object) -> str:
+    return f"“{value}”" if value else ""
+
+
+def _received_detail(data: Data) -> str:
+    chars = f"{data.get('chars', 0)} caracteres"
+    return f"{chars}, cortada no limite" if data.get("truncated") is True else chars
+
+
+def _item_detail(data: Data) -> str:
+    said_at = data.get("said_at")
+    parts = (f"às {said_at}" if said_at else "", _quoted(data.get("excerpt")))
+    return " · ".join(part for part in parts if part)
+
+
+def _participants(data: Data) -> str:
+    names: object = data.get("names")
+    if not isinstance(names, list | tuple):
+        return ""
+    return ", ".join(str(name) for name in names)  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType] — vem do JSON do log
+
+
+_TRANSCRIPT_LABELS: Mapping[EventType, Callable[[IncidentEvent], str]] = {
+    EventType.TRANSCRIPT_ITEM: lambda event: _item_label(event.data),
+    EventType.TRANSCRIPT_HYPOTHESIS: lambda event: _hypothesis_label(event.data),
+    EventType.TRANSCRIPT_FAILED: lambda event: (
+        f"A transcrição falhou: {event.data.get('reason', '')}"
+    ),
+    # O autor entra no rótulo ("Transcrição enviada por Ana"): a timeline não repete o "por".
+    EventType.TRANSCRIPT_RECEIVED: lambda event: (
+        f"Transcrição enviada por {display_name(event.author)}"
+    ),
+}
+
+_TRANSCRIPT_DETAILS: Mapping[EventType, Callable[[Data], str]] = {
+    EventType.TRANSCRIPT_RECEIVED: _received_detail,
+    EventType.TRANSCRIPT_ITEM: _item_detail,
+    EventType.TRANSCRIPT_PARTICIPANTS: _participants,
+    EventType.TRANSCRIPT_HYPOTHESIS: lambda data: _quoted(data.get("excerpt")),
+    EventType.TRANSCRIPT_FAILED: lambda _: "",  # o motivo já está no rótulo
+}
+
+
+def from_transcript(event: IncidentEvent) -> bool:
+    return event.data.get("origin") == TRANSCRIPT_ORIGIN
+
+
+def failed_transcript(event: IncidentEvent) -> int | None:
+    """O id da transcrição que falhou, para o botão "Reprocessar"; None nos demais eventos."""
+    if event.type is not EventType.TRANSCRIPT_FAILED:
+        return None
+    value = event.data.get("transcript")
+    return value if isinstance(value, int) else None
+
+
+def reading_transcript(events: Iterable[IncidentEvent]) -> bool:
+    """A última transcrição enviada ainda não tem itens nem falha: o Grolla está lendo.
+
+    Os itens não levam o id da transcrição: vale o que veio depois do último envio.
+    """
+    reading = False
+    for event in events:
+        if event.type is EventType.TRANSCRIPT_RECEIVED:
+            reading = True
+        elif event.type in TRANSCRIPT_RESULTS:
+            reading = False
+    return reading
+
+
+TRANSCRIPT_EXTENSIONS = (".vtt", ".srt", ".txt")
+UTF8_MAX_BYTES = 4  # um caractere ocupa até 4 bytes em UTF-8
+
+
+def transcript_file(filename: str, content: bytes, max_chars: int) -> str:
+    """O texto do arquivo enviado; InvalidActionError se não é .vtt/.srt/.txt, se não é UTF-8
+    ou se não cabe no limite nem antes da limpeza (o corte fino é do caso de uso)."""
+    if not filename.lower().endswith(TRANSCRIPT_EXTENSIONS):
+        raise InvalidActionError("envie um arquivo .vtt, .srt ou .txt")
+    if len(content) > max_chars * UTF8_MAX_BYTES:
+        raise InvalidActionError(f"o arquivo passa do limite de {max_chars} caracteres")
+    try:
+        return content.decode("utf-8-sig")  # o .vtt do Teams costuma vir com BOM
+    except UnicodeDecodeError as error:
+        raise InvalidActionError("o arquivo precisa ser texto em UTF-8") from error
 
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*")

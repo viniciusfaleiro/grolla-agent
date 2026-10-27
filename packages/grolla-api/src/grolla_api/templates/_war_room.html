@@ -174,6 +174,31 @@
   <p class="closed-note">Incidente {{ header.state | lower }}. O chat continua aberto para perguntas ao Grolla.</p>
   {% endif %}
 
+  {% if author %}
+  {# Também depois de encerrar: a transcrição da call costuma chegar depois. #}
+  <div class="transcript-upload">
+    <button class="button-quiet" popovertarget="transcricao">Enviar transcrição</button>
+    <span class="muted">da call, para o Grolla tirar decisões, ações e horários</span>
+  </div>
+  <div id="transcricao" popover>
+    <form class="popover-form" method="post" action="/incidents/{{ incident.id }}/transcricao" enctype="multipart/form-data" hx-post="/incidents/{{ incident.id }}/transcricao" hx-encoding="multipart/form-data">
+      <h3>Enviar a transcrição da call</h3>
+      <p class="muted">O Grolla lê a call e põe na timeline as decisões, as ações com o responsável, os horários e o que a call disse das hipóteses. O incidente não muda sozinho.</p>
+      <label for="transcricao-arquivo">Arquivo .vtt, .srt ou .txt
+        <input id="transcricao-arquivo" name="arquivo" type="file" accept=".vtt,.srt,.txt">
+      </label>
+      <label for="transcricao-texto">ou cole o texto
+        <textarea id="transcricao-texto" name="texto" rows="8" placeholder="Pedro: vamos fazer o rollback agora, 03:12"></textarea>
+      </label>
+      <div id="erro-transcricao" class="error" role="alert"></div>
+      <div class="row">
+        <button type="button" class="button-quiet" popovertarget="transcricao" popovertargetaction="hide">Cancelar</button>
+        <button class="button-primary">Enviar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
   {% if verification and verification.root_cause %}
   <div class="root-cause">
     <h2>Causa raiz</h2>

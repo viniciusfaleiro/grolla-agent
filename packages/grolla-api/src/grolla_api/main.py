@@ -26,6 +26,8 @@ def services_from(container: ApiContainer) -> Services:
         impact=container.impact_policy,
         console=container.console if container.console_policy is not None else None,
         telemetry=container.telemetry,
+        transcripts=container.transcripts,
+        transcript_policy=container.transcript_policy,
     )
 
 

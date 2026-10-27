@@ -358,6 +358,14 @@ td { padding: 0.55rem 0.6rem; border-top: 1px solid var(--line); vertical-align:
 .timeline .quiet .event-label { font-weight: 400; color: var(--muted); font-size: 0.86rem; }
 .timeline .event-detail { color: var(--muted); font-size: 0.88rem; overflow-wrap: anywhere; }
 
+/* Transcrição da call: envio no war room e itens na timeline com a origem */
+.transcript-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin-top: 0.75rem; font-size: 0.9rem; }
+.popover-form input[type="file"] { width: 100%; max-width: 100%; font: inherit; color: var(--ink); }
+.timeline .event-transcript::before { background: var(--warn); }
+.timeline .event-origin { display: inline-block; margin-left: 0.25rem; padding: 0 0.45rem; border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--warn); font-size: 0.78rem; font-weight: 600; }
+.timeline .event-retry { margin-top: 0.35rem; }
+.reading-transcript { margin-bottom: 0.75rem; }
+
 /* Chat */
 .chat-panel {
   position: sticky; top: 1rem;

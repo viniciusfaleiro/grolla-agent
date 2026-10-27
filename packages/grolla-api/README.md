@@ -24,7 +24,7 @@ renderiza as páginas (Jinja2 + HTMX e um `war-room.js` pequeno, servidos como e
 e `ask` da `grolla.application.war_room`; no post mortem, aos casos de uso da
 `grolla.application.post_mortem`, lendo do `PostMortemStore` e gerando o PDF pelo `DocumentRenderer`; na página da memória, aos casos de uso da
 `grolla.application.memory`, lendo do `MemoryStore`, do `StudyQueue` e do `LearningQueue`; nas
-métricas do agente, aos casos de uso da `grolla.application.metrics`, lendo do `MetricsReader`; no console, aos casos de uso da `grolla.application.console`, lendo do `ConsoleStore` e desenhando os gráficos com a série do `Telemetry`. A api
+métricas do agente, aos casos de uso da `grolla.application.metrics`, lendo do `MetricsReader`; na transcrição da call, ao `upload_transcript` e ao `retry_transcript` da `grolla.application.transcript`, sobre o `TranscriptStore`; no console, aos casos de uso da `grolla.application.console`, lendo do `ConsoleStore` e desenhando os gráficos com a série do `Telemetry`. A api
 só lê o form e o autor e devolve o fragmento ou recarrega a página. Não tem regra de
 negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
 `grolla-core`; no startup aplica as migrações pendentes e monta as dependências pelo `bootstrap`.
@@ -58,6 +58,7 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Console de operação** | Link "Console" na barra. Conversa com o Grolla fora de incidente, com as sessões do time (título = a primeira pergunta, autor, última atividade e "virou incidente" com o link), as mais recentes primeiro, e a caixa "Nova conversa" com sugestões. `POST /console` (`texto`) cria a sessão e leva a ela (`303`, ou `204` com `HX-Redirect` no HTMX). Sem a seção `console` no YAML, a página diz "O console está desligado nesta instância" e as outras rotas do console dão `404` | `GET /console` · `POST /console` |
 | **Sessão do console** | O chat do war room (bolhas, Enter envia, rolagem, "Grolla está investigando", markdown seguro, consultas recolhidas) com polling de 3 s em `GET /console/{id}/mensagens?visto=` (`204` sem novidade). `POST /console/{id}` (`texto`) devolve a conversa; `401` "informe seu nome", `422` texto vazio, `404` sessão inexistente, erros em `#console-error`. Cada gráfico pedido pelo agente é um SVG desenhado no servidor com a série real (`chart_series` sobre `Telemetry.series`), lida ao abrir a página: linha no tempo, eixo HH:MM, valor com a unidade (% na taxa de erro, ms no p99, req/s na vazão), título "Latência p99 do pedidos-api, últimos 60 min" e legenda com o valor atual e o máximo; falha da telemetria (ou api sem telemetria) mostra "gráfico indisponível" e janela vazia, "sem dados na janela" | `GET /console/{id}` · `POST /console/{id}` · `GET /console/{id}/mensagens` |
 | **Abrir incidente pelo console** | Na sessão, "Abrir incidente" abre um popover com título (a pergunta), serviço e severidade P0–P3 (`titulo`, `servico`, `severidade`) sobre `open_incident_from_console`: o incidente segue o caminho normal e a sessão passa a mostrar o link. Sucesso: `303` (ou `204` com `HX-Redirect`) para o war room; `401`, `422` (severidade inválida ou campo recusado pelo domínio) em `#erro-incidente`, `404` sessão inexistente. A timeline do incidente diz "Aberto pelo console" | `POST /console/{id}/incidente` |
+| **Transcrição da call** | Com nome, "Enviar transcrição" (também depois de encerrar) abre um popover com arquivo `.vtt`/`.srt`/`.txt` (`arquivo`, multipart) ou o texto colado (`texto`); o arquivo vale mais que o texto. A api só lê o arquivo (UTF-8, com ou sem BOM; até `transcript.max_chars` × 4 bytes) e chama `upload_transcript`, que limpa, corta e enfileira. Sucesso: `303` (ou `204` com `HX-Redirect`) para o war room; `401` "informe seu nome", `422` (outro tipo de arquivo, maior que o limite, não UTF-8, ou texto recusado pelo caso de uso) em `#erro-transcricao`, `404` incidente inexistente. A timeline mostra "Transcrição enviada por Ana" (N caracteres, ", cortada no limite" quando cortada), "Grolla está lendo a transcrição" até chegar o resultado, cada item como "Decisão (transcrição): …", "Ação (transcrição): … · <responsável>" ou "Horário (transcrição): …" com "às 03:12 · “trecho”", "Participantes da call", "A call descartou: <hipótese>"/"A call confirmou: <hipótese>" com o trecho — todos com a marca "origem: transcrição" — e "A transcrição falhou: <motivo>" com "Reprocessar" (`retry_transcript`; `303`/`204`, `401`, `422` em `#erro-transcricao-<id>`, `404` transcrição de outro incidente) | `POST /incidents/{id}/transcricao` · `POST /incidents/{id}/transcricao/{tid}/reprocessar` |
 | **Estáticos** | HTMX 2.0.4 (sem build; `htmx-config` faz as respostas `4xx` também aparecerem), `war-room.css` (tokens de cor e tipografia, tema escuro), `war-room.js` (Enter envia, caixa cresce, rolagem) e o mascote | `GET /static/…` |
 
 ## ⚡ Como rodar
@@ -91,7 +92,8 @@ uv run pytest packages/grolla-api
 - `tests/unit/` — `create_app` recebe `Services` (checagem de banco, heartbeat e os ports), montado
   com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room, memória, post mortem, métricas e console (com os
   casos de uso reais sobre os fakes da memória, do post mortem e do console; os gráficos sobre uma telemetria roteirizada) testadas com `TestClient`,
-  sem banco e sem rede; e a recusa em subir sem `GROLLA_DATABASE_URL`.
+  sem banco e sem rede (as rotas da transcrição com `upload_transcript`/`retry_transcript` dublados
+  sobre o fake do `TranscriptStore`); e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — `/health` contra Postgres real (Testcontainers).
 
 ## 🗂 Layout
@@ -99,7 +101,7 @@ uv run pytest packages/grolla-api
 ```
 src/grolla_api/
   app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, post mortem, métricas, console, autor)
-  war_room.py  apresentação do war room: rótulos, ciclo, tendência e proposta do acompanhamento, ação em destaque, durações, markdown seguro, leitura do form e do cookie
+  war_room.py  apresentação do war room: rótulos, ciclo, tendência e proposta do acompanhamento, ação em destaque, durações, markdown seguro, rótulos da transcrição, leitura do form, do arquivo enviado e do cookie
   memory_pages.py  apresentação da memória: rótulos, assuntos por tipo, fontes com link, progresso do estudo
   post_mortem_pages.py  apresentação do post mortem: rótulos, transições por status, filtros da lista e leitura dos forms do plano
   console_pages.py  apresentação do console: versão da conversa para o polling e os gráficos em SVG (título, unidade, eixos)
