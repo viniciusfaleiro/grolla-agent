@@ -8,6 +8,7 @@ from grolla.adapters.fpdf import FpdfDocumentRenderer
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresChatQueue,
+    PostgresConsoleStore,
     PostgresCycleQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -27,6 +28,7 @@ from grolla.adapters.teams import TeamsChatNotifier
 from grolla.application.analysis import AnalysisPolicy, AnalysisQueue
 from grolla.application.chat import ChatQueue
 from grolla.application.clock import Clock
+from grolla.application.console import ConsolePolicy, ConsoleStore
 from grolla.application.follow_up import CycleQueue, FollowUpLimits, ImpactPolicy
 from grolla.application.incidents import (
     AlertIngress,
@@ -36,6 +38,7 @@ from grolla.application.incidents import (
     NotificationOutbox,
 )
 from grolla.application.investigation import (
+    STAGE_CONSOLE,
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
@@ -78,6 +81,8 @@ class ApiContainer:
     post_mortems: PostMortemStore
     renderer: DocumentRenderer
     metrics: MetricsReader
+    console: ConsoleStore
+    console_policy: ConsolePolicy | None = None  # None: console desligado
 
 
 @dataclass(frozen=True)
@@ -111,6 +116,8 @@ class WorkerContainer:
     post_mortem_policy: PostMortemPolicy = field(default_factory=PostMortemPolicy)
     triage_queue: TriageQueue | None = None  # só com `noise`
     triage_policy: TriagePolicy | None = None
+    console: ConsoleStore | None = None  # só com `console`
+    console_policy: ConsolePolicy | None = None
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -136,6 +143,8 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         post_mortems=PostgresPostMortemStore(database),
         renderer=FpdfDocumentRenderer(),
         metrics=PostgresMetricsReader(database),
+        console=PostgresConsoleStore(database),
+        console_policy=config.console_policy(),
     )
 
 
@@ -174,6 +183,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             follow_up=_model_settings(config.llm.stages.get(STAGE_FOLLOW_UP)),
             post_mortem=_model_settings(config.llm.stages.get(STAGE_POST_MORTEM)),
             triage=_model_settings(config.llm.stages.get(STAGE_TRIAGE)),
+            console=_model_settings(config.llm.stages.get(STAGE_CONSOLE)),
         ),
         telemetry=SignozTelemetry(
             config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
@@ -204,6 +214,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         post_mortem_policy=config.post_mortem_policy(),
         triage_queue=None if config.noise is None else PostgresTriageQueue(database),
         triage_policy=config.triage_policy(),
+        console=None if config.console is None else PostgresConsoleStore(database),
+        console_policy=config.console_policy(),
     )
 
 

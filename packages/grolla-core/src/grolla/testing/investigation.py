@@ -40,6 +40,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
+from grolla.domain.console import ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, Trend
 from grolla.domain.incidents import IncidentState
 from grolla.domain.memory import (
@@ -115,6 +116,11 @@ class FakeTelemetry:
     async def active_services(self, since: datetime) -> list[str]:
         self._called("active_services", {"since": since})
         return list(self.services)
+
+    async def series(
+        self, service: str, signal: Signal, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]:
+        raise NotImplementedError  # contrato do console: implementado pelo grolla-dominio
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
         self._called("dependencies", {"service": service, "start": start, "end": end})
@@ -488,6 +494,11 @@ class ScriptedLanguageModel:
         if self.triage_error is not None:
             raise self.triage_error
         return self.triage_draft
+
+    async def consult(
+        self, context: str, question: str, toolbox: Toolbox, budget: TokenBudget
+    ) -> ConsoleDraft:
+        raise NotImplementedError  # contrato do console: implementado pelo grolla-dominio
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)

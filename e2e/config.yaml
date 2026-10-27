@@ -59,3 +59,8 @@ impact:
 # Menos ruído: triagem do incidente novo (sugestão de junção e severidade sugerida).
 noise:
   window_minutes: 30
+
+# Console de operação: conversas com o agente fora de incidente.
+console:
+  max_tokens: 60000
+  daily_max_tokens: 2000000

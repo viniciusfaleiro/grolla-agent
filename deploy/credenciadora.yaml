@@ -87,3 +87,9 @@ impact:
 # o time) e sobe a severidade quando nenhuma regra casou (nunca baixa).
 noise:
   window_minutes: 30
+
+# ---- Console de operação (S9) ----
+# Conversas com o agente fora de incidente, com gráficos; prioridade menor que os incidentes.
+console:
+  max_tokens: 60000          # por resposta
+  daily_max_tokens: 500000   # teto do dia

@@ -2,10 +2,10 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `domain.console`, `decide_manual` e `INCIDENT_OPENED_MANUALLY` com `NotImplementedError`.
-- [ ] 0.2 `application.console` (`ConsoleStore`, `ConsolePolicy` e casos de uso), `Telemetry.series`, `LanguageModel.consult`, `STAGE_CONSOLE`, `CONSOLE_PROMPT`/`console_text`.
-- [ ] 0.3 Stubs no Postgres, no SigNoz, no Anthropic e nos fakes; migração 0012; config `console`; containers e a fila `console` no worker.
-- [ ] 0.4 `make check` verde e commit de contrato.
+- [x] 0.1 `domain.console`, `decide_manual` e `INCIDENT_OPENED_MANUALLY` com `NotImplementedError`.
+- [x] 0.2 `application.console` (`ConsoleStore`, `ConsolePolicy` e casos de uso), `Telemetry.series`, `LanguageModel.consult`, `STAGE_CONSOLE`, `CONSOLE_PROMPT`/`console_text`.
+- [x] 0.3 Stubs no Postgres, no SigNoz, no Anthropic e nos fakes; migração 0012; config `console`; containers e a fila `console` no worker.
+- [x] 0.4 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
 

@@ -122,6 +122,7 @@ class EventType(StrEnum):
     AGENT_PROPOSAL = "agent_proposal"
     SEEN_BEFORE_ANSWERED = "seen_before_answered"  # data: {"past": <id>, "same": bool}
     TRIAGE_COMPLETED = "triage_completed"
+    INCIDENT_OPENED_MANUALLY = "incident_opened_manually"  # data: {"origin": "console", ...}
     MERGE_SUGGESTED = "merge_suggested"  # data: {"other": <id>, "reason": str}
     INCIDENT_MERGED = "incident_merged"  # no principal; data: {"merged": <id>}
     MERGED_INTO = "merged_into"  # no juntado; data: {"into": <id>}
@@ -368,3 +369,23 @@ def decision_with_cards(
         for n in notifications
     ]
     return Decision(incident, (*events, *queued), notifications)
+
+
+def decide_manual(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
+    *,
+    title: str,
+    service: str,
+    severity: Severity,
+    author: str,
+    origin: str,
+    now: datetime,
+    page_url: Callable[[UUID], str],
+    new_id: Callable[[], UUID],
+) -> Decision:
+    """Incidente aberto por uma pessoa, sem alerta: nasce no estado da severidade, com o evento
+    INCIDENT_OPENED_MANUALLY (autor e origem), o card INCIDENT_OPENED e o pedido de análise.
+    Levanta ValueError para título, serviço ou autor vazios.
+
+    Contrato do console de operação: o corpo é do grolla-dominio.
+    """
+    raise NotImplementedError

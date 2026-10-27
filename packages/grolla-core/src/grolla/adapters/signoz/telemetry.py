@@ -183,6 +183,11 @@ class SignozTelemetry:
         services = await self._pages("signoz_list_services", window, _ServicePage)
         return list(dict.fromkeys(s.service_name for s in services))
 
+    async def series(
+        self, service: str, signal: Signal, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]:
+        raise NotImplementedError  # contrato do console: do grolla-integracoes
+
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
         arguments = {
             "service": service,

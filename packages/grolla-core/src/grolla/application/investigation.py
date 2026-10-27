@@ -15,6 +15,7 @@ from grolla.application.clock import Clock
 from grolla.application.memory_store import MemoryStore, TextEmbedder, query_for
 from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.chat import ChatDraft
+from grolla.domain.console import ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft
 from grolla.domain.incidents import Alert, Incident, IncidentEvent
 from grolla.domain.memory import (
@@ -49,6 +50,7 @@ STAGE_STUDY = "study"
 STAGE_FOLLOW_UP = "follow_up"
 STAGE_POST_MORTEM = "post_mortem"
 STAGE_TRIAGE = "triage"
+STAGE_CONSOLE = "console"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -101,6 +103,14 @@ class Telemetry(Protocol):
 
     async def active_services(self, since: datetime) -> list[str]:
         """Serviços com traces desde `since`; levanta ToolUnavailableError."""
+        ...
+
+    async def series(
+        self, service: str, signal: Signal, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]:
+        """Os pontos do sinal na janela (para os gráficos do console); levanta
+        ToolUnavailableError.
+        """
         ...
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
@@ -790,6 +800,14 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def consult(
+        self, context: str, question: str, toolbox: Toolbox, budget: TokenBudget
+    ) -> ConsoleDraft:
+        """Resposta do console, podendo investigar e pedir gráficos; levanta
+        LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         """Escreve o episódio e reescreve os dossiês do incidente encerrado, sem ferramentas;
         levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
@@ -1417,3 +1435,14 @@ def triage_text(brief: TriageBrief) -> str:
     lines += _memory_lines(brief.memory)
     lines += ["", "Faça a triagem."]
     return "\n".join(lines)
+
+
+# ---- Console de operação: prompt e mensagem da etapa `console` ----
+# Contrato do console de operação: o texto e o corpo são do grolla-dominio.
+
+CONSOLE_PROMPT = ""
+
+
+def console_text(context: str, question: str) -> str:
+    """Mensagem do console: as últimas mensagens da sessão e a pergunta."""
+    raise NotImplementedError
