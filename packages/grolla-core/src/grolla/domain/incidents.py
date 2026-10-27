@@ -371,6 +371,9 @@ def decision_with_cards(
     return Decision(incident, (*events, *queued), notifications)
 
 
+MANUAL_SUMMARY = "Aberto manualmente"  # o resumo do card do incidente aberto por uma pessoa
+
+
 def decide_manual(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
     *,
     title: str,
@@ -385,7 +388,41 @@ def decide_manual(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
     """Incidente aberto por uma pessoa, sem alerta: nasce no estado da severidade, com o evento
     INCIDENT_OPENED_MANUALLY (autor e origem), o card INCIDENT_OPENED e o pedido de análise.
     Levanta ValueError para título, serviço ou autor vazios.
-
-    Contrato do console de operação: o corpo é do grolla-dominio.
     """
-    raise NotImplementedError
+    title, service, author = title.strip(), service.strip(), author.strip()
+    if not title:
+        raise ValueError("informe o título")
+    if not service:
+        raise ValueError("informe o serviço")
+    if not author:
+        raise ValueError("informe o seu nome")
+    incident = Incident(
+        id=new_id(),
+        title=title,
+        state=IncidentState.DETECTED,
+        severity=severity,
+        services=(service,),
+        detected_at=now,
+        last_alert_at=now,
+        firing=frozenset(),
+    )
+    opened = {"origin": origin, "author": author, "severity": severity.value}
+    events = [IncidentEvent(incident.id, now, EventType.INCIDENT_OPENED_MANUALLY, opened, author)]
+    target = state_for(severity)  # o mesmo estado inicial do incidente aberto por alerta
+    if target != incident.state:
+        change = {"from": incident.state.value, "to": target.value}
+        events.append(_event(incident, now, EventType.STATE_CHANGED, change))
+        incident = replace(incident, state=target)
+    events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
+    card = Notification(
+        kind=NotificationKind.INCIDENT_OPENED,
+        incident_id=incident.id,
+        title=title,
+        severity=severity,
+        services=incident.services,
+        summary=f"{MANUAL_SUMMARY} por {author} ({origin})",
+        evidence="",
+        source_url=None,
+        page_url=page_url(incident.id),
+    )
+    return replace(decision_with_cards(incident, events, (card,), now), request_analysis=True)

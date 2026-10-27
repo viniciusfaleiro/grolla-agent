@@ -6,14 +6,14 @@ import procrastinate
 from grolla.application.memory import ensure_initial_study
 from grolla.bootstrap import ConfigError, WorkerContainer, prepare_worker
 
-from grolla_worker.app import ANALYSIS_QUEUE, DEFAULT_QUEUE, build_app
+from grolla_worker.app import ANALYSIS_QUEUE, CONSOLE_QUEUE, DEFAULT_QUEUE, build_app
 
 
 async def run_workers(app: procrastinate.App, max_parallel: int) -> None:
-    """Os dois laços do worker até SIGINT/SIGTERM, que encerra os dois com graça.
+    """Os três laços do worker (um por fila) até SIGINT/SIGTERM, que encerra todos com graça.
 
-    Os sinais ficam aqui, não no procrastinate: com dois laços, cada um instalaria o seu e só o
-    último receberia o aviso.
+    Os sinais ficam aqui, não no procrastinate: com vários laços, cada um instalaria o seu e só
+    o último receberia o aviso.
     """
     async with asyncio.TaskGroup() as group:
         workers = [
@@ -25,7 +25,11 @@ async def run_workers(app: procrastinate.App, max_parallel: int) -> None:
                     install_signal_handlers=False,
                 )
             )
-            for queue, concurrency in ((DEFAULT_QUEUE, 1), (ANALYSIS_QUEUE, max_parallel))
+            for queue, concurrency in (
+                (DEFAULT_QUEUE, 1),
+                (ANALYSIS_QUEUE, max_parallel),
+                (CONSOLE_QUEUE, 1),  # prioridade menor: uma resposta do console por vez
+            )
         ]
 
         def stop() -> None:
