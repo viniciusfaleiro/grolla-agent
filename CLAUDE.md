@@ -53,7 +53,9 @@ haver conta no Spike.sh. `menos-ruido` (S8): triagem do incidente novo, sugestã
 "Juntar com…", severidade sugerida quando nenhuma regra casa. `console-de-operacao` (S9): conversa
 com o agente fora de incidente em `/console`, gráficos desenhados no servidor e "Abrir incidente"
 pela conversa. `transcricao-de-call` (S10): transcrição enviada no war room vira decisões, ações,
-horários e hipóteses na timeline e no post mortem. Próximo: S11 (AWS completa) — ver
+horários e hipóteses na timeline e no post mortem. `aws-completa` (S11): ECS/EKS, AWS Health,
+cotas e várias contas por role somente leitura. Pendente: S4 (on-call), que espera a conta no
+Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)

@@ -54,6 +54,7 @@ STAGE_TRIAGE = "triage"
 STAGE_CONSOLE = "console"
 STAGE_TRANSCRIPT = "transcript"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
+HEALTH_UNAVAILABLE = "eventos da nuvem indisponíveis no plano de suporte desta conta"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
@@ -209,6 +210,18 @@ class CloudInventory(Protocol):
         """
         ...
 
+    async def health(self, service: str) -> ToolResult:
+        """Eventos abertos do provedor que afetam os recursos do serviço ou as regiões; sem o
+        plano que dá acesso a eles, o resumo é HEALTH_UNAVAILABLE (não é erro).
+        """
+        ...
+
+    async def quotas(self, service: str) -> ToolResult:
+        """Uso e limite das cotas que mais derrubam serviço, nas contas e regiões configuradas,
+        com as perto do limite primeiro.
+        """
+        ...
+
 
 class NoCloudInventory:
     """Instância sem a seção `cloud`: as ferramentas de nuvem respondem NO_CLOUD, sem erro."""
@@ -223,6 +236,12 @@ class NoCloudInventory:
         return ToolResult(NO_CLOUD, None)
 
     async def overview(self) -> ToolResult:
+        return ToolResult(NO_CLOUD, None)
+
+    async def health(self, service: str) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+    async def quotas(self, service: str) -> ToolResult:  # noqa: ARG002
         return ToolResult(NO_CLOUD, None)
 
 
@@ -295,6 +314,17 @@ TOOL_SPECS = (
         "cloud_alarms",
         "Alarmes de monitoramento da nuvem em estado de alarme ligados aos recursos do serviço, "
         "com nome, motivo e desde quando.",
+    ),
+    _tool(
+        "cloud_health",
+        "Eventos abertos ou recentes do próprio provedor de nuvem nas regiões do serviço "
+        "(falha ou manutenção de um serviço da nuvem), com o serviço da nuvem, o tipo, o início "
+        "e o estado.",
+    ),
+    _tool(
+        "cloud_quotas",
+        "Uso contra o limite das cotas da nuvem que costumam derrubar serviço (instâncias de "
+        "banco, vCPUs de máquinas, balanceadores), destacando as que passam de 80%.",
     ),
 )
 
@@ -547,6 +577,14 @@ class Toolbox:
             "cloud_alarms": (
                 f"alarmes da nuvem de {service}",
                 lambda: self._cloud.alarms(service),
+            ),
+            "cloud_health": (
+                f"eventos do provedor de nuvem para {service}",
+                lambda: self._cloud.health(service),
+            ),
+            "cloud_quotas": (
+                f"cotas da nuvem de {service}",
+                lambda: self._cloud.quotas(service),
             ),
         }
         return only_service[name]
@@ -856,7 +894,10 @@ Se uma dependência aparecer como suspeita, você pode repetir os passos para el
 consultas que ajudam a decidir; não repita a mesma consulta.
 5. Infraestrutura: quando logs ou traces apontarem para uma dependência de infraestrutura \
 (banco, fila, rede), consulte `cloud_resources` e `cloud_changes` do serviço para ver o estado \
-dos recursos de nuvem e quem mudou o quê; `cloud_alarms` mostra os alarmes ativos.
+dos recursos de nuvem e quem mudou o quê; `cloud_alarms` mostra os alarmes ativos. Quando \
+várias coisas caem juntas ou a região parece afetada, consulte `cloud_health` (eventos do \
+próprio provedor). Quando o erro fala em limite, throttling ou capacidade, ou o serviço não \
+escala, consulte `cloud_quotas`.
 
 Só proponha rollback quando o problema começou depois do deploy, e diga a relação de horário \
 (por exemplo, "erros a partir de 10:02, deploy às 09:58"). Deploy depois do início do problema \
@@ -907,8 +948,11 @@ prometa executar, nenhuma ação no ambiente; quem decide e age é o time.
 Para cada hipótese da análise inicial:
 1. Busque evidência específica que a confirme ou a rejeite, com as ferramentas \
 (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, `cloud_resources`, \
-`cloud_changes`, `cloud_alarms`). Compare horários: o início do problema, cada deploy e cada \
-mudança nos recursos.
+`cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`). Compare horários: o início do \
+problema, cada deploy e cada mudança nos recursos. `cloud_health` confirma ou descarta um \
+evento do provedor quando várias coisas caem juntas ou a região parece afetada; `cloud_quotas`, \
+uma cota estourada quando o erro fala em limite, throttling ou capacidade, ou o serviço não \
+escala.
 2. Dê o veredito: confirmada, rejeitada ou inconclusiva, com a justificativa em uma ou duas \
 frases e ao menos uma evidência que uma ferramenta mostrou (números, horários, versões, \
 mensagens), com o link que a ferramenta devolveu quando houver.
@@ -964,8 +1008,8 @@ Não escreva:
 Consultas:
 - Quando a pergunta pede um dado (estado atual, se algo voltou, o que os logs mostram), \
 consulte as ferramentas (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, \
-`cloud_resources`, `cloud_changes`, `cloud_alarms`) antes de responder. Não responda de memória \
-o que uma consulta pode mostrar agora.
+`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`) antes de \
+responder. Não responda de memória o que uma consulta pode mostrar agora.
 - Faça só as consultas necessárias para responder, em geral de 1 a 3.
 - Nunca afirme sem evidência. Não invente dados, links nem consultas que você não fez.
 - Se uma ferramenta responder "não foi possível consultar", siga com as outras.
@@ -1472,8 +1516,8 @@ parágrafos longos.
 Consultas:
 - Quando a pergunta pede um dado (estado atual, o que mudou, o que os logs mostram), consulte \
 as ferramentas (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, `read_file`, \
-`cloud_resources`, `cloud_changes`, `cloud_alarms`) antes de responder. Não responda de memória \
-o que uma consulta pode mostrar agora.
+`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`) antes de \
+responder. Não responda de memória o que uma consulta pode mostrar agora.
 - Faça só as consultas necessárias para responder, em geral de 1 a 3.
 - Nunca afirme sem evidência. Não invente dados, links nem consultas que você não fez.
 - Se uma ferramenta responder "não foi possível consultar", siga com as outras.

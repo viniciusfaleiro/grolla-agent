@@ -11,6 +11,7 @@ from datetime import timedelta
 
 import pytest
 from grolla.application.investigation import (
+    HEALTH_UNAVAILABLE,
     NO_CLOUD_RESOURCES,
     SHARED_RESOURCES,
     CloudInventory,
@@ -110,3 +111,64 @@ class CloudOverviewContract:
     ) -> None:
         with pytest.raises(ToolUnavailableError):
             await unavailable_cloud.overview()
+
+
+class CloudHealthQuotasContract:
+    """`health` e `quotas`: eventos do provedor e cotas perto do limite.
+
+    Fica fora de `CloudInventoryContract` para o adapter ganhar a suíte quando implementar. O
+    adapter sobrescreve `cloud`, `unavailable_cloud`, `cloud_without_health_plan` (conta sem o
+    plano que libera os eventos do provedor) e, se quiser, `service` e `unknown_service`.
+    """
+
+    @pytest.fixture
+    def cloud(self) -> CloudInventory:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def cloud_without_health_plan(self) -> CloudInventory:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def service(self) -> str:
+        return "pedidos-api"
+
+    @pytest.fixture
+    def unknown_service(self) -> str:
+        return "servico-sem-recursos"
+
+    async def test_health_returns_a_compact_summary(
+        self, cloud: CloudInventory, service: str
+    ) -> None:
+        assert_compact(await cloud.health(service))
+
+    async def test_quotas_returns_a_compact_summary(
+        self, cloud: CloudInventory, service: str
+    ) -> None:
+        assert_compact(await cloud.quotas(service))
+
+    async def test_service_without_resources_is_an_answer_not_an_error(
+        self, cloud: CloudInventory, unknown_service: str
+    ) -> None:
+        assert_compact(await cloud.health(unknown_service))
+        assert_compact(await cloud.quotas(unknown_service))
+
+    async def test_health_without_the_plan_is_an_answer_not_an_error(
+        self, cloud_without_health_plan: CloudInventory, service: str
+    ) -> None:
+        result = await cloud_without_health_plan.health(service)
+
+        assert_compact(result)
+        assert HEALTH_UNAVAILABLE in result.summary
+
+    async def test_unavailable_cloud_raises_tool_unavailable(
+        self, unavailable_cloud: CloudInventory, service: str
+    ) -> None:
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_cloud.health(service)
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_cloud.quotas(service)

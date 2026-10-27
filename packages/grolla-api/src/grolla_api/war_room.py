@@ -88,6 +88,8 @@ TOOL_LABELS = {
     "cloud_resources": "Nuvem",
     "cloud_changes": "Nuvem",
     "cloud_alarms": "Nuvem",
+    "cloud_health": "Nuvem",
+    "cloud_quotas": "Nuvem",
 }
 
 # Enfileirar um card não interessa a quem conduz; a entrega aparece, discreta.

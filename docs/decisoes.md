@@ -45,3 +45,8 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 38 | 27/10 | S10 | O que a call diz das hipóteses é só evento; não muda análise nem estado | "O núcleo decide": quem descarta uma hipótese no war room é a pessoa |
 | 39 | 27/10 | S10 | Transcrição longa é cortada no limite e marcada, não recusada | Na crise, metade da call vale mais que nada; o corte aparece na timeline |
 | 40 | 27/10 | S10 | Transcrição vai ao modelo entre `<transcricao>` como dado, com defesa explícita no prompt | A fala é texto de terceiros: prompt injection não pode mudar o que o agente faz |
+| 41 | 27/10 | S11 | Lista fechada de cotas no adapter (instâncias e armazenamento de RDS, vCPUs sob demanda, ALBs) | Poucas cotas derrubam serviço; listar todas é ruído e custo de API |
+| 42 | 27/10 | S11 | AWS Health tolerante ao plano: sem Business/Enterprise, a resposta diz "indisponível" e a investigação segue | A conta do laboratório e muitas contas reais não têm o plano |
+| 43 | 27/10 | S11 | Várias contas por STS AssumeRole numa role `grolla-somente-leitura`, com cache da credencial e falha isolada por conta | Nenhuma credencial no YAML; uma conta quebrada não cega o agente nas outras |
+| 44 | 27/10 | S11 | Conta citada em cada item só quando há mais de uma conta | Com uma conta, as respostas e os evals de antes não mudam |
+| 45 | 27/10 | S11 | Teste de várias contas no laboratório sem criar identidade IAM; a role de verdade fica para o time | Criar usuário e chave na conta é decisão do dono da conta; o isolamento de falha foi provado com uma role inexistente |

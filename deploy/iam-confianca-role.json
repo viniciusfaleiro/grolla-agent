@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GrollaContaPrincipal",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::<CONTA_PRINCIPAL>:root" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}

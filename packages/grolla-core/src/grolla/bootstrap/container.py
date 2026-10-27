@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
-from grolla.adapters.aws import AwsCloudInventory
+from grolla.adapters.aws import AwsCloudInventory, CloudAccount
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.fastembed import FastembedTextEmbedder
 from grolla.adapters.fpdf import FpdfDocumentRenderer
@@ -215,7 +215,14 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         ),
         cloud=NoCloudInventory()
         if config.cloud is None
-        else AwsCloudInventory(config.cloud.regions, config.cloud.resource_map),
+        else AwsCloudInventory(
+            config.cloud.regions,
+            config.cloud.resource_map,
+            accounts=[
+                CloudAccount(account.name, account.role_arn, tuple(account.regions))
+                for account in config.cloud.accounts
+            ],
+        ),
         analysis=config.analysis_policy(),
         memory=PostgresMemoryStore(database),
         learning_queue=PostgresLearningQueue(database),
