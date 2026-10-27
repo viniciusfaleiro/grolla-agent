@@ -137,6 +137,17 @@ async def test_other_actions_do_not_ask_for_the_learning(world: World) -> None:
     await world.act(incident_id, AssumeCommander())
 
     assert world.repository.learning_requests == {}
+    assert world.repository.post_mortem_requests == {}
+
+
+async def test_resolving_asks_for_the_post_mortem_and_discarding_does_not(world: World) -> None:
+    resolved = await world.open_incident(IncidentState.HANDLING)
+    discarded = await world.open_incident(IncidentState.HANDLING)
+
+    await world.act(resolved, Resolve("rollback do build 20261026.1"))
+    await world.act(discarded, DiscardIncident("alarme falso"))
+
+    assert world.repository.post_mortem_requests == {resolved: world.clock.now()}
 
 
 async def test_question_is_recorded_pending_with_its_event(world: World) -> None:
