@@ -25,6 +25,6 @@ Quando o incidente abriu pela severidade padrão (nenhuma regra casou), o modelo
 - **WHEN** um alerta sem regra abre um P3 e o modelo sugere P1 porque o serviço é o autorizador
 - **THEN** o incidente passa a P1 com "sugerida pelo agente: …" na timeline
 
-#### Scenario: Sugestão mais baixa
-- **WHEN** o modelo sugere P4 para um incidente P3
-- **THEN** a severidade continua P3
+#### Scenario: Severidade de regra não muda
+- **WHEN** um incidente abriu P2 por uma regra e o modelo sugere P3
+- **THEN** a severidade continua P2: a sugestão só vale quando nenhuma regra casou, e nunca baixa
