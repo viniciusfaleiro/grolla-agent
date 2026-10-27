@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from grolla_fakes.azure_devops import AzureDevOpsFake
 from grolla_fakes.console import ApiTarget, console_router
+from grolla_fakes.kubernetes import KubernetesFake
 from grolla_fakes.llm import llm_router
 from grolla_fakes.signoz_mcp import SignozFake
 from grolla_fakes.state import FakesState, RecordedRequest, Scenario
@@ -24,16 +25,22 @@ def create_app(api: ApiTarget | None = None) -> FastAPI:
     state = FakesState()
     app.include_router(console_router(state, api or ApiTarget.from_env()))
     app.include_router(llm_router(state))
-    signoz, azure_devops = SignozFake(state), AzureDevOpsFake(state)
+    signoz, azure_devops, kubernetes = (
+        SignozFake(state),
+        AzureDevOpsFake(state),
+        KubernetesFake(state),
+    )
     app.include_router(signoz.control_router())
     app.mount("/signoz", signoz.asgi)  # o servidor MCP atende em /signoz/mcp
     app.include_router(azure_devops.router())
+    app.include_router(kubernetes.router())
 
     @app.post(f"{CONTROL_PREFIX}/reset", status_code=204)
     async def reset() -> None:  # pyright: ignore[reportUnusedFunction]
         state.reset()
         signoz.reset()
         azure_devops.reset()
+        kubernetes.reset()
 
     @app.post(f"{CONTROL_PREFIX}/scenario", status_code=204)
     async def load_scenario(scenario: Scenario) -> None:  # pyright: ignore[reportUnusedFunction]

@@ -8,10 +8,14 @@ opcionais e um não mexe nos outros; o padrão é `completa`, e o `/_control/res
 padrão.
 
 - `completa`: sem resultados de ferramenta na conversa, pede ferramentas (tool_use): na análise
-  inicial `query_metric`, `recent_deploys` e `search_logs`; na validação `query_metric` e
-  `recent_deploys`. Com os resultados, devolve o JSON final citando trechos deles. Na validação,
-  a primeira hipótese da análise sai confirmada, a segunda rejeitada, a causa raiz cita o
-  serviço e o plano é "Fazer rollback do <serviço> para o deploy anterior". No chat, pede
+  inicial `query_metric`, `recent_deploys`, `search_logs`, `cluster_state` e `cluster_changes`;
+  na validação `query_metric`, `recent_deploys` e `cluster_changes` (só as que vieram em `tools`).
+  Com os resultados, devolve o JSON final citando trechos deles. Na validação, a primeira
+  hipótese da análise sai confirmada, a segunda rejeitada, a causa raiz cita o serviço e o plano
+  é "Fazer rollback do <serviço> para o deploy anterior". Se o resultado de `cluster_changes` tem
+  linhas "alterado por", a análise abre com a hipótese "Mudança no cluster fora do pipeline"
+  (evidência: essas linhas) e a validação dá como causa raiz essas linhas inteiras, com o plano
+  "Reverter <chave> no ConfigMap <nome>" (da primeira linha de ConfigMap). No chat, pede
   `search_logs` e responde em português citando os logs e o começo da pergunta (o texto depois
   do último "Pergunta:" da mensagem);
 - `inconclusiva` (só na validação): o mesmo roteiro, mas todas as hipóteses inconclusivas, sem
@@ -99,8 +103,11 @@ from pydantic import BaseModel
 from grolla_fakes.state import FakesState, RecordedRequest
 
 MESSAGES_PATH = "/anthropic/v1/messages"
-FIRST_TOOLS = ("query_metric", "recent_deploys", "search_logs")
-VERIFICATION_TOOLS = ("query_metric", "recent_deploys")
+FIRST_TOOLS = ("query_metric", "recent_deploys", "search_logs", "cluster_state", "cluster_changes")
+VERIFICATION_TOOLS = ("query_metric", "recent_deploys", "cluster_changes")
+CLUSTER_HYPOTHESIS = "Mudança no cluster fora do pipeline"
+_CHANGED = " alterado por "  # linha de `cluster_changes` com o gerenciador da mudança
+_CONFIG_CHANGE = re.compile(r"ConfigMap (\S+) alterado por \S+(?: no cluster \S+)?: ([^=,( ]+)")
 CHAT_TOOLS = ("search_logs",)
 FOLLOW_UP_TOOLS = ("query_metric",)
 CONSOLE_TOOLS = ("query_metric",)
@@ -700,7 +707,22 @@ def _result_text(block: dict[str, Any]) -> str:
     return content if isinstance(content, str) else " ".join(_texts(content))
 
 
+def _cluster_changes(results: dict[str, str]) -> list[str]:
+    """As linhas de `cluster_changes` com uma mudança e o gerenciador dela."""
+    return [line for line in results.get("cluster_changes", "").splitlines() if _CHANGED in line]
+
+
 def _draft(results: dict[str, str]) -> dict[str, Any]:
+    draft = _deploy_draft(results)
+    changes = _cluster_changes(results)
+    if changes:
+        evidence = [{"text": "; ".join(changes), "url": None}]
+        cluster = {"title": CLUSTER_HYPOTHESIS, "confidence": 0.8, "evidence": evidence}
+        draft["hypotheses"] = [cluster, *draft["hypotheses"]]
+    return draft
+
+
+def _deploy_draft(results: dict[str, str]) -> dict[str, Any]:
     deploys = results.get("recent_deploys", "sem dados de deploy")
     metric = results.get("query_metric", "sem dados de métrica")
     logs = results.get("search_logs", "sem logs")
@@ -736,6 +758,9 @@ def _evidence(results: dict[str, str]) -> list[dict[str, Any]]:
 
 
 def _confirmed(hypotheses: list[str], results: dict[str, str], service: str) -> dict[str, Any]:
+    changes = _cluster_changes(results)
+    if changes:
+        return _cluster_confirmed(hypotheses, results, service, changes)
     first, *others = hypotheses
     verdicts = [
         {
@@ -762,6 +787,51 @@ def _confirmed(hypotheses: list[str], results: dict[str, str], service: str) -> 
                 "action": f"Fazer rollback do {service} para o deploy anterior",
                 "target": service,
                 "expected": "A taxa de erro volta ao patamar anterior ao deploy",
+                "link": None,
+            }
+        ],
+        "missing": "",
+    }
+
+
+def _cluster_confirmed(
+    hypotheses: list[str], results: dict[str, str], service: str, changes: list[str]
+) -> dict[str, Any]:
+    """A mudança no cluster explica o sintoma: causa raiz com o horário e a ferramenta."""
+    first, *others = hypotheses
+    found = "; ".join(changes)
+    config = next((m for line in changes if (m := _CONFIG_CHANGE.search(line))), None)
+    action = (
+        f"Reverter {config.group(2)} no ConfigMap {config.group(1)}"
+        if config
+        else f"Reverter a mudança no cluster do {service}"
+    )
+    metric = {"text": _excerpt(results.get("query_metric", "")), "url": None}
+    verdicts = [
+        {
+            "hypothesis": first,
+            "verdict": "confirmada",
+            "reasoning": "A mudança no cluster veio logo antes dos erros, sem deploy no pipeline.",
+            "evidence": [{"text": found, "url": None}, metric],
+        },
+        *(
+            {
+                "hypothesis": title,
+                "verdict": "rejeitada",
+                "reasoning": "A mudança no cluster explica o sintoma melhor que esta hipótese.",
+                "evidence": [metric],
+            }
+            for title in others
+        ),
+    ]
+    return {
+        "verdicts": verdicts,
+        "root_cause": f"{CLUSTER_HYPOTHESIS} no {service}: {found}",
+        "actions": [
+            {
+                "action": action,
+                "target": service,
+                "expected": "A taxa de erro volta ao patamar anterior à mudança",
                 "link": None,
             }
         ],
