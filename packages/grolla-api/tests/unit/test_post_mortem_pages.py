@@ -267,7 +267,7 @@ async def test_editing_a_section_reloads_and_keeps_the_previous_version(
     assert pm.status is PostMortemStatus.REVIEW
     versions = ana.get(f"{url}/versoes").text
     assert "Resumo executivo: texto do agente." in versions
-    assert "Grolla" in versions
+    assert "</strong>, por Ana" in versions
 
 
 async def test_plain_form_edit_redirects_with_303(
