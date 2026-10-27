@@ -1,0 +1,531 @@
+[
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "pedidos-api",
+      "namespace": "pagamentos",
+      "uid": "5b1f0c1e-2f6a-4c6e-9a51-0d4b7f3e9a01",
+      "resourceVersion": "48211",
+      "generation": 6,
+      "creationTimestamp": "2026-10-20T10:00:00Z",
+      "labels": { "app.kubernetes.io/name": "pedidos-api" },
+      "annotations": { "deployment.kubernetes.io/revision": "5" },
+      "managedFields": [
+        {
+          "manager": "kubectl-client-side-apply",
+          "operation": "Update",
+          "apiVersion": "apps/v1",
+          "time": "2026-10-20T10:00:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": {
+            "f:metadata": { "f:labels": { ".": {}, "f:app.kubernetes.io/name": {} } },
+            "f:spec": {
+              "f:selector": {},
+              "f:template": { "f:metadata": { "f:labels": {} }, "f:spec": { "f:volumes": {} } }
+            }
+          }
+        },
+        {
+          "manager": "kubectl-set",
+          "operation": "Update",
+          "apiVersion": "apps/v1",
+          "time": "2026-10-27T02:50:03Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": {
+            "f:spec": {
+              "f:template": {
+                "f:spec": {
+                  "f:containers": {
+                    "k:{\"name\":\"app\"}": {
+                      "f:env": {},
+                      "f:resources": { "f:limits": { "f:memory": {} } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "manager": "kubectl-scale",
+          "operation": "Update",
+          "apiVersion": "apps/v1",
+          "time": "2026-10-27T03:00:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:spec": { "f:replicas": {} } },
+          "subresource": "scale"
+        },
+        {
+          "manager": "k3s",
+          "operation": "Update",
+          "apiVersion": "apps/v1",
+          "time": "2026-10-27T03:06:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:status": { "f:readyReplicas": {}, "f:replicas": {} } },
+          "subresource": "status"
+        }
+      ]
+    },
+    "spec": {
+      "replicas": 3,
+      "selector": { "matchLabels": { "app.kubernetes.io/name": "pedidos-api" } },
+      "template": {
+        "metadata": { "labels": { "app.kubernetes.io/name": "pedidos-api" } },
+        "spec": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.interno/pedidos-api:1.4.2",
+              "env": [
+                { "name": "LOG_LEVEL", "value": "debug" },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": { "secretKeyRef": { "name": "pedidos-segredos", "key": "senha" } }
+                }
+              ],
+              "envFrom": [{ "configMapRef": { "name": "pedidos-config" } }],
+              "resources": {
+                "limits": { "cpu": "500m", "memory": "128Mi" },
+                "requests": { "cpu": "100m", "memory": "64Mi" }
+              }
+            }
+          ],
+          "volumes": [{ "name": "arquivos", "configMap": { "name": "pedidos-arquivos" } }]
+        }
+      }
+    },
+    "status": {
+      "observedGeneration": 6,
+      "replicas": 3,
+      "updatedReplicas": 3,
+      "readyReplicas": 1,
+      "availableReplicas": 1,
+      "unavailableReplicas": 2
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "metadata": {
+      "name": "pedidos-api-6d8f7b9c4d",
+      "namespace": "pagamentos",
+      "uid": "8a7e3f10-1b2c-4d5e-8f90-112233445566",
+      "creationTimestamp": "2026-10-20T10:00:01Z",
+      "labels": { "app.kubernetes.io/name": "pedidos-api", "pod-template-hash": "6d8f7b9c4d" },
+      "annotations": { "deployment.kubernetes.io/revision": "4" },
+      "ownerReferences": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "pedidos-api",
+          "uid": "5b1f0c1e-2f6a-4c6e-9a51-0d4b7f3e9a01",
+          "controller": true
+        }
+      ]
+    },
+    "spec": {
+      "replicas": 0,
+      "template": {
+        "metadata": { "labels": { "app.kubernetes.io/name": "pedidos-api" } },
+        "spec": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.interno/pedidos-api:1.4.2",
+              "env": [
+                { "name": "LOG_LEVEL", "value": "info" },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": { "secretKeyRef": { "name": "pedidos-segredos", "key": "senha" } }
+                }
+              ],
+              "envFrom": [{ "configMapRef": { "name": "pedidos-config" } }],
+              "resources": {
+                "limits": { "cpu": "500m", "memory": "512Mi" },
+                "requests": { "cpu": "100m", "memory": "64Mi" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "status": { "replicas": 0, "observedGeneration": 2 }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e",
+      "namespace": "pagamentos",
+      "uid": "9b8f4021-2c3d-4e6f-9012-223344556677",
+      "creationTimestamp": "2026-10-27T02:50:04Z",
+      "labels": { "app.kubernetes.io/name": "pedidos-api", "pod-template-hash": "7c9b4f6d8e" },
+      "annotations": { "deployment.kubernetes.io/revision": "5" },
+      "ownerReferences": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "pedidos-api",
+          "uid": "5b1f0c1e-2f6a-4c6e-9a51-0d4b7f3e9a01",
+          "controller": true
+        }
+      ]
+    },
+    "spec": {
+      "replicas": 3,
+      "template": {
+        "metadata": { "labels": { "app.kubernetes.io/name": "pedidos-api" } },
+        "spec": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.interno/pedidos-api:1.4.2",
+              "env": [
+                { "name": "LOG_LEVEL", "value": "debug" },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": { "secretKeyRef": { "name": "pedidos-segredos", "key": "senha" } }
+                }
+              ],
+              "envFrom": [{ "configMapRef": { "name": "pedidos-config" } }],
+              "resources": {
+                "limits": { "cpu": "500m", "memory": "128Mi" },
+                "requests": { "cpu": "100m", "memory": "64Mi" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "status": { "replicas": 3, "readyReplicas": 1, "observedGeneration": 1 }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e-k2x9p",
+      "namespace": "pagamentos",
+      "labels": { "app.kubernetes.io/name": "pedidos-api", "pod-template-hash": "7c9b4f6d8e" },
+      "ownerReferences": [
+        { "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "pedidos-api-7c9b4f6d8e" }
+      ]
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "app",
+          "image": "registry.interno/pedidos-api:1.4.2",
+          "resources": {
+            "limits": { "cpu": "500m", "memory": "128Mi" },
+            "requests": { "cpu": "100m", "memory": "64Mi" }
+          }
+        }
+      ]
+    },
+    "status": {
+      "phase": "Running",
+      "conditions": [
+        { "type": "Ready", "status": "True" },
+        { "type": "ContainersReady", "status": "True" }
+      ],
+      "containerStatuses": [
+        {
+          "name": "app",
+          "ready": true,
+          "restartCount": 4,
+          "state": { "running": { "startedAt": "2026-10-27T03:05:30Z" } },
+          "lastState": {
+            "terminated": {
+              "exitCode": 137,
+              "reason": "OOMKilled",
+              "startedAt": "2026-10-27T03:01:10Z",
+              "finishedAt": "2026-10-27T03:05:12Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e-q7m4z",
+      "namespace": "pagamentos",
+      "labels": { "app.kubernetes.io/name": "pedidos-api", "pod-template-hash": "7c9b4f6d8e" },
+      "ownerReferences": [
+        { "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "pedidos-api-7c9b4f6d8e" }
+      ]
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "app",
+          "image": "registry.interno/pedidos-api:1.4.2",
+          "resources": { "limits": { "cpu": "500m", "memory": "128Mi" } }
+        }
+      ]
+    },
+    "status": {
+      "phase": "Running",
+      "conditions": [
+        { "type": "Ready", "status": "False", "reason": "ContainersNotReady" },
+        { "type": "ContainersReady", "status": "False" }
+      ],
+      "containerStatuses": [
+        {
+          "name": "app",
+          "ready": false,
+          "restartCount": 2,
+          "state": {
+            "waiting": {
+              "reason": "CrashLoopBackOff",
+              "message": "back-off 40s restarting failed container=app"
+            }
+          },
+          "lastState": {
+            "terminated": {
+              "exitCode": 1,
+              "reason": "Error",
+              "finishedAt": "2026-10-27T03:06:40Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e-w8n3c",
+      "namespace": "pagamentos",
+      "labels": { "app.kubernetes.io/name": "pedidos-api", "pod-template-hash": "7c9b4f6d8e" }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "app",
+          "image": "registry.interno/pedidos-api:1.4.2",
+          "resources": { "limits": { "cpu": "500m", "memory": "128Mi" } }
+        }
+      ]
+    },
+    "status": {
+      "phase": "Running",
+      "conditions": [{ "type": "Ready", "status": "False" }],
+      "containerStatuses": [
+        {
+          "name": "app",
+          "ready": false,
+          "restartCount": 0,
+          "state": { "running": { "startedAt": "2026-10-27T02:51:00Z" } }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Event",
+    "type": "Warning",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e-q7m4z.1801a2b3c4d5e6f7",
+      "namespace": "pagamentos",
+      "creationTimestamp": "2026-10-27T03:02:00Z"
+    },
+    "involvedObject": {
+      "kind": "Pod",
+      "namespace": "pagamentos",
+      "name": "pedidos-api-7c9b4f6d8e-q7m4z"
+    },
+    "reason": "BackOff",
+    "message": "Back-off restarting failed container app in pod pedidos-api-7c9b4f6d8e-q7m4z_pagamentos",
+    "count": 5,
+    "firstTimestamp": "2026-10-27T03:02:00Z",
+    "lastTimestamp": "2026-10-27T03:06:41Z"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Event",
+    "type": "Warning",
+    "metadata": {
+      "name": "pedidos-api-7c9b4f6d8e-w8n3c.1801a2b3c4d5e6f8",
+      "namespace": "pagamentos",
+      "creationTimestamp": "2026-10-27T03:07:00Z"
+    },
+    "involvedObject": {
+      "kind": "Pod",
+      "namespace": "pagamentos",
+      "name": "pedidos-api-7c9b4f6d8e-w8n3c"
+    },
+    "reason": "Unhealthy",
+    "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+    "count": 12,
+    "firstTimestamp": "2026-10-27T02:52:00Z",
+    "lastTimestamp": "2026-10-27T03:07:00Z"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Event",
+    "type": "Warning",
+    "metadata": {
+      "name": "pedidos-api-6d8f7b9c4d.1801a2b3c4d5e6f9",
+      "namespace": "pagamentos",
+      "creationTimestamp": "2026-10-26T22:00:00Z"
+    },
+    "involvedObject": { "kind": "ReplicaSet", "namespace": "pagamentos", "name": "pedidos-api-6d8f7b9c4d" },
+    "reason": "FailedCreate",
+    "message": "evento antigo, fora da janela",
+    "count": 1,
+    "lastTimestamp": "2026-10-26T22:00:00Z"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Event",
+    "type": "Warning",
+    "metadata": {
+      "name": "outro-api-5f6d7c8b9a-abcde.1801a2b3c4d5e700",
+      "namespace": "pagamentos",
+      "creationTimestamp": "2026-10-27T03:04:00Z"
+    },
+    "involvedObject": { "kind": "Pod", "namespace": "pagamentos", "name": "outro-api-5f6d7c8b9a-abcde" },
+    "reason": "BackOff",
+    "message": "evento de outro serviço",
+    "count": 1,
+    "lastTimestamp": "2026-10-27T03:04:00Z"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Event",
+    "type": "Normal",
+    "metadata": {
+      "name": "pedidos-api.1801a2b3c4d5e701",
+      "namespace": "pagamentos",
+      "creationTimestamp": "2026-10-27T02:50:04Z"
+    },
+    "involvedObject": { "kind": "Deployment", "namespace": "pagamentos", "name": "pedidos-api" },
+    "reason": "ScalingReplicaSet",
+    "message": "Scaled up replica set pedidos-api-7c9b4f6d8e to 1",
+    "count": 1,
+    "lastTimestamp": "2026-10-27T02:50:04Z"
+  },
+  {
+    "apiVersion": "autoscaling/v2",
+    "kind": "HorizontalPodAutoscaler",
+    "metadata": {
+      "name": "pedidos-api",
+      "namespace": "pagamentos",
+      "managedFields": [
+        {
+          "manager": "kubectl-client-side-apply",
+          "operation": "Update",
+          "apiVersion": "autoscaling/v2",
+          "time": "2026-10-20T10:00:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:spec": { "f:maxReplicas": {}, "f:minReplicas": {} } }
+        },
+        {
+          "manager": "k3s",
+          "operation": "Update",
+          "apiVersion": "autoscaling/v2",
+          "time": "2026-10-27T03:05:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:status": { "f:currentReplicas": {} } },
+          "subresource": "status"
+        }
+      ]
+    },
+    "spec": {
+      "scaleTargetRef": { "apiVersion": "apps/v1", "kind": "Deployment", "name": "pedidos-api" },
+      "minReplicas": 1,
+      "maxReplicas": 3
+    },
+    "status": { "currentReplicas": 3, "desiredReplicas": 3 }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "pedidos-config",
+      "namespace": "pagamentos",
+      "managedFields": [
+        {
+          "manager": "kubectl-client-side-apply",
+          "operation": "Update",
+          "apiVersion": "v1",
+          "time": "2026-10-20T10:00:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:data": { ".": {}, "f:DB_TIMEOUT": {} } }
+        },
+        {
+          "manager": "kubectl-edit",
+          "operation": "Update",
+          "apiVersion": "v1",
+          "time": "2026-10-27T03:10:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:data": { "f:DB_POOL_SIZE": {} } }
+        }
+      ]
+    },
+    "data": { "DB_POOL_SIZE": "2", "DB_TIMEOUT": "30s" }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "pedidos-arquivos",
+      "namespace": "pagamentos",
+      "managedFields": [
+        {
+          "manager": "helm",
+          "operation": "Update",
+          "apiVersion": "v1",
+          "time": "2026-10-20T10:00:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:data": { ".": {}, "f:regras.yaml": {} } }
+        }
+      ]
+    },
+    "data": { "regras.yaml": "limite: 10" }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "pagamentos-padrao",
+      "namespace": "pagamentos",
+      "managedFields": [
+        {
+          "manager": "kubectl-client-side-apply",
+          "operation": "Update",
+          "apiVersion": "networking.k8s.io/v1",
+          "time": "2026-10-27T02:30:00Z",
+          "fieldsType": "FieldsV1",
+          "fieldsV1": { "f:spec": { "f:ingress": {}, "f:podSelector": {} } }
+        }
+      ]
+    },
+    "spec": { "podSelector": {}, "policyTypes": ["Ingress"] }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "outro-api",
+      "namespace": "pagamentos",
+      "uid": "c3d4e5f6-0a1b-4c2d-8e3f-445566778899",
+      "generation": 1,
+      "labels": { "app": "outro-api" }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": { "matchLabels": { "app": "outro-api" } },
+      "template": {
+        "metadata": { "labels": { "app": "outro-api" } },
+        "spec": { "containers": [{ "name": "app", "image": "registry.interno/outro-api:2.0.0" }] }
+      }
+    },
+    "status": { "observedGeneration": 1, "replicas": 1, "updatedReplicas": 1, "readyReplicas": 1 }
+  }
+]
