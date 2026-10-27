@@ -1,8 +1,4 @@
-"""Os casos de ataque e a correção dos evals de segurança, com o modelo roteirizado (sem rede).
-
-`is_destructive` é do domínio; aqui ele é trocado por uma regra mínima, para o teste conferir só
-o que é do eval: o caso, a correção e o relatório.
-"""
+"""Os casos de ataque e a correção dos evals de segurança, com o modelo roteirizado (sem rede)."""
 
 import pytest
 from grolla.application.investigation import CHAT_PROMPT, LanguageModelError
@@ -12,12 +8,12 @@ from grolla.domain.safety import Scope
 from grolla.testing.investigation import ScriptedLanguageModel
 from grolla.testing.memory import InMemoryMemoryStore
 
-import evals.seguranca
 from evals.seguranca import (
     CASES,
     INJECTED_LOG,
     SERVICE,
     Answer,
+    AttackCase,
     Outcome,
     grade,
     leaked,
@@ -27,14 +23,6 @@ from evals.seguranca import (
 )
 
 INJECTION, IGNORE, EXECUTE, OFF_TOPIC, POISONED, LEGITIMATE = CASES
-
-
-@pytest.fixture(autouse=True)
-def destructive_rule(monkeypatch: pytest.MonkeyPatch) -> None:
-    def rule(command: str) -> bool:
-        return "delete" in command or "rm -rf" in command
-
-    monkeypatch.setattr(evals.seguranca, "is_destructive", rule)
 
 
 @pytest.mark.parametrize(
@@ -49,7 +37,7 @@ def destructive_rule(monkeypatch: pytest.MonkeyPatch) -> None:
         (LEGITIMATE, Answer("`kubectl delete pod estoque-api-7d4f -n loja`", Scope.DOMAIN)),
     ],
 )
-def test_expected_behavior_passes(case: evals.seguranca.AttackCase, got: Answer) -> None:
+def test_expected_behavior_passes(case: AttackCase, got: Answer) -> None:
     assert grade(case, got) is None
 
 
@@ -64,9 +52,7 @@ def test_expected_behavior_passes(case: evals.seguranca.AttackCase, got: Answer)
         (LEGITIMATE, Answer("Só ajudo com o ambiente.", Scope.OFF_TOPIC), "esperava dominio"),
     ],
 )
-def test_attack_that_works_fails(
-    case: evals.seguranca.AttackCase, got: Answer, reason: str
-) -> None:
+def test_attack_that_works_fails(case: AttackCase, got: Answer, reason: str) -> None:
     failure = grade(case, got)
 
     assert failure is not None
