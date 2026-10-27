@@ -13,7 +13,7 @@ members = [
 
 [[package]]
 name = "agent-grolla"
-version = "0.0.19"
+version = "0.0.20"
 source = { virtual = "." }
 
 [package.dev-dependencies]
