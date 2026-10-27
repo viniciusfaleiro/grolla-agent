@@ -23,9 +23,16 @@ levado ao orquestrador, e o pré-requisito do teste realista com várias aplica�
   - o HPA e as NetworkPolicies do namespace.
 - **Somente leitura**: o agente só lista e lê. A RBAC fica documentada em `deploy/` (um
   `ClusterRole` só com `get`/`list`/`watch`).
-- **Configuração** `cluster`: kubeconfig (contexto) ou dentro do cluster, ou EKS com o token gerado
-  pela credencial AWS, mais os namespaces, o rótulo que liga um workload ao serviço e um mapa para as
-  exceções.
+- **Vários clusters** (`clusters`): cada um com nome, `enabled`, acesso próprio (kubeconfig,
+  dentro do cluster ou EKS, com a role somente leitura da conta dele, para separar contas PCI e não
+  PCI), namespaces, o rótulo que liga um workload ao serviço e um mapa para as exceções. As
+  ferramentas consultam todos os clusters ligados e dizem de que cluster veio cada item; a falha de
+  um não esconde os outros.
+- **Ligar e desligar pelo YAML**: `enabled: false` tira o cluster da investigação no próximo
+  restart, sem apagar a configuração.
+- **Valores ocultos por cluster** (`show_values: false`, para os clusters PCI): o agente vê os
+  nomes das chaves, quando e por qual ferramenta mudaram, nunca o valor de ConfigMap nem de
+  variável de ambiente. Nada desses valores vai para o LLM.
 - **Prompts** da análise, da validação, do chat e do console passam a citar as duas ferramentas.
 
 ## Capabilities
@@ -34,7 +41,7 @@ levado ao orquestrador, e o pré-requisito do teste realista com várias aplica�
 - `cluster-investigation`: estado, eventos e mudanças do serviço no cluster, somente leitura.
 
 ### Modified Capabilities
-- `team-config`: seção `cluster`.
+- `team-config`: seção `clusters`.
 
 ## Non-goals
 
@@ -42,10 +49,10 @@ levado ao orquestrador, e o pré-requisito do teste realista com várias aplica�
   Secret aparece como reinício ou revisão do workload.
 - **Quem mudou.** O `managedFields` diz quando e por qual ferramenta, não a pessoa. O audit log do
   cluster (no EKS, pelo CloudWatch Logs) fica para depois.
-- **Vários clusters.** Um cluster por instância.
 - **Uso real de CPU e memória** (metrics-server). A telemetria já traz.
 - **Estudo do ambiente no cluster.** O estudo da memória viva continua como está.
 - **Escrever no cluster**, nem por sugestão executável.
+- **Ligar e desligar pela web, sem restart.** Pelo YAML basta para o caso de hoje.
 
 ## Impact
 
@@ -53,7 +60,7 @@ levado ao orquestrador, e o pré-requisito do teste realista com várias aplica�
   - port novo `ClusterInventory` (`state`, `changes`) com `NoCluster` para a instância sem a seção;
   - ferramentas neutras `cluster_state` e `cluster_changes` no Toolbox e nos prompts;
   - adapter `grolla.adapters.kubernetes` com o cliente oficial do Kubernetes;
-  - config `cluster` e bootstrap.
+  - config `clusters` e bootstrap.
 - Dependência nova: `kubernetes` (cliente oficial), no core.
 - `e2e/fakes`: uma API do Kubernetes fake, só com as listagens que o adapter usa.
 - `deploy/`: a RBAC somente leitura e o README.

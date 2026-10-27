@@ -3,7 +3,7 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `ClusterInventory`, `NoCluster`, `NO_CLUSTER`, `NO_WORKLOADS`; stubs de `FakeClusterInventory` e do `KubernetesClusterInventory`; `ClusterConfig` e o bootstrap; dependência `kubernetes`.
+- [ ] 0.1 `ClusterInventory`, `NoCluster`, `NO_CLUSTER`, `NO_WORKLOADS`; stubs de `FakeClusterInventory` e do `KubernetesClusterInventory`; `ClusterConfig`/`clusters` e o bootstrap (só os ligados); dependência `kubernetes`.
 - [ ] 0.2 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
@@ -14,13 +14,13 @@
 ## 2. grolla-integracoes
 
 - [ ] 2.1 `KubernetesClusterInventory`: estado (workloads, pods, HPA, eventos) e mudanças (revisões com o diff do template, réplicas, ConfigMaps usados, HPA, NetworkPolicies), com o gerenciador do `managedFields`.
-- [ ] 2.2 Acesso por kubeconfig, in-cluster e EKS (token pré-assinado).
+- [ ] 2.2 Vários clusters em paralelo, rotulados, com falha isolada; acesso por kubeconfig, in-cluster e EKS (role da conta e token pré-assinado); `show_values: false` sem nenhum valor de ConfigMap ou env.
 - [ ] 2.3 Suíte de contrato contra k3s (testcontainers).
 - [ ] 2.4 A API do Kubernetes no `grolla-fakes` (listagens usadas, com um ConfigMap alterado por `kubectl-edit` roteirizável) e o LLM fake chamando as ferramentas do cluster; README do core e do fakes; `make check` verde.
 
 ## 3. grolla-e2e
 
-- [ ] 3.1 Cenário: alerta sem deploy no pipeline, ConfigMap alterado no fake e a causa raiz citando a mudança e a ferramenta; `make check` verde.
+- [ ] 3.1 Cenário: alerta sem deploy no pipeline, ConfigMap alterado no fake e a causa raiz citando a mudança e a ferramenta; dois clusters, um com `show_values: false`, sem o valor em nenhuma requisição ao LLM fake; `make check` verde.
 
 ## 4. Integração (agente pai)
 

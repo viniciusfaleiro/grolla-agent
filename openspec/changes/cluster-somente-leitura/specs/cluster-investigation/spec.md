@@ -7,7 +7,7 @@ O LLM SHALL ter a ferramenta neutra `cluster_state(service)`. Ela SHALL devolver
 - o HPA do workload, com as réplicas atuais, as desejadas e o máximo, dizendo "no máximo" quando o atual chegou ao máximo;
 - os eventos de aviso do cluster na janela da investigação ligados ao workload, aos pods ou ao HPA, com horário, motivo e mensagem.
 
-Os workloads SHALL ser descobertos pelo rótulo configurado (padrão `app.kubernetes.io/name`, depois `app`) nos namespaces configurados, e por um mapa opcional serviço → workloads no YAML. Serviço sem workload encontrado SHALL receber "nenhum workload encontrado no cluster para o serviço", sem erro.
+Os workloads SHALL ser descobertos pelo rótulo configurado do cluster (padrão `app.kubernetes.io/name`, depois `app`) nos namespaces configurados, e por um mapa opcional serviço → workloads no YAML. Serviço sem workload encontrado SHALL receber "nenhum workload encontrado no cluster para o serviço", sem erro.
 
 #### Scenario: Pod morto por memória
 - **WHEN** o LLM chama `cluster_state` para `pedidos-api` e um pod reiniciou 4 vezes com o último término `OOMKilled`
@@ -30,6 +30,10 @@ O LLM SHALL ter a ferramenta neutra `cluster_changes(service)`, que lista o que 
 
 Sem mudanças, a resposta SHALL dizer "nenhuma mudança no cluster para o serviço na janela".
 
+#### Scenario: Valor oculto no cluster PCI
+- **WHEN** o ConfigMap `pedidos-config` foi alterado às 03:10 por `kubectl-edit` num cluster com `show_values: false`
+- **THEN** a resposta mostra "03:10 ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE (valor oculto)" e nenhum valor sai do adapter
+
 #### Scenario: ConfigMap editado na mão
 - **WHEN** às 03:10 alguém rodou `kubectl edit` no ConfigMap `pedidos-config`, usado pelo `pedidos-api`, e mudou `DB_POOL_SIZE` para 2
 - **THEN** a resposta mostra "03:10 ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE=2"
@@ -46,8 +50,23 @@ O adapter do cluster SHALL fazer só leituras (`get`, `list`) de uma lista fecha
 - **THEN** o estado vem sem os eventos e diz que não foi possível consultá-los, e a análise continua
 
 #### Scenario: Instância sem cluster
-- **WHEN** o YAML não tem a seção `cluster`
+- **WHEN** o YAML não tem `clusters` ou todos estão com `enabled: false`
 - **THEN** as ferramentas do cluster respondem "consulta ao cluster não configurada nesta instância", sem erro
+
+### Requirement: Vários clusters
+As ferramentas do cluster SHALL consultar todos os clusters com `enabled: true`, cada um com o acesso e os namespaces dele. Com mais de um cluster ligado, cada item da resposta SHALL dizer de que cluster veio. A falha de um cluster SHALL virar a linha "cluster <nome>: <erro>" sem esconder os outros; só quando todos falham a ferramenta SHALL falhar. Nos clusters com `show_values: false`, o adapter SHALL NOT devolver valores de ConfigMap nem de variáveis de ambiente, só os nomes.
+
+#### Scenario: PCI e não PCI
+- **WHEN** o `pedidos-api` roda nos clusters `nao-pci` e `pci` e o LLM chama `cluster_state`
+- **THEN** a resposta traz os pods "no cluster nao-pci" e "no cluster pci"
+
+#### Scenario: Um cluster fora do ar
+- **WHEN** o cluster `pci` recusa a credencial
+- **THEN** a resposta traz o `nao-pci` e termina com "cluster pci: não foi possível consultar"
+
+#### Scenario: Cluster desligado
+- **WHEN** o cluster `pci` está com `enabled: false`
+- **THEN** nenhuma consulta vai ao `pci`
 
 ### Requirement: Cluster na investigação
 Os prompts da análise, da validação, do chat do war room e do console SHALL citar `cluster_state` e `cluster_changes` como passo de infraestrutura: o estado quando há erro, reinício ou lentidão num serviço que roda no cluster, e as mudanças quando o problema começou sem deploy no pipeline. Uma mudança no cluster que explica o sintoma SHALL poder virar a causa raiz, com o horário e a ferramenta como evidência.
