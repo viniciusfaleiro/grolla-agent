@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.post_mortem_store_contract import PostMortemStoreContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -19,8 +20,9 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import STAGE_POST_MORTEM, LlmUsage
-from grolla.application.post_mortem import PostMortemFilters, PostMortemJob
+from grolla.application.post_mortem import PostMortemFilters, PostMortemJob, PostMortemStore
 from grolla.domain.incidents import Incident, IncidentState, Severity
 from grolla.domain.post_mortem import (
     AGENT_AUTHOR,
@@ -64,6 +66,16 @@ async def clean(database: PostgresDatabase) -> None:
         await connection.execute(
             sa.text("TRUNCATE post_mortems, post_mortem_versions, post_mortem_jobs, llm_usage")
         )
+
+
+class TestPostgresPostMortemStoreContract(PostMortemStoreContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def store(self, database: PostgresDatabase) -> PostMortemStore:
+        return PostgresPostMortemStore(database)
 
 
 @pytest.fixture
