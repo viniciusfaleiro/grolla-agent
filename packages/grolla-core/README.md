@@ -55,6 +55,7 @@ os deployables só montam o processo.
 | **Fila dos ciclos de acompanhamento** | `CycleQueue`: candidatos (incidentes abertos com análise, ciclos, pedido antecipado e tokens), enfileiramento idempotente, reivindicação com `SKIP LOCKED`, ciclos presos e encerramento numa transação (ciclo, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresCycleQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
 | **Post mortem** | `PostMortemStore`: documento com seções, plano de ação e avaliação do agente em `jsonb`, versões só inserção, lista com filtros e itens vencidos, fila de rascunho e regeneração com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresPostMortemStore` |
+| **Fila da triagem** | `TriageQueue`: reivindicação com `SKIP LOCKED`, triagens presas, incidentes abertos na janela e encerramento numa transação (incidente, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresTriageQueue` |
 | **Métricas do agente** | `MetricsReader.facts(since)`: uma consulta por parte (incidentes resolvidos, post mortems aprovados ou encerrados com a avaliação e a última resposta do "já vi isso" de cada incidente, lida do log de eventos) | `grolla.adapters.postgres.PostgresMetricsReader` |
 | **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; trechos com embedding (pgvector) e busca híbrida em SQL (vetor + texto com RRF) no `context_for` e no `search_chunks`; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Memória com RAG (núcleo)** | `chunk_text` recorta por seção `#`/`##` (seção longa por parágrafo, nunca trecho vazio). `index_memory` indexa em lote os registros pendentes (`unindexed`), com o título no trecho do episódio e da nota, e limpa os trechos velhos; `index_documents` indexa os `.md` do serviço no estudo. `query_for` monta a `Query` com vetor (falha do embedder vira consulta só textual). Com `embedder`, `memory_for` usa a busca híbrida (determinístico primeiro, depois RRF de vetor e texto) e traz até 3 trechos de documentação, que `memory_text` mostra no bloco `<documentacao>` (`### [documento] <serviço>: <caminho> — <seção>`, texto e `Link:`); `recall` devolve trechos (`chunks_text`, bloco `<memoria>` com `## Trechos`) | `grolla.application.memory_retrieval` · `grolla.application.memory_store.memory_for` · `grolla.domain.memory.chunk_text` |
@@ -98,6 +99,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0008`: acompanhamento da crise: ciclos por incidente e o pedido de ciclo antecipado (abaixo).
 - `0009`: post mortem: o documento por incidente, as versões das seções e a fila de rascunhos e
   regenerações (abaixo).
+- `0011`: menos ruído: a fila de triagem dos incidentes novos (`triages`, abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -145,6 +147,12 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | Tabela | O que guarda | Regra imposta pelo banco |
 |---|---|---|
 | `memory_chunks` | Um trecho por seção de um registro (`origin = memoria`, com `memory_id` e `kind`) ou de um `.md` do repositório (`origin = documento`, com `path` e `url`, assunto = serviço); o `model` e o `embedding` (`vector` sem dimensão fixa: só se compara com o mesmo modelo), `indexed_at` e a coluna gerada `search` (`to_tsvector('portuguese', subject, heading, text)`) | índice GIN na busca e índices em `memory_id` e `(origin, subject)`; **sem índice ANN**: a distância é exata |
+
+### Menos ruído (0011)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `triages` | A triagem de cada incidente novo: é a fila (`pendente` → `em_andamento`) e o desfecho (`feito`/`falhou`, com o motivo) | `incident_id` é a chave: **uma triagem por incidente**; índice parcial nos pendentes |
 
 ### Repositórios
 
@@ -243,6 +251,14 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `request_post_mortem` (na unidade de trabalho) pede o rascunho uma vez só por incidente (índice
   único parcial `post_mortem_jobs_draft`); `request_regeneration` sempre insere um pedido
   (`tests/integration/test_postgres_post_mortem.py`).
+- `request_triage` (na unidade de trabalho) pede a triagem uma vez só por incidente
+  (`ON CONFLICT DO NOTHING`). `PostgresTriageQueue.claim` pega o pendente mais antigo com
+  `FOR UPDATE SKIP LOCKED`; `stuck` lista os em andamento desde antes do limite; `open_since`
+  traz os incidentes em `OPEN_STATES` com o último alerta desde `since`, mais recentes primeiro;
+  `finish` grava numa transação, só se a triagem ainda está `em_andamento`, o incidente (se
+  mudou, pelo mesmo `save` da unidade de trabalho), os eventos, os cards na outbox e o
+  `llm_usage` do incidente, e encerra como `feito` ou, com motivo, `falhou`
+  (`tests/integration/test_postgres_triage.py`).
 - `PostgresMetricsReader.facts(since)`: `resolved` são os `resolved_at` dos incidentes no estado
   resolvido; `approved` são `status_at` e a avaliação dos post mortems aprovados ou encerrados;
   `answers` é a última resposta `seen_before_answered` de cada incidente (`DISTINCT ON`, pela

@@ -561,7 +561,13 @@ class PostgresUnitOfWork:
         )
 
     async def request_triage(self, incident_id: UUID, at: datetime) -> None:
-        raise NotImplementedError  # contrato de menos ruído: do grolla-persistencia
+        await self._connection.execute(
+            sa.text(
+                "INSERT INTO triages (incident_id, status, requested_at)"
+                " VALUES (:incident_id, 'pendente', :at) ON CONFLICT (incident_id) DO NOTHING"
+            ),
+            {"incident_id": incident_id, "at": at},
+        )
 
     async def request_post_mortem(self, incident_id: UUID, at: datetime) -> None:
         await self._connection.execute(
