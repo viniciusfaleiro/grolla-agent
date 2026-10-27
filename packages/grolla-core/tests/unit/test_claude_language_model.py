@@ -75,6 +75,7 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.safety import Scope
 from grolla.domain.transcript import (
     HypothesisCheck,
     TranscriptDraft,
@@ -583,6 +584,7 @@ async def test_verification_refusal_becomes_language_model_error() -> None:
 CHAT_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=4000, effort="low")
 CONTEXT = "Incidente: Taxa de erro alta\nServiços: authorizer-api"
 QUESTION = "o rollback resolveu?"
+SCOPE_SCHEMA = {"type": "string", "enum": ["dominio", "fora_do_escopo", "pedido_de_execucao"]}
 
 
 def chatter(handler: Handler) -> ClaudeLanguageModel:
@@ -642,8 +644,8 @@ async def test_reply_request_uses_the_chat_prompt_schema_and_stage_settings() ->
         "type": "json_schema",
         "schema": {
             "type": "object",
-            "properties": {"reply": {"type": "string"}},
-            "required": ["reply"],
+            "properties": {"reply": {"type": "string"}, "scope": SCOPE_SCHEMA},
+            "required": ["reply", "scope"],
             "additionalProperties": False,
         },
     }
@@ -671,6 +673,19 @@ async def test_reply_budget_exceeded_stops_the_loop() -> None:
     assert toolbox.calls == []
 
 
+@pytest.mark.parametrize("scope", list(Scope))
+async def test_reply_carries_the_scope_of_the_question(scope: Scope) -> None:
+    draft = await reply(ScriptedApi(ok(final({"reply": "texto", "scope": scope.value}))))
+
+    assert draft == ChatDraft(text="texto", scope=scope)
+
+
+async def test_reply_without_scope_is_from_the_domain() -> None:
+    draft = await reply(ScriptedApi(ok(final({"reply": "texto"}))))
+
+    assert draft.scope is Scope.DOMAIN
+
+
 async def test_reply_api_error_becomes_language_model_error() -> None:
     overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
     response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
@@ -685,7 +700,15 @@ async def test_reply_refusal_becomes_language_model_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "answer", ["não é json", {"reply": 1}, {"reply": "ok", "extra": 1}, {}, {"reply": "  "}]
+    "answer",
+    [
+        "não é json",
+        {"reply": 1},
+        {"reply": "ok", "extra": 1},
+        {},
+        {"reply": "  "},
+        {"reply": "ok", "scope": "poesia"},
+    ],
 )
 async def test_reply_outside_the_schema_is_invalid(answer: object) -> None:
     with pytest.raises(InvalidAnalysisError, match="resposta do chat"):
@@ -1639,8 +1662,12 @@ async def test_consult_request_uses_the_console_prompt_schema_and_stage_settings
     }
     assert body["output_config"]["format"]["schema"] == {
         "type": "object",
-        "properties": {"text": {"type": "string"}, "charts": {"type": "array", "items": chart}},
-        "required": ["text", "charts"],
+        "properties": {
+            "text": {"type": "string"},
+            "scope": SCOPE_SCHEMA,
+            "charts": {"type": "array", "items": chart},
+        },
+        "required": ["text", "scope", "charts"],
         "additionalProperties": False,
     }
     assert body["system"][0]["text"] == CONSOLE_PROMPT
@@ -1683,6 +1710,15 @@ async def test_consult_budget_exceeded_stops_the_loop() -> None:
     assert toolbox.calls == []
 
 
+@pytest.mark.parametrize("scope", list(Scope))
+async def test_consult_carries_the_scope_of_the_question(scope: Scope) -> None:
+    api = ScriptedApi(ok(final({"text": "texto", "charts": [], "scope": scope.value})))
+
+    draft = await consult(api)
+
+    assert draft == ConsoleDraft(text="texto", scope=scope)
+
+
 async def test_consult_api_error_and_refusal_become_language_model_error() -> None:
     overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
     response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
@@ -1701,6 +1737,7 @@ async def test_consult_api_error_and_refusal_become_language_model_error() -> No
         {"text": "ok", "charts": [{"service": "x", "signal": "vazao"}]},
         {"text": "ok", "charts": [], "extra": 1},
         {"text": "  ", "charts": []},
+        {"text": "ok", "charts": [], "scope": "executar_agora"},
     ],
 )
 async def test_consult_outside_the_schema_is_invalid(answer: object) -> None:
