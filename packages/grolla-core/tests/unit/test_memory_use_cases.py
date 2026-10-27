@@ -63,6 +63,7 @@ from grolla.domain.memory import (
     SubjectKind,
     SynthesisDraft,
 )
+from grolla.domain.post_mortem import PostMortemStatus
 from grolla.testing.builders import T0, make_alert, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
@@ -79,6 +80,7 @@ from grolla.testing.memory import (
     InMemoryMemoryStore,
     InMemoryStudyQueue,
 )
+from grolla.testing.post_mortem import InMemoryPostMortemStore, make_action, make_post_mortem
 
 SERVICE = "pedidos-api"
 FILTER = {"team": "pagamentos"}
@@ -123,6 +125,7 @@ class Learning:
         self.model = model or ScriptedLanguageModel()
         self.clock = FakeClock(T0 + timedelta(hours=1))
         self.policy = MemoryPolicy(learning_max_tokens=60_000)
+        self.post_mortems = InMemoryPostMortemStore(self.repository)
 
     async def closed(self, state: IncidentState = IncidentState.RESOLVED) -> Incident:
         incident = replace(
@@ -150,6 +153,7 @@ class Learning:
             model=self.model,
             clock=self.clock,
             policy=self.policy,
+            post_mortems=self.post_mortems,
         )
 
     def of_kind(self, kind: MemoryKind) -> list[Memory]:
@@ -193,6 +197,62 @@ async def test_resolved_incident_becomes_an_episode_and_updates_the_dossier() ->
     assert world.memory.records[note.id].consolidated
     assert world.queue.rows[incident.id].status == "concluido"
     assert [u.stage for _, u, _ in world.repository.usages] == [STAGE_LEARNING]
+
+
+async def test_approved_post_mortem_teaches_and_confirms_the_episode() -> None:
+    world = Learning()
+    old = record(kind=MemoryKind.DOSSIER, body="dossiê antigo")
+    await world.memory.save([(old, None)])
+    incident = await world.closed()
+    await world.run()  # o aprendizado do encerramento, ainda sem post mortem
+    (first,) = world.of_kind(MemoryKind.EPISODE)
+    action = replace(make_action("Alarme de conexões"), owner="Bruno")
+    pm = replace(
+        make_post_mortem(incident.id, status=PostMortemStatus.APPROVED, actions=[action]),
+        status_by="Ana",
+    )
+    await world.post_mortems.save(pm, [])
+    world.clock.advance(timedelta(hours=1))
+    async with world.repository.transaction() as uow:
+        await uow.request_learning(incident.id, world.clock.now())
+
+    await world.run()
+
+    brief = world.model.learning_briefs[-1]
+    assert brief.post_mortem is not None
+    assert "Fatores contribuintes: texto do agente." in brief.post_mortem
+    assert "- Alarme de conexões (detectar, Bruno, sem prazo, aberto)" in brief.post_mortem
+    (episode,) = world.of_kind(MemoryKind.EPISODE)
+    assert episode.id == first.id
+    assert episode.confidence is Confidence.CONFIRMED
+    assert episode.source == Source(SourceKind.INCIDENT, "Ana", str(incident.id))
+    reasons = [v.reason for v in await world.memory.versions(first.id)]
+    assert reasons == ["post mortem aprovado"]
+    assert (await world.memory.versions(old.id))[0].reason == "post mortem aprovado"
+
+
+async def test_first_learning_from_an_approved_post_mortem_creates_a_confirmed_episode() -> None:
+    world = Learning()
+    incident = await world.closed()
+    closed = replace(make_post_mortem(incident.id, status=PostMortemStatus.CLOSED), status_by="Bia")
+    await world.post_mortems.save(closed, [])
+
+    await world.run()
+
+    (episode,) = world.of_kind(MemoryKind.EPISODE)
+    assert (episode.confidence, episode.source.author) == (Confidence.CONFIRMED, "Bia")
+
+
+async def test_post_mortem_in_review_is_not_a_source() -> None:
+    world = Learning()
+    incident = await world.closed()
+    await world.post_mortems.save(make_post_mortem(incident.id, status=PostMortemStatus.REVIEW), [])
+
+    await world.run()
+
+    assert world.model.learning_briefs[0].post_mortem is None
+    (episode,) = world.of_kind(MemoryKind.EPISODE)
+    assert episode.confidence is Confidence.LEARNED
 
 
 async def test_discarded_incident_is_a_noise_episode() -> None:

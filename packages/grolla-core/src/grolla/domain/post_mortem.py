@@ -254,6 +254,7 @@ EVENT_TEXT: Mapping[EventType, str] = {
     EventType.CYCLE_PARTIAL: "ciclo de acompanhamento parcial",
     EventType.FOLLOW_UP_STOPPED: "parou o acompanhamento",
     EventType.AGENT_PROPOSAL: "sugeriu",
+    EventType.SEEN_BEFORE_ANSWERED: "respondeu se era o mesmo problema",
 }
 _DETAIL_KEYS = ("rule_name", "summary", "root_cause", "title", "text", "proposal", "reason")
 DETAIL_LIMIT = 200  # caracteres de cada detalhe de um evento na timeline
@@ -458,12 +459,41 @@ def overdue(pm: PostMortem, today: date) -> tuple[ActionItem, ...]:
     )
 
 
+MINUTES_NEGATIVE = "os minutos até a hipótese certa não podem ser negativos"
+
+
 def evaluated(
     pm: PostMortem, evaluation: AgentEvaluation, author: str, now: datetime
 ) -> PostMortem:
-    """A avaliação do agente preenchida por uma pessoa; levanta InvalidPostMortemError em post
-    mortem encerrado, sem autor ou com minutos negativos.
-
-    Contrato das métricas do agente: o corpo é do grolla-dominio.
+    """A avaliação do agente preenchida por uma pessoa, com autor e data; rascunho passa a em
+    revisão. Levanta InvalidPostMortemError em post mortem encerrado, sem autor ou com minutos
+    negativos.
     """
-    raise NotImplementedError
+    author = _required(author, AUTHOR_REQUIRED)
+    if pm.status is PostMortemStatus.CLOSED:
+        raise InvalidPostMortemError(CLOSED_LOCKED)
+    if evaluation.minutes_to_right is not None and evaluation.minutes_to_right < 0:
+        raise InvalidPostMortemError(MINUTES_NEGATIVE)
+    signed = replace(evaluation, author=author, at=now)
+    return _touched(replace(pm, evaluation=signed), author, now)
+
+
+LEARNING_SECTIONS = (SectionKey.FACTORS, SectionKey.LESSONS, SectionKey.ACTIONS, SectionKey.SUMMARY)
+
+
+def _item_line(item: ActionItem) -> str:
+    owner = item.owner or "sem dono"
+    due = f"{item.due:%d/%m/%Y}" if item.due else "sem prazo"
+    return f"- {item.description} ({item.kind.value}, {owner}, {due}, {item.status.value})"
+
+
+def lessons_text(pm: PostMortem) -> str:
+    """O que o post mortem ensina à memória: fatores, lições, plano (com os itens) e resumo."""
+    bodies = {s.key: s.body for s in pm.sections}
+    parts: list[str] = []
+    for key in LEARNING_SECTIONS:
+        lines = [f"## {SECTION_TITLES[key]}", bodies.get(key, "").strip() or NONE]
+        if key is SectionKey.ACTIONS:
+            lines += [_item_line(a) for a in pm.actions]
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
