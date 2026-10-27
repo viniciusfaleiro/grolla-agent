@@ -24,6 +24,10 @@ com as fixtures `post_mortem_model` e `failing_post_mortem_model`.
 A triagem (`triage`) tem a suíte `TriageModelContract`, com as fixtures `triage_model` (devolve
 uma triagem válida) e `failing_triage_model` (a API responde erro).
 
+A resposta do console (`consult`) tem a suíte `ConsoleModelContract`, com as fixtures
+`consulting_model` (chama ao menos uma ferramenta e responde em texto, com ou sem gráficos) e
+`failing_consultant` (a API responde erro).
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -32,6 +36,7 @@ from datetime import timedelta
 
 import pytest
 from grolla.application.investigation import (
+    STAGE_CONSOLE,
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
@@ -56,6 +61,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
 from grolla.domain.chat import ChatDraft
+from grolla.domain.console import CHART_SIGNALS, ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
 from grolla.domain.memory import DossierDraft, LearningDraft, MemoryContext, SynthesisDraft
@@ -649,3 +655,53 @@ class TriageModelContract(LanguageModelFixtures):
     ) -> None:
         with pytest.raises(LanguageModelError):
             await failing_triage_model.triage(triage_brief, budget)
+
+
+CONSOLE_CONTEXT = "Agora: 2026-10-27T10:00:00+00:00\nConversa: nenhuma mensagem anterior"
+CONSOLE_QUESTION = f"o {SERVICE} está com erro agora?"
+
+
+class ConsoleModelContract(LanguageModelFixtures):
+    @pytest.fixture
+    def consulting_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_consultant(self) -> LanguageModel:
+        raise NotImplementedError
+
+    async def test_consult_returns_a_text_and_charts_to_draw(
+        self, consulting_model: LanguageModel, toolbox: Toolbox, budget: TokenBudget
+    ) -> None:
+        draft = await consulting_model.consult(CONSOLE_CONTEXT, CONSOLE_QUESTION, toolbox, budget)
+
+        assert isinstance(draft, ConsoleDraft)
+        assert draft.text.strip()
+        assert isinstance(draft.charts, tuple)
+        for chart in draft.charts:
+            assert chart.service.strip()
+            assert chart.signal in CHART_SIGNALS
+            assert isinstance(chart.minutes, int)
+
+    async def test_consult_calls_tools_and_spends_with_its_stage(
+        self, consulting_model: LanguageModel, toolbox: Toolbox, budget: TokenBudget
+    ) -> None:
+        await consulting_model.consult(CONSOLE_CONTEXT, CONSOLE_QUESTION, toolbox, budget)
+
+        assert toolbox.evaluations
+        assert len(budget.usages) >= 2
+        assert {usage.stage for usage in budget.usages} == {STAGE_CONSOLE}
+
+    async def test_exhausted_budget_stops_the_consult(
+        self, consulting_model: LanguageModel, toolbox: Toolbox
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await consulting_model.consult(
+                CONSOLE_CONTEXT, CONSOLE_QUESTION, toolbox, TokenBudget(limit=1)
+            )
+
+    async def test_consult_api_failure_raises_language_model_error(
+        self, failing_consultant: LanguageModel, toolbox: Toolbox, budget: TokenBudget
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_consultant.consult(CONSOLE_CONTEXT, CONSOLE_QUESTION, toolbox, budget)

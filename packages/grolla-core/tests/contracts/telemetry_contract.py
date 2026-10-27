@@ -135,3 +135,42 @@ class EnvironmentTelemetryContract:
             await unavailable_telemetry.active_services(START)
         with pytest.raises(ToolUnavailableError):
             await unavailable_telemetry.dependencies(service, START, T0)
+
+
+class TelemetrySeriesContract:
+    """A série de um sinal na janela, para os gráficos do console.
+
+    Fica fora de `TelemetryContract` para o adapter ganhar a suíte quando implementar. O
+    adapter sobrescreve `telemetry` (a fonte tem pontos do `service` em todos os sinais na
+    janela) e `unavailable_telemetry` (fonte fora do ar ou estourando o timeout).
+    """
+
+    @pytest.fixture
+    def telemetry(self) -> Telemetry:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def unavailable_telemetry(self) -> Telemetry:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def service(self) -> str:
+        return "pedidos-api"
+
+    @pytest.mark.parametrize("signal", SIGNALS)
+    async def test_series_returns_ordered_points_inside_the_window(
+        self, telemetry: Telemetry, service: str, signal: Signal
+    ) -> None:
+        points = await telemetry.series(service, signal, START, T0)
+
+        assert points
+        assert [at for at, _ in points] == sorted(at for at, _ in points)
+        for at, value in points:
+            assert START <= at <= T0
+            assert isinstance(value, float)
+
+    async def test_unavailable_source_raises_tool_unavailable(
+        self, unavailable_telemetry: Telemetry, service: str
+    ) -> None:
+        with pytest.raises(ToolUnavailableError):
+            await unavailable_telemetry.series(service, "latencia_p99", START, T0)
