@@ -83,6 +83,7 @@ class ApiContainer:
     metrics: MetricsReader
     console: ConsoleStore
     console_policy: ConsolePolicy | None = None  # None: console desligado
+    telemetry: Telemetry | None = None  # gráficos do console; None sem a seção `signoz`
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,11 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         metrics=PostgresMetricsReader(database),
         console=PostgresConsoleStore(database),
         console_policy=config.console_policy(),
+        telemetry=None
+        if config.signoz is None
+        else SignozTelemetry(
+            config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
+        ),
     )
 
 
