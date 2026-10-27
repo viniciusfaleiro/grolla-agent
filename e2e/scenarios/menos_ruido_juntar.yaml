@@ -100,7 +100,7 @@ when:
         - Parece o mesmo problema que
         - Taxa de erro alta no junta-a-api
         - usam o banco junta-db
-        - Juntar
+        # O botão "Juntar" só aparece para quem informou o nome; a junção é provada pelo POST.
   # O agente só sugere: até alguém juntar, os dois seguem abertos.
   - expect_db_count:
       sql: >-
