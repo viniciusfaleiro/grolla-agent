@@ -1,0 +1,39 @@
+"""Fake em memória do `TriageQueue`, sobre o estado de um `InMemoryIncidentRepository`.
+
+Contrato de menos ruído: os corpos são do grolla-dominio.
+"""
+
+from collections.abc import Sequence
+from datetime import datetime
+
+from grolla.application.investigation import LlmUsage
+from grolla.application.triage import TriageJob
+from grolla.domain.incidents import Incident, IncidentEvent, Notification
+from grolla.testing.incidents import InMemoryIncidentRepository
+
+
+class InMemoryTriageQueue:
+    def __init__(self, repository: InMemoryIncidentRepository) -> None:
+        self.repository = repository
+
+    async def claim(self, now: datetime) -> TriageJob | None:
+        raise NotImplementedError
+
+    async def stuck(self, started_before: datetime) -> list[TriageJob]:
+        raise NotImplementedError
+
+    async def open_since(self, since: datetime) -> list[Incident]:
+        raise NotImplementedError
+
+    async def finish(  # noqa: PLR0913 — mesmo port
+        self,
+        job: TriageJob,
+        incident: Incident | None,
+        *,
+        events: Sequence[IncidentEvent],
+        notifications: Sequence[Notification],
+        usages: Sequence[LlmUsage],
+        reason: str | None,
+        at: datetime,
+    ) -> None:
+        raise NotImplementedError

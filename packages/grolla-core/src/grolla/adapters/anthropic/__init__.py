@@ -69,6 +69,7 @@ from grolla.application.investigation import (
     SynthesisBrief,
     TokenBudget,
     Toolbox,
+    TriageBrief,
     brief_text,
     follow_up_text,
     learning_text,
@@ -101,6 +102,7 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import DETERMINISTIC, ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.triage import TriageDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -449,6 +451,7 @@ class ClaudeLanguageModel:
         study: ModelSettings | None = None,
         follow_up: ModelSettings | None = None,
         post_mortem: ModelSettings | None = None,
+        triage: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -458,6 +461,7 @@ class ClaudeLanguageModel:
         self._study = study or settings
         self._follow_up = follow_up or settings
         self._post_mortem = post_mortem or settings
+        self._triage = triage or settings
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -578,6 +582,9 @@ class ClaudeLanguageModel:
         if not body:
             raise InvalidAnalysisError(f"seção {key.value} regenerada vazia")
         return body
+
+    async def triage(self, brief: TriageBrief, budget: TokenBudget) -> TriageDraft:
+        raise NotImplementedError  # contrato de menos ruído: do grolla-integracoes
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

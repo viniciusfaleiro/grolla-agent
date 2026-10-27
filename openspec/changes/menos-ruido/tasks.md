@@ -2,10 +2,10 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `domain.triage`, eventos e kinds novos, `decide_merge` com `NotImplementedError`.
-- [ ] 0.2 `application.triage` (`TriageQueue`, `TriagePolicy`, casos de uso), `request_triage`, `TriageBrief`, `LanguageModel.triage`, `STAGE_TRIAGE`.
-- [ ] 0.3 Stubs no Postgres, no Anthropic e nos fakes; migração 0011; config `noise`; containers.
-- [ ] 0.4 `make check` verde e commit de contrato.
+- [x] 0.1 `domain.triage`, eventos e kinds novos, `decide_merge` com `NotImplementedError`.
+- [x] 0.2 `application.triage` (`TriageQueue`, `TriagePolicy`, casos de uso), `request_triage`, `TriageBrief`, `LanguageModel.triage`, `STAGE_TRIAGE`.
+- [x] 0.3 Stubs no Postgres, no Anthropic e nos fakes; migração 0011; config `noise`; containers.
+- [x] 0.4 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
 

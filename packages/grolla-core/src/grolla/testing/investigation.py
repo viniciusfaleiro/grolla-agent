@@ -35,6 +35,7 @@ from grolla.application.investigation import (
     Toolbox,
     ToolResult,
     ToolUnavailableError,
+    TriageBrief,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
@@ -54,6 +55,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -469,6 +471,9 @@ class ScriptedLanguageModel:
             raise self.regeneration_error
         asked = f" ({instruction})" if instruction else ""
         return self.regeneration or f"{SECTION_TITLES[key]} reescrita{asked}."
+
+    async def triage(self, brief: TriageBrief, budget: TokenBudget) -> TriageDraft:
+        raise NotImplementedError  # contrato de menos ruído: implementado pelo grolla-dominio
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)

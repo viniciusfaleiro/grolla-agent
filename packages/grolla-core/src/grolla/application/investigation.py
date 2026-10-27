@@ -39,6 +39,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.triage import TriageDraft
 
 STAGE_INVESTIGATION = "investigation"
 STAGE_VERIFICATION = "verification"
@@ -47,6 +48,7 @@ STAGE_LEARNING = "learning"
 STAGE_STUDY = "study"
 STAGE_FOLLOW_UP = "follow_up"
 STAGE_POST_MORTEM = "post_mortem"
+STAGE_TRIAGE = "triage"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -670,6 +672,18 @@ class PostMortemBrief:
 
 
 @dataclass(frozen=True)
+class TriageBrief:
+    """O incidente novo, os outros abertos na janela e a memória, para a triagem."""
+
+    incident: Incident
+    alerts: tuple[Alert, ...]
+    others: tuple[tuple[Incident, str], ...]  # incidente e o resumo (alertas e análise)
+    memory: MemoryContext
+    opened_by_default: bool  # nenhuma regra de severidade casou
+    now: datetime
+
+
+@dataclass(frozen=True)
 class LearningBrief:
     """O que o modelo recebe para aprender com um incidente encerrado."""
 
@@ -768,6 +782,12 @@ class LanguageModel(Protocol):
         budget: TokenBudget,
     ) -> str:
         """O novo texto de uma seção, sem ferramentas; mesmas exceções."""
+        ...
+
+    async def triage(self, brief: TriageBrief, budget: TokenBudget) -> TriageDraft:
+        """A triagem do incidente novo, sem ferramentas; levanta LanguageModelError,
+        InvalidAnalysisError ou BudgetExceededError.
+        """
         ...
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
@@ -1340,3 +1360,14 @@ def regeneration_text(brief: PostMortemBrief, key: SectionKey, instruction: str 
         "Reescreva só essa seção, em markdown, com o que há de novo no contexto.",
     ]
     return "\n".join(lines)
+
+
+# ---- Triagem: prompt e mensagem da etapa `triage` ----
+# Contrato de menos ruído: o texto e o corpo são do grolla-dominio.
+
+TRIAGE_PROMPT = ""
+
+
+def triage_text(brief: TriageBrief) -> str:
+    """Mensagem da triagem: o incidente novo, os outros abertos na janela e a memória."""
+    raise NotImplementedError

@@ -560,6 +560,9 @@ class PostgresUnitOfWork:
             {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
         )
 
+    async def request_triage(self, incident_id: UUID, at: datetime) -> None:
+        raise NotImplementedError  # contrato de menos ruído: do grolla-persistencia
+
     async def request_post_mortem(self, incident_id: UUID, at: datetime) -> None:
         await self._connection.execute(
             sa.text(

@@ -43,6 +43,9 @@ _HEADLINES = {
     NotificationKind.FOLLOW_UP_UPDATE: "Atualização",
     NotificationKind.AGENT_PROPOSAL: "Grolla sugere",  # o `summary` traz a proposta inteira
     NotificationKind.ALERT_REOPENED: "Alerta voltou a disparar",
+    # Contrato de menos ruído: o grolla-integracoes desenha os cards.
+    NotificationKind.MERGE_SUGGESTED: "Parece o mesmo problema",
+    NotificationKind.INCIDENT_MERGED: "Incidentes juntados",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -59,6 +62,8 @@ _COLORS = {
     NotificationKind.FOLLOW_UP_UPDATE: "Default",
     NotificationKind.AGENT_PROPOSAL: "Accent",
     NotificationKind.ALERT_REOPENED: "Attention",
+    NotificationKind.MERGE_SUGGESTED: "Accent",
+    NotificationKind.INCIDENT_MERGED: "Default",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }

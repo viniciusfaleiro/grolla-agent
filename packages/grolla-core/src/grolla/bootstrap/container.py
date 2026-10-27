@@ -17,6 +17,7 @@ from grolla.adapters.postgres import (
     PostgresNotificationOutbox,
     PostgresPostMortemStore,
     PostgresStudyQueue,
+    PostgresTriageQueue,
     migrate,
 )
 from grolla.adapters.signoz import SignozAlertIngress
@@ -40,6 +41,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     ChangeHistory,
@@ -52,6 +54,7 @@ from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
 from grolla.application.metrics import MetricsReader
 from grolla.application.post_mortem import DocumentRenderer, PostMortemPolicy, PostMortemStore
+from grolla.application.triage import TriagePolicy, TriageQueue
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
 from grolla.domain.follow_up import FollowUpPolicy
@@ -106,6 +109,8 @@ class WorkerContainer:
     impact_policy: ImpactPolicy = field(default_factory=ImpactPolicy)
     post_mortems: PostMortemStore | None = None
     post_mortem_policy: PostMortemPolicy = field(default_factory=PostMortemPolicy)
+    triage_queue: TriageQueue | None = None  # só com `noise`
+    triage_policy: TriagePolicy | None = None
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -168,6 +173,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             study=_model_settings(config.llm.stages.get(STAGE_STUDY)),
             follow_up=_model_settings(config.llm.stages.get(STAGE_FOLLOW_UP)),
             post_mortem=_model_settings(config.llm.stages.get(STAGE_POST_MORTEM)),
+            triage=_model_settings(config.llm.stages.get(STAGE_TRIAGE)),
         ),
         telemetry=SignozTelemetry(
             config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
@@ -196,6 +202,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         impact_policy=config.impact_policy(),
         post_mortems=PostgresPostMortemStore(database),
         post_mortem_policy=config.post_mortem_policy(),
+        triage_queue=None if config.noise is None else PostgresTriageQueue(database),
+        triage_policy=config.triage_policy(),
     )
 
 
