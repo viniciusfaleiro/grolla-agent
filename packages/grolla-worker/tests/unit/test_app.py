@@ -31,6 +31,7 @@ from grolla.testing.memory import (
     InMemoryMemoryStore,
     InMemoryStudyQueue,
 )
+from grolla.testing.post_mortem import InMemoryPostMortemStore
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
@@ -39,6 +40,7 @@ from grolla_worker.app import (
     DELIVERY_CRON,
     INDEX_CRON,
     LEARNINGS_CRON,
+    POST_MORTEMS_CRON,
     REAPER_CRON,
     REPLIES_CRON,
     SCHEDULE_CYCLES_CRON,
@@ -635,5 +637,83 @@ async def test_stuck_cycles_are_reaped_once_a_minute(
             container.clock,
             container.follow_up_policy,
             container.follow_up_limits,
+        )
+    ]
+
+
+def test_post_mortems_are_not_scheduled_without_the_store(container: WorkerContainer) -> None:
+    app = registered(container)
+
+    assert {"run_post_mortems", "reap_stuck_post_mortems"}.isdisjoint(app.tasks)
+
+
+def writing_post_mortems(container: WorkerContainer) -> WorkerContainer:
+    repository = container.repository
+    assert isinstance(repository, InMemoryIncidentRepository)
+    return replace(container, post_mortems=InMemoryPostMortemStore(repository))
+
+
+async def test_post_mortems_run_every_ten_seconds_one_round_at_a_time_until_none_is_pending(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = writing_post_mortems(container)
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_post_mortem", run_next)
+    app = registered(container)
+
+    task = app.tasks["run_post_mortems"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        ANALYSIS_QUEUE,
+        "run_post_mortems",
+        "run_post_mortems",
+    )
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_post_mortems", "")].cron == POST_MORTEMS_CRON == "* * * * * */10"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "store": container.post_mortems,
+        "repository": container.repository,
+        "model": container.model,
+        "clock": container.clock,
+        "policy": container.post_mortem_policy,
+        "impact": container.impact_policy,
+    }
+
+
+async def test_stuck_post_mortems_are_reaped_once_a_minute(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = writing_post_mortems(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_post_mortems", reap)
+    app = registered(container)
+
+    task = app.tasks["reap_stuck_post_mortems"]
+    assert (task.queue, task.lock) == (ANALYSIS_QUEUE, "reap_stuck_post_mortems")
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("reap_stuck_post_mortems", "")].cron == REAPER_CRON
+
+    await task.func(timestamp=0)
+
+    assert calls == [
+        (
+            container.post_mortems,
+            container.repository,
+            container.clock,
+            container.post_mortem_policy,
         )
     ]

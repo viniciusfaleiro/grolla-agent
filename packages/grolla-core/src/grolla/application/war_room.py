@@ -47,6 +47,8 @@ async def act(  # noqa: PLR0913 — a ação precisa de quem, o quê, onde e qua
         await uow.append(decision.events)
         if any(e.type in CLOSING_EVENTS for e in decision.events):
             await uow.request_learning(incident_id, now)  # o incidente encerrado vira memória
+        if any(e.type is EventType.INCIDENT_RESOLVED for e in decision.events):
+            await uow.request_post_mortem(incident_id, now)  # descartado não tem post mortem
         for notification in decision.notifications:
             if notification.kind is NotificationKind.INCIDENT_RESOLVED:
                 notification = await _closing_card(repository, notification)  # noqa: PLW2901
