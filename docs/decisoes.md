@@ -70,3 +70,6 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 63 | 27/10 | lista | Filtros da lista na URL, aplicados em Python sobre os 200 incidentes mais recentes | O limite já existia e o filtro em memória é barato; não muda o port |
 | 64 | 27/10 | lista | Causa e post mortem lidos só para os cartões abertos e os 20 encerrados mostrados | No máximo algumas dezenas de consultas simples; um método de leitura junto fica para quando a lista crescer |
 | 65 | 27/10 | lista | Aberto há mais de 24 h sem IC vira "esquecido?" com "Encerrar" | No lab, dois incidentes ficaram abertos 40 h sem ninguém |
+| 66 | 27/10 | post mortem | Filtros "só com vencidos" e "sem avaliação" sobre a lista já lida; totais do topo contam a lista sem filtro | A lista é pequena e o resumo já traz os vencidos; não muda o port |
+| 67 | 27/10 | post mortem | Causa da linha = primeira frase do resumo executivo | O post mortem já tem a causa escrita; nenhuma consulta nova ao incidente |
+| 68 | 27/10 | post mortem | Índice lateral diz quem escreveu cada seção e o que falta (sem dono, vencidos, avaliar) | Aprovar e encerrar pedem dono, prazo e avaliação; o time vê o que falta sem rolar o documento |

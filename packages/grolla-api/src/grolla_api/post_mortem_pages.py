@@ -1,10 +1,11 @@
 """Apresentação do post mortem: rótulos, transições oferecidas e leitura dos forms."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
-from grolla.application.post_mortem import PostMortemFilters
+from grolla.application.post_mortem import PostMortemFilters, PostMortemSummary
 from grolla.domain.incidents import Severity
 from grolla.domain.post_mortem import (
     DETERMINISTIC,
@@ -13,6 +14,7 @@ from grolla.domain.post_mortem import (
     ActionKind,
     ActionStatus,
     InvalidPostMortemError,
+    PostMortem,
     PostMortemStatus,
     Section,
     SectionKey,
@@ -174,3 +176,118 @@ def list_filters(params: Mapping[str, str]) -> PostMortemFilters:
         since=_day_or_none(params.get("de", "")),
         until=_day_or_none(params.get("ate", "")),
     )
+
+
+# ---- Lista e documento redesenhados ----
+
+_SENTENCE = re.compile(r"(?<=[.!?])\s")
+
+
+def first_sentence(body: str) -> str:
+    """A primeira frase do texto, sem marcador de lista: a causa numa linha na lista."""
+    for line in body.splitlines():
+        text = line.strip().lstrip("-*• ").strip()
+        if text:
+            return _SENTENCE.split(text, maxsplit=1)[0]
+    return ""
+
+
+def plan_status(actions: tuple[ActionItem, ...]) -> str:
+    """'3 itens sem dono', '2 de 4 concluídos' ou 'sem itens'."""
+    if not actions:
+        return "sem itens"
+    ownerless = sum(1 for a in actions if not a.owner or a.due is None)
+    if ownerless:
+        return f"{ownerless} {'item' if ownerless == 1 else 'itens'} sem dono ou prazo"
+    done = sum(1 for a in actions if a.status is not ActionStatus.OPEN)
+    return f"{done} de {len(actions)} concluídos"
+
+
+@dataclass(frozen=True)
+class PmRow:
+    summary: PostMortemSummary
+    cause: str
+    plan: str
+    evaluated: bool
+
+
+def pm_row(summary: PostMortemSummary, pm: PostMortem | None) -> PmRow:
+    if pm is None:
+        return PmRow(summary, "", "", evaluated=False)
+    resume = next((s.body for s in pm.sections if s.key is SectionKey.SUMMARY), "")
+    return PmRow(
+        summary,
+        cause="" if resume.startswith(NOT_GENERATED) else first_sentence(resume),
+        plan=plan_status(pm.actions),
+        evaluated=pm.evaluation.author is not None,
+    )
+
+
+@dataclass(frozen=True)
+class ListExtras:
+    """Filtros da lista que olham o documento: só com vencidos, só sem avaliação."""
+
+    overdue_only: bool = False
+    unevaluated_only: bool = False
+
+    def matches(self, row: PmRow) -> bool:
+        return (not self.overdue_only or row.summary.overdue > 0) and (
+            not self.unevaluated_only or not row.evaluated
+        )
+
+
+def list_extras(params: Mapping[str, str]) -> ListExtras:
+    return ListExtras(
+        overdue_only=params.get("vencidos", "") == "1",
+        unevaluated_only=params.get("sem_avaliacao", "") == "1",
+    )
+
+
+@dataclass(frozen=True)
+class Totals:
+    drafts: int
+    review: int
+    overdue: int  # itens vencidos somados
+    closed_this_month: int
+
+
+def totals_of(summaries: list[PostMortemSummary], today: date) -> Totals:
+    return Totals(
+        drafts=sum(1 for s in summaries if s.status is PostMortemStatus.DRAFT),
+        review=sum(1 for s in summaries if s.status is PostMortemStatus.REVIEW),
+        overdue=sum(s.overdue for s in summaries),
+        closed_this_month=sum(
+            1
+            for s in summaries
+            if s.status is PostMortemStatus.CLOSED
+            and (s.updated_at.year, s.updated_at.month) == (today.year, today.month)
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class OutlineItem:
+    key: SectionKey
+    number: int
+    who: str  # Grolla, do log ou o nome de quem editou por último
+    missing: str  # o que falta na seção, ou ""
+
+
+def outline_of(pm: PostMortem, overdue: int) -> tuple[OutlineItem, ...]:
+    """O índice lateral: quem escreveu cada seção e o que falta para fechar o documento."""
+    items: list[OutlineItem] = []
+    for number, section in enumerate(pm.sections, start=1):
+        who = "do log" if section.key in DETERMINISTIC else section.author
+        missing = ""
+        if section.key is SectionKey.ACTIONS:
+            ownerless = sum(1 for a in pm.actions if not a.owner or a.due is None)
+            if overdue:
+                missing = f"{overdue} {'vencido' if overdue == 1 else 'vencidos'}"
+            elif ownerless:
+                missing = f"{ownerless} sem dono"
+        if section.key is SectionKey.AGENT and pm.evaluation.author is None:
+            missing = "falta avaliar"
+        if not_generated(section):
+            missing = "não gerada"
+        items.append(OutlineItem(section.key, number, who, missing))
+    return tuple(items)

@@ -1,52 +1,76 @@
 {% extends "base.html" %}
-{% from "_macros.html" import day %}
+{% from "_macros.html" import day, icon %}
 {% block title %}Post mortems{% endblock %}
 {% block content %}
 <div class="list-head">
-  <h1>Post mortems</h1>
-  {% if summaries %}<p class="muted">{{ summaries | length }} {{ "post mortem" if summaries | length == 1 else "post mortems" }}</p>{% endif %}
+  <div class="list-title">
+    <h1>Post mortems</h1>
+    <p class="muted">O Grolla escreve o rascunho em minutos; o time revisa, aprova e cuida do plano de ação.</p>
+  </div>
 </div>
 
-<form class="panel pm-filters" method="get" action="/postmortems">
-  <label>Status
-    <select name="status">
-      <option value="">todos</option>
-      {% for value, label in pm_status_labels.items() %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Severidade
-    <select name="severidade">
-      <option value="">todas</option>
-      {% for severity in severities %}<option value="{{ severity }}"{% if filters.severity == severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Serviço
-    <input name="servico" value="{{ filters.service or '' }}" placeholder="ex.: pedidos-api">
-  </label>
-  <label>Detectado de
-    <input type="date" name="de" value="{{ filters.since.isoformat() if filters.since else '' }}">
-  </label>
-  <label>até
-    <input type="date" name="ate" value="{{ filters.until.isoformat() if filters.until else '' }}">
-  </label>
-  <div class="pm-filters-actions">
-    <button class="button-primary">Filtrar</button>
-    {% if filtered %}<a class="button button-quiet" href="/postmortems">Limpar</a>{% endif %}
+{% if total %}
+<dl class="totals">
+  <a class="total" href="/postmortems?status=rascunho"><dt>Rascunhos para revisar</dt><dd>{{ totals.drafts }}</dd></a>
+  <a class="total" href="/postmortems?status=em_revisao"><dt>Em revisão</dt><dd>{{ totals.review }}</dd></a>
+  <a class="total{% if totals.overdue %} total-bad{% endif %}" href="/postmortems?vencidos=1"><dt>Itens do plano vencidos</dt><dd>{{ totals.overdue }}</dd></a>
+  <a class="total" href="/postmortems?status=encerrado"><dt>Encerrados no mês</dt><dd>{{ totals.closed_this_month }}</dd></a>
+</dl>
+{% endif %}
+
+<form class="filters pm-filters" method="get" action="/postmortems" data-autosubmit aria-label="Filtros">
+  <div class="filters-row">
+    <div class="segmented" role="group" aria-label="Status">
+      <label class="seg"><input type="radio" name="status" value=""{% if not filters.status %} checked{% endif %}><span>Todos</span></label>
+      {% for value, label in pm_status_labels.items() %}
+      <label class="seg"><input type="radio" name="status" value="{{ value }}"{% if filters.status == value %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="filters-row">
+    <span class="filters-label">{{ icon("filter") }}Filtrar</span>
+    <label class="select"><span class="visually-hidden">Severidade</span>
+      <select name="severidade">
+        <option value="">Severidade: todas</option>
+        {% for severity in severities %}<option value="{{ severity }}"{% if filters.severity == severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="select"><span class="visually-hidden">Serviço</span>
+      <select name="servico">
+        <option value="">Serviço: todos</option>
+        {% for service in services_seen %}<option value="{{ service }}"{% if filters.service == service %} selected{% endif %}>{{ service }}</option>{% endfor %}
+        {% if filters.service and filters.service not in services_seen %}<option value="{{ filters.service }}" selected>{{ filters.service }}</option>{% endif %}
+      </select>
+    </label>
+    <label class="chip-toggle"><input type="checkbox" name="vencidos" value="1"{% if extras.overdue_only %} checked{% endif %}><span>Só com itens vencidos</span></label>
+    <label class="chip-toggle"><input type="checkbox" name="sem_avaliacao" value="1"{% if extras.unevaluated_only %} checked{% endif %}><span>Sem avaliação do agente</span></label>
+    <label class="date-field">Detectado de <input type="date" name="de" value="{{ filters.since.isoformat() if filters.since else '' }}"></label>
+    <label class="date-field">até <input type="date" name="ate" value="{{ filters.until.isoformat() if filters.until else '' }}"></label>
+    <button class="filters-apply">Filtrar</button>
+    <span class="filters-count">
+      <span class="muted">{{ rows | length }} {{ "post mortem" if rows | length == 1 else "post mortems" }}</span>
+      {% if filtered %}<a href="/postmortems">Limpar filtros</a>{% endif %}
+    </span>
   </div>
 </form>
 
-{% if summaries %}
-<ul class="incident-list pm-list">
-  {% for item in summaries %}
-  <li class="incident-row{% if item.overdue %} pm-row-overdue{% endif %}">
-    <span class="sev sev-{{ item.incident.severity }}">{{ item.incident.severity }}</span>
-    <a href="/postmortems/{{ item.incident.id }}">{{ item.incident.title }}</a>
-    <span class="when">{{ day(item.incident.detected_at) }}</span>
-    <span class="meta">
-      <span class="pm-status pm-status-{{ item.status }}">{{ pm_status_labels[item.status] }}</span>
-      {% for service in item.incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
-      {% if item.overdue %}<span class="badge badge-overdue">{{ item.overdue }} {{ "item vencido" if item.overdue == 1 else "itens vencidos" }}</span>{% endif %}
+{% if rows %}
+<ul class="pm-rows">
+  {% for row in rows %}
+  {% set item = row.summary %}
+  <li class="pm-row{% if item.overdue %} pm-row-overdue{% endif %}">
+    <div class="pm-row-main">
+      <span class="cell-title"><span class="sev sev-{{ item.incident.severity }}">{{ item.incident.severity }}</span><a href="/postmortems/{{ item.incident.id }}">{{ item.incident.title }}</a></span>
+      {% if row.cause %}<span class="pm-row-cause muted">{{ row.cause | truncate(150) }}</span>{% endif %}
+      <span class="chips">{% for service in item.incident.services %}<span class="chip">{{ service }}</span>{% endfor %}</span>
+    </div>
+    <span class="pm-status pm-status-{{ item.status }}">{{ pm_status_labels[item.status] }}</span>
+    <span class="pm-row-plan">
+      {% if item.overdue %}<span class="badge badge-overdue">{{ item.overdue }} {{ "item vencido" if item.overdue == 1 else "itens vencidos" }}</span>
+      {% elif row.plan %}<span class="muted">Plano: {{ row.plan }}</span>{% endif %}
+      {% if not row.evaluated %}<span class="muted small">agente sem avaliação</span>{% endif %}
     </span>
+    <span class="when muted">{{ day(item.incident.detected_at) }}</span>
   </li>
   {% endfor %}
 </ul>
