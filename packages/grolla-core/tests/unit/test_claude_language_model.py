@@ -11,6 +11,7 @@ import httpx2
 import pytest
 from contracts.language_model_contract import (
     ChatReplyContract,
+    FollowUpModelContract,
     LanguageModelContract,
     MemoryModelContract,
 )
@@ -1079,6 +1080,19 @@ async def follow_up(
     return await follower(handler).follow_up(
         brief(), CONTEXT, previous, toolbox or RecordingToolbox(), budget or RecordingBudget()
     )
+
+
+class TestClaudeFollowUpModelContract(FollowUpModelContract):
+    @pytest.fixture
+    def following_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return follower(ScriptedApi(tool_use, ok(final(cycle_result()))))
+
+    @pytest.fixture
+    def failing_follower(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return follower(ScriptedApi(response, response, response))
 
 
 async def test_follow_up_runs_the_tools_and_returns_the_cycle() -> None:
