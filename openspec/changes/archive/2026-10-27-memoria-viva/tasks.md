@@ -85,8 +85,8 @@
 
 - [x] 6.1 Juntar os branches e resolver conflitos.
 - [x] 6.2 Fazer o code review do todo entregue, com os ajustes que couberem.
-- [ ] 6.3 Evals: o mesmo incidente com e sem memória (rodar só com o ok do usuário, por causa do crédito).
-- [ ] 6.4 Laboratório, com o ok do usuário para o gasto:
+- [x] 6.3 Evals: o mesmo incidente com e sem memória (rodar só com o ok do usuário, por causa do crédito).
+- [x] 6.4 Laboratório, com o ok do usuário para o gasto:
   - estudo inicial do `pedidos-api`, com conferência dos dossiês;
   - encerrar um incidente e conferir o episódio;
   - provocar o mesmo problema e ver o "já vi isso";

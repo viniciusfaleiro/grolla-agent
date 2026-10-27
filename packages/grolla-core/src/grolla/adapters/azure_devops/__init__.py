@@ -124,11 +124,11 @@ class AzureDevOpsChangeHistory:
         self, client: httpx2.AsyncClient, repository: _Repository, path: str, *, file: bool
     ) -> Any:
         """Git Items API no branch padrão: o arquivo com o conteúdo, ou a listagem da pasta."""
-        params = {"path": path, "$format": "json"}
+        params = {"$format": "json"}
         if file:
-            params |= {"includeContent": "true", "includeContentMetadata": "true"}
-        else:
-            params["recursionLevel"] = "OneLevel"
+            params |= {"path": path, "includeContent": "true", "includeContentMetadata": "true"}
+        else:  # a listagem de pasta usa `scopePath`: com `path` a API responde 400
+            params |= {"scopePath": path, "recursionLevel": "OneLevel"}
         if repository.branch:
             params |= {
                 "versionDescriptor.version": repository.branch,

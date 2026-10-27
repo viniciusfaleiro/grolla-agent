@@ -484,6 +484,20 @@ o card perdiam a referência; o cenário e2e pegou). Teste de integração cobre
 - Sem `memory.study`, a página diz que o estudo está desligado e esconde os botões.
 - `rich_text` passou a tratar `#` e `##` como título de seção.
 
+## Laboratório e evals (27/10)
+
+- **Evals:** os 5 casos passam com a Sonnet 5.5. No par "repetido", sem memória o modelo acha o
+  pool esgotado e não inventa "já vi isso"; com memória, aponta o incidente passado e a
+  conciliação.
+- **Estudo inicial:** 3 serviços, 7 dossiês, 147 mil tokens, 3 min.
+- **Bug achado no estudo:** a listagem de pasta do Azure DevOps exige `scopePath` (com `path`,
+  responde 400). Corrigido, e os fakes agora recusam como a API real.
+- **"Já vi isso" no laboratório:** o bug do desconto foi reintroduzido, o incidente conduzido e
+  encerrado pelo war room, e o episódio escrito. Na repetição, a análise apontou o incidente
+  anterior com o motivo certo, na página e no card.
+- **Chat que só ensina:** a resposta repetia o fato antes do "Guardei". O prompt agora pede só a
+  linha "Guardei" quando a mensagem não pergunta nada.
+
 ## Risks / Trade-offs
 
 - [Agente aprende algo errado e repete] → cada registro mostra confiança e fonte; o time

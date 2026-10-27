@@ -63,6 +63,9 @@ class AzureDevOpsFake:
         ) -> JSONResponse:
             path = request.query_params.get("path", "/")
             if "recursionLevel" in request.query_params:
+                if "scopePath" not in request.query_params:  # como a API real
+                    body = {"message": "VS403403: a listagem de pasta usa scopePath"}
+                    return self._answer(request, body, 400)
                 listing = [{"path": "/", "isFolder": True, "gitObjectType": "tree"}]
                 listing += [{"path": f"/{name}", "gitObjectType": "blob"} for name in _files(repo)]
                 listing.append({"path": "/src", "isFolder": True, "gitObjectType": "tree"})
