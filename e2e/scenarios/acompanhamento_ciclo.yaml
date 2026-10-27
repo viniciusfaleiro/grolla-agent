@@ -1,0 +1,65 @@
+# Acompanhamento da crise: um P1 aberto recebe, depois da análise inicial, o primeiro ciclo de
+# acompanhamento (a cada `cycle_minutes`, 1 min no e2e). O ciclo fica concluído na tabela, vira
+# evento na timeline e, por ser o primeiro, posta o card "Atualização" no canal.
+name: P1 recebe ciclo de acompanhamento
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no crise-api
+              service_name: crise-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no crise-api
+              description: A taxa de erro HTTP 5xx do crise-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=140
+            fingerprint: e2e-crise-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'crise-api' = ANY(services) AND severity = 'P1'
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'analysis_completed'
+      at_least: 1
+      timeout_seconds: 60
+  # Primeiro ciclo: análise + 1 min, varredura a cada 30 s e execução a cada 10 s.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM cycles WHERE incident_id = '{incidente}' AND number = 1
+        AND status = 'concluido' AND trend IS NOT NULL AND summary <> '' AND posted
+      at_least: 1
+      timeout_seconds: 180
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'cycle_completed'
+      at_least: 1
+      timeout_seconds: 30
+  - wait_for_fake_request:
+      path: /teams/webhook
+      contains: [crise-api, Atualização]
+      timeout_seconds: 60
+  # O card de atualização vem depois do card da análise inicial.
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [crise-api, Análise pronta]
+      then: [crise-api, Atualização]
