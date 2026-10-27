@@ -19,6 +19,7 @@ from grolla.domain.post_mortem import (
     AGENT_AUTHOR,
     ActionKind,
     ActionStatus,
+    AgentEvaluation,
     PostMortemStatus,
     Section,
     SectionKey,
@@ -104,6 +105,28 @@ class PostMortemStoreContract:
 
         assert await store.get(incident.id) == pm
         assert [s.key for s in pm.sections] == list(SectionKey)
+
+    async def test_evaluation_reads_back_and_can_be_partial(
+        self, repository: IncidentRepository, store: PostMortemStore
+    ) -> None:
+        incident = await resolved(repository, request=False)
+        full = AgentEvaluation(
+            main_hypothesis_correct=False,
+            minutes_to_right=12,
+            memory_helped=True,
+            author="Ana Souza",
+            at=T0 + timedelta(minutes=4),
+        )
+        pm = replace(
+            make_post_mortem(incident.id, status=PostMortemStatus.APPROVED), evaluation=full
+        )
+
+        await store.save(pm, [])
+        assert await store.get(incident.id) == pm
+
+        partial = replace(pm, evaluation=AgentEvaluation(memory_helped=False, author="Bia", at=T0))
+        await store.save(partial, [])
+        assert await store.get(incident.id) == partial
 
     async def test_unknown_post_mortem_is_none_and_has_no_versions(
         self, repository: IncidentRepository, store: PostMortemStore

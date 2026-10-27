@@ -1,9 +1,10 @@
-"""Post mortem no PostgreSQL (migração 0009): documento, versões das seções e a fila de
+"""Post mortem no PostgreSQL (migrações 0009 e 0010): documento, versões das seções e a fila de
 rascunhos e regenerações.
 
-O documento é uma linha com as seções e o plano de ação em `jsonb` (datas em ISO 8601, ids como
-texto); as versões são só inserção. A tabela `post_mortem_jobs` é a fila (`pendente` →
-`em_andamento` → `feito`/`falho`), com o rascunho único por incidente.
+O documento é uma linha com as seções, o plano de ação e a avaliação do agente em `jsonb` (datas
+em ISO 8601, ids como texto; avaliação nula é a vazia); as versões são só inserção. A tabela
+`post_mortem_jobs` é a fila (`pendente` → `em_andamento` → `feito`/`falho`), com o rascunho único
+por incidente.
 """
 
 import json
@@ -24,6 +25,7 @@ from grolla.domain.post_mortem import (
     ActionItem,
     ActionKind,
     ActionStatus,
+    AgentEvaluation,
     PostMortem,
     PostMortemStatus,
     Section,
@@ -48,11 +50,13 @@ STUCK_JOBS = sa.text(
     " WHERE status = :running AND started_at < :before ORDER BY started_at, id"
 )
 UPSERT_POST_MORTEM = sa.text(
-    "INSERT INTO post_mortems (incident_id, status, sections, actions, status_by, status_at,"
-    " created_at, updated_at) VALUES (:incident_id, :status, CAST(:sections AS jsonb),"
-    " CAST(:actions AS jsonb), :status_by, :status_at, :created_at, :updated_at)"
+    "INSERT INTO post_mortems (incident_id, status, sections, actions, evaluation, status_by,"
+    " status_at, created_at, updated_at) VALUES (:incident_id, :status,"
+    " CAST(:sections AS jsonb), CAST(:actions AS jsonb), CAST(:evaluation AS jsonb), :status_by,"
+    " :status_at, :created_at, :updated_at)"
     " ON CONFLICT (incident_id) DO UPDATE SET status = excluded.status,"
     " sections = excluded.sections, actions = excluded.actions,"
+    " evaluation = excluded.evaluation,"
     " status_by = excluded.status_by, status_at = excluded.status_at,"
     " updated_at = excluded.updated_at"
 )
@@ -110,6 +114,30 @@ def _actions_json(actions: Sequence[ActionItem]) -> str:
     )
 
 
+def _evaluation_json(evaluation: AgentEvaluation) -> str:
+    return json.dumps(
+        {
+            "main_hypothesis_correct": evaluation.main_hypothesis_correct,
+            "minutes_to_right": evaluation.minutes_to_right,
+            "memory_helped": evaluation.memory_helped,
+            "author": evaluation.author,
+            "at": None if evaluation.at is None else evaluation.at.isoformat(),
+        }
+    )
+
+
+def evaluation_from(data: Mapping[str, Any] | None) -> AgentEvaluation:
+    if data is None:
+        return AgentEvaluation()
+    return AgentEvaluation(
+        main_hypothesis_correct=data["main_hypothesis_correct"],
+        minutes_to_right=data["minutes_to_right"],
+        memory_helped=data["memory_helped"],
+        author=data["author"],
+        at=None if data["at"] is None else datetime.fromisoformat(data["at"]),
+    )
+
+
 def _section(data: Mapping[str, Any]) -> Section:
     return Section(
         key=SectionKey(data["key"]),
@@ -136,6 +164,7 @@ def _post_mortem(row: sa.Row[Any]) -> PostMortem:
         status=PostMortemStatus(row.status),
         sections=tuple(_section(s) for s in row.sections),
         actions=tuple(_action(a) for a in row.actions),
+        evaluation=evaluation_from(row.evaluation),
         created_at=row.created_at,
         updated_at=row.updated_at,
         status_by=row.status_by,
@@ -164,6 +193,7 @@ async def _save(
             "status": pm.status.value,
             "sections": _sections_json(pm.sections),
             "actions": _actions_json(pm.actions),
+            "evaluation": _evaluation_json(pm.evaluation),
             "status_by": pm.status_by,
             "status_at": pm.status_at,
             "created_at": pm.created_at,
@@ -195,8 +225,8 @@ class PostgresPostMortemStore:
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 sa.text(
-                    "SELECT incident_id, status, sections, actions, status_by, status_at,"
-                    " created_at, updated_at FROM post_mortems WHERE incident_id = :id"
+                    "SELECT incident_id, status, sections, actions, evaluation, status_by,"
+                    " status_at, created_at, updated_at FROM post_mortems WHERE incident_id = :id"
                 ),
                 {"id": incident_id},
             )
