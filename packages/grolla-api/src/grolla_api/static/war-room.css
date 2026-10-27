@@ -705,11 +705,19 @@ a.button-primary:hover { color: var(--brand-ink); }
 #incident-status { display: contents; }
 
 /* Faixa do alarme: normalizado (verde) ou voltou a disparar (âmbar), com o próximo passo. */
+.incident-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem 1.25rem; flex-wrap: wrap; }
+.incident-top .incident-head { flex: 1 1 20rem; min-width: 0; }
+.incident-top .alarm { flex: 0 1 26rem; }
 .alarm { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 1rem; border-radius: var(--radius); border-left: 4px solid var(--ok); background: var(--ok-soft); }
 .alarm[hidden] { display: none; }
 .alarm-voltou { border-left-color: var(--warn); background: var(--warn-soft); }
+.alarm-disparando { border-left-color: var(--danger); background: var(--danger-soft); animation: alarm-pulse 2.4s ease-in-out infinite; }
+@keyframes alarm-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent); filter: brightness(0.96); } }
+@media (prefers-reduced-motion: reduce) { .alarm-disparando { animation: none; } }
+.alarm-text p { margin: 0; }
+.alarm-alerts { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.92rem; }
 .alarm-icon { font-size: 1.25rem; line-height: 1; }
-.alarm-text { flex: 1 1 16rem; margin: 0; }
+.alarm-text { flex: 1 1 12rem; margin: 0; }
 .alarm form { margin: 0; }
 .chip-ok { font-weight: 700; color: var(--ok); background: var(--ok-soft); }
 

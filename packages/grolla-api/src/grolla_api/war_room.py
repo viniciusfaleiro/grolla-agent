@@ -259,6 +259,7 @@ def header_of(incident: Incident, now: datetime, author: str | None = None) -> H
 
 
 class AlarmKind(StrEnum):
+    FIRING = "disparando"
     NORMALIZED = "normalizado"
     RETURNED = "voltou"
 
@@ -266,27 +267,26 @@ class AlarmKind(StrEnum):
 @dataclass(frozen=True)
 class Alarm:
     kind: AlarmKind
-    at: datetime  # da última normalização, ou do alerta que voltou
+    at: datetime  # do primeiro alerta, da última normalização ou do alerta que voltou
 
 
 _ALERT_ARRIVED = frozenset({EventType.ALERT_RECEIVED, EventType.ALERT_GROUPED})
 
 
 def alarm_of(incident: Incident, events: Sequence[IncidentEvent]) -> Alarm | None:
-    """Faixa do alarme: normalizado (nada disparando) ou voltou (disparou depois de normalizar).
-
-    Sem faixa no incidente encerrado, no que nunca teve alerta e enquanto dispara sem nunca ter
-    normalizado.
+    """Faixa do alarme: disparando (desde o primeiro alerta), normalizado (nada disparando) ou
+    voltou (disparou depois de normalizar). Sem faixa no incidente encerrado ou sem alerta.
     """
-    if incident.state not in OPEN_STATES:
+    arrived = [e.at for e in events if e.type in _ALERT_ARRIVED]
+    if incident.state not in OPEN_STATES or not arrived:
         return None
     normalized = [e.at for e in events if e.type is EventType.INCIDENT_NORMALIZED]
-    if not normalized or not any(e.type in _ALERT_ARRIVED for e in events):
-        return None
+    if not normalized:
+        return Alarm(AlarmKind.FIRING, min(arrived)) if incident.firing else None
     last = max(normalized)
     if not incident.firing:
         return Alarm(AlarmKind.NORMALIZED, last)
-    returned = [e.at for e in events if e.type in _ALERT_ARRIVED and e.at > last]
+    returned = [at for at in arrived if at > last]
     return Alarm(AlarmKind.RETURNED, min(returned)) if returned else None
 
 

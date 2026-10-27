@@ -1,6 +1,7 @@
-# O alarme para e volta: o war room mostra a faixa "Alertas normalizados" na página e no polling
-# da timeline (fora do lugar, junto com a tabela de alertas e o estado), a lista mostra o selo, e
-# o alerta que dispara de novo vira "Voltou a disparar".
+# O alarme dispara, para e volta: o war room mostra "Alarme disparando" com o link do alerta,
+# depois "Alertas normalizados" na página e no polling da timeline (fora do lugar, junto com a
+# tabela de alertas e o estado), a lista mostra o selo, e o alerta que dispara de novo vira
+# "Voltou a disparar".
 name: faixa do alarme normalizado e de volta no war room
 given:
   fakes:
@@ -38,7 +39,11 @@ when:
   - expect_page:
       service: api
       path: /incidents/{incidente}
-      contains: ['data-alarm="" data-title="Erros no alarme-api"']
+      contains:
+        - 'data-alarm="disparando" data-title="Erros no alarme-api"'
+        - Alarme disparando</strong> desde
+        - 'Erros no alarme-api · <a href="https://signoz.interno/alerts/edit?ruleId=120"'
+        - abrir o alerta
   - http:
       service: api
       method: POST
@@ -60,14 +65,13 @@ then:
       contains:
         - 'data-alarm="normalizado"'
         - Alertas normalizados</strong> às
-        - nenhum alerta deste incidente está disparando
   - expect_page:
       service: api
       path: /incidents/{incidente}/timeline
       contains:
-        - 'id="alarm" class="alarm alarm-normalizado" hx-swap-oob="true"'
-        - 'id="alerts" hx-swap-oob="true"'
         - 'id="incident-status" hx-swap-oob="true"'
+        - 'id="alarm" class="alarm alarm-normalizado"'
+        - 'id="alerts" hx-swap-oob="true"'
   - expect_page:
       service: api
       path: /incidents
