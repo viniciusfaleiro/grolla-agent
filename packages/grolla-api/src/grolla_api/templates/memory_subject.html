@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import when, day, join %}
+{% from "_memory_nav.html" import subjects_nav %}
 {% block title %}{{ subject }} · Memória{% endblock %}
 
 {% macro record(item, rows=4, show_title=true) %}
@@ -53,7 +54,9 @@
 
 {% if not author %}{{ join(back_to, "Seu nome fica nas notas e nas correções que você fizer.") }}{% endif %}
 
-<div class="memory-grid">
+<div class="memory-layout">
+  {{ subjects_nav(groups, now, subject) }}
+  <div class="memory-grid">
   <div class="memory-main">
     <section class="panel" id="dossie">
       <h2>Dossiê</h2>
@@ -99,5 +102,6 @@
       {% endfor %}
     </section>
   </aside>
+  </div>
 </div>
 {% endblock %}

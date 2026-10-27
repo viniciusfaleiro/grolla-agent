@@ -73,3 +73,7 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 66 | 27/10 | post mortem | Filtros "só com vencidos" e "sem avaliação" sobre a lista já lida; totais do topo contam a lista sem filtro | A lista é pequena e o resumo já traz os vencidos; não muda o port |
 | 67 | 27/10 | post mortem | Causa da linha = primeira frase do resumo executivo | O post mortem já tem a causa escrita; nenhuma consulta nova ao incidente |
 | 68 | 27/10 | post mortem | Índice lateral diz quem escreveu cada seção e o que falta (sem dono, vencidos, avaliar) | Aprovar e encerrar pedem dono, prazo e avaliação; o time vê o que falta sem rolar o documento |
+| 69 | 27/10 | console | Sessão do console ao lado da lista de conversas; "Abrir incidente" no topo da conversa | O card solitário deixava um vazio grande e afastava a conversa da lista |
+| 70 | 27/10 | console | Sugestões com os serviços que a memória conhece | No lab, o console sugeria o autorizador e o pedidos-api, que nem existiam mais |
+| 71 | 27/10 | memória | Assuntos ao lado nas duas páginas da memória; "sem estudo" só no serviço que o estudo não cobriu | Integrações e o ambiente não entram no estudo por serviço; marcá-los confundiria |
+| 72 | 27/10 | métricas | Período atual em destaque e gráfico dos resolvidos; período vazio continua com "—", só apagado | A spec já pede "—" sem dado; o destaque e o gráfico respondem "como estamos" num relance |

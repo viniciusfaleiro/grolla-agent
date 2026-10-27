@@ -165,8 +165,9 @@ async def test_home_shows_the_environment_dossier_and_subjects_by_kind(
     assert "&lt;b&gt;2&lt;/b&gt; APIs" in page
     assert "Ainda não estudei" not in page
     assert page.index("Serviços") < page.index("Integrações")
-    assert '<a href="/memoria/pedidos-api">pedidos-api</a>' in page
-    assert '<a href="/memoria/grolla-lab-db">grolla-lab-db</a>' in page
+    assert '<a href="/memoria/pedidos-api" data-filter-item="pedidos-api">' in page
+    assert '<a href="/memoria/grolla-lab-db" data-filter-item="grolla-lab-db">' in page
+    assert 'class="memory-nav"' in page
 
 
 async def test_forgotten_environment_dossier_points_to_the_history(
@@ -613,3 +614,22 @@ def test_source_of_a_person_and_of_a_study_with_links() -> None:
     label, links = source_of(study)
     assert label == "estudo do ambiente"
     assert [link.url for link in links] == ["https://a", "https://b"]
+
+
+async def test_subjects_nav_flags_the_services_without_study(
+    client: TestClient, store: InMemoryMemoryStore
+) -> None:
+    await remember(
+        store,
+        make_memory(kind=MemoryKind.EPISODE, subject="checkout-api"),
+        make_memory(subject="antifraude-api", subject_kind=SubjectKind.INTEGRATION),
+    )
+
+    page = client.get("/memoria/checkout-api").text
+    nav = page.split('class="memory-nav"')[1].split("</nav>")[0]
+
+    checkout = nav.split('data-filter-item="checkout-api"')[1].split("</a>")[0]
+    antifraude = nav.split('data-filter-item="antifraude-api"')[1].split("</a>")[0]
+    assert "sem estudo" in checkout
+    assert "sem estudo" not in antifraude  # integração não entra no estudo por serviço
+    assert 'aria-current="page"' in checkout

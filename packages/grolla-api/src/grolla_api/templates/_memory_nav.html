@@ -1,0 +1,28 @@
+{# Assuntos da memória ao lado, nas duas páginas: frescor de cada um e uma busca no navegador. #}
+{% from "_macros.html" import icon %}
+{% macro subjects_nav(groups, now, current="") %}
+<nav class="memory-nav" aria-label="Assuntos da memória">
+  <label class="visually-hidden" for="busca-assunto">Achar um assunto</label>
+  <span class="search">{{ icon("search") }}<input id="busca-assunto" placeholder="Achar um assunto" autocomplete="off" data-filter-list="#lista-assuntos"></span>
+  <div id="lista-assuntos">
+    {% for group in groups %}
+    <p class="eyebrow memory-nav-group">{{ group.label }} <span class="muted">{{ group.subjects | length }}</span></p>
+    {% for item in group.subjects %}
+    <a href="{{ subject_url(item.subject) }}" data-filter-item="{{ item.subject }}"{% if item.subject == current %} aria-current="page"{% endif %}>
+      <span class="memory-nav-name">{{ item.subject }}</span>
+      {% if item.kind == "servico" and not item.studied_at %}<span class="memory-nav-new">sem estudo</span>{% else %}<span class="muted">{{ ago(now - item.updated_at) }}</span>{% endif %}
+    </a>
+    {% endfor %}
+    {% else %}
+    <p class="muted">Nenhum assunto ainda.</p>
+    {% endfor %}
+  </div>
+  <form class="open-subject" method="get" action="/memoria">
+    <label for="assunto">Ensinar sobre outro assunto</label>
+    <div class="row">
+      <input id="assunto" name="assunto" required maxlength="100" placeholder="ex.: captura-api">
+      <button>Abrir</button>
+    </div>
+  </form>
+</nav>
+{% endmacro %}

@@ -1,23 +1,24 @@
 {% extends "base.html" %}
-{% from "_macros.html" import join, when %}
+{% from "_macros.html" import join, when, icon %}
+{% from "_console_nav.html" import sessions_nav %}
 {% block title %}{{ session.title }}{% endblock %}
 {% block content %}
-<div class="list-head console-head">
-  <h1>{{ session.title }}</h1>
-  <p class="muted">por {{ session.author }} · {{ when(session.created_at) }}</p>
-  <a class="panel-link" href="/console">todas as conversas</a>
-</div>
-
 {% if not author %}{{ join("/console/" ~ session.id, "Seu nome fica nas perguntas e nos incidentes abertos pelo console.") }}{% endif %}
 
-<div class="console">
+<div class="console-layout">
+  {{ sessions_nav(sessions, now, author, session) }}
+
   <section class="chat-panel console-chat" aria-label="Conversa com o Grolla">
-    <header class="chat-head">
-      <span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>
-      <div>
-        <h2>Grolla</h2>
-        <p>Eu consulto, mas não executo nada. Os números dos gráficos vêm direto da telemetria.</p>
+    <header class="chat-head console-chat-head">
+      <div class="console-chat-title">
+        <h1>{{ session.title }}</h1>
+        <p>por {{ session.author }} · {{ when(session.created_at) }} · visível ao time · o Grolla consulta, nunca executa</p>
       </div>
+      {% if session.incident_id %}
+      <a class="chip chip-link" href="/incidents/{{ session.incident_id }}">Virou o incidente {{ incident.title if incident else "aberto pelo console" }}</a>
+      {% elif author %}
+      <button class="button-incident" popovertarget="abrir-incidente">{{ icon("alert") }}Abrir incidente</button>
+      {% endif %}
     </header>
     <div class="chat-scroll" id="chat-scroll">
       {% include "_console_messages.html" %}
@@ -39,15 +40,7 @@
     </div>
   </section>
 
-  <aside class="panel console-side" aria-labelledby="incidente-titulo">
-    <h2 id="incidente-titulo">Incidente</h2>
-    {% if session.incident_id %}
-    <p>Esta conversa virou o incidente
-      <a href="/incidents/{{ session.incident_id }}">{{ incident.title if incident else "aberto pelo console" }}</a>.</p>
-    {% else %}
-    <p class="muted">Achou um problema na conversa? Abra um incidente: ele segue o caminho normal, com análise, war room e cards.</p>
-    {% if author %}
-    <button class="button-primary" popovertarget="abrir-incidente">Abrir incidente</button>
+  {% if author and not session.incident_id %}
     <div id="abrir-incidente" popover>
       <form class="popover-form" method="post" action="/console/{{ session.id }}/incidente"
             hx-post="/console/{{ session.id }}/incidente" hx-target="#erro-incidente">
@@ -70,8 +63,6 @@
         </div>
       </form>
     </div>
-    {% endif %}
-    {% endif %}
-  </aside>
+  {% endif %}
 </div>
 {% endblock %}

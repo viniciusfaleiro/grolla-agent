@@ -13,6 +13,7 @@ from grolla.testing.console import InMemoryConsoleStore
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.investigation import FakeTelemetry
 from grolla_api.app import Services, create_app
+from grolla_api.console_pages import CONSOLE_SUGGESTIONS, console_suggestions
 from grolla_api.war_room import AUTHOR_COOKIE
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -269,3 +270,25 @@ def test_open_incident_errors(ana: TestClient, client: TestClient) -> None:
     assert ana.post(f"/console/{uuid4()}/incidente", data=fields).status_code == 404
     client.cookies.clear()
     assert client.post(url, data={**fields, "severidade": "P2"}).status_code == 401
+
+
+def test_session_page_lists_the_conversations_beside_with_this_one_marked(ana: TestClient) -> None:
+    first = new_session(ana, "o autorizador está saudável?")
+    second = new_session(ana, "o que mudou no pedidos-api?")
+
+    page = ana.get(f"/console/{second}").text
+
+    nav = page.split('class="console-nav"')[1].split("</nav>")[0]
+    assert f'href="/console/{first}"' in nav
+    assert f'href="/console/{second}" aria-current="page"' in nav
+    assert "Abrir incidente" in page
+    assert 'class="console-side"' not in page  # o card solitário saiu
+
+
+def test_suggestions_use_the_known_services() -> None:
+    assert console_suggestions([]) == CONSOLE_SUGGESTIONS
+    assert console_suggestions(["estoque-api", "pagamentos-api"]) == (
+        "A estoque-api está saudável?",
+        "O que mudou no pagamentos-api hoje?",
+        "Mostra a taxa de erro da estoque-api nas últimas 6 h",
+    )

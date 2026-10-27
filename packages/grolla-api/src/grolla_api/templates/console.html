@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import join %}
+{% from "_console_nav.html" import sessions_nav %}
 {% block title %}Console{% endblock %}
 {% block content %}
 <div class="memory-intro">
@@ -18,15 +19,19 @@
 {% else %}
 {% if not author %}{{ join("/console", "Seu nome fica nas perguntas e nos incidentes abertos pelo console.") }}{% endif %}
 
-<div class="console-home">
-  {% if author %}
+<div class="console-layout">
+  {{ sessions_nav(sessions, now, author) }}
+
   <section class="panel console-new" aria-labelledby="nova-conversa">
+    <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
     <h2 id="nova-conversa">Nova conversa</h2>
+    <p class="muted">Pergunte, peça um gráfico, ensine algo. Se virar problema, abra um incidente pela conversa.</p>
+    {% if author %}
     <form method="post" action="/console" hx-post="/console" hx-target="#console-error" hx-disabled-elt="find button">
       <label class="visually-hidden" for="pergunta">Pergunta para o Grolla</label>
-      <textarea id="pergunta" name="texto" required rows="2" data-enter-sends
-                placeholder="Ex.: o autorizador está saudável?"></textarea>
-      <button class="button-primary">Perguntar</button>
+      <textarea id="pergunta" name="texto" required rows="3" data-enter-sends
+                placeholder="Ex.: {{ console_suggestions[0] }}"></textarea>
+      <button class="button-primary button-big">Perguntar</button>
     </form>
     <div id="console-error" class="error" role="alert"></div>
     <div class="suggestions console-suggestions">
@@ -36,32 +41,6 @@
         <button>{{ suggestion }}</button>
       </form>
       {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  <section aria-labelledby="conversas">
-    <div class="list-head">
-      <h2 id="conversas">Conversas</h2>
-      {% if sessions %}<p class="muted">as mais recentes primeiro</p>{% endif %}
-    </div>
-    {% if sessions %}
-    <ul class="incident-list console-sessions">
-      {% for session in sessions %}
-      <li class="incident-row console-row">
-        <a href="/console/{{ session.id }}">{{ session.title }}</a>
-        <span class="when">{{ ago(now - session.updated_at) }}</span>
-        <span class="meta">
-          <span>por {{ session.author }}</span>
-          {% if session.incident_id %}<a class="chip chip-link" href="/incidents/{{ session.incident_id }}">virou incidente</a>{% endif %}
-        </span>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div class="empty">
-      <h3>Nenhuma conversa ainda</h3>
-      <p>Comece uma nova conversa para perguntar ao Grolla.</p>
     </div>
     {% endif %}
   </section>
