@@ -66,6 +66,22 @@ async def test_default_error_rate_rises_after_the_deploy() -> None:
     assert rate[0] < rate[-1]
 
 
+async def test_console_chart_of_any_service_has_a_point_per_minute() -> None:
+    base = {
+        "aggregation": "count",
+        "service": "qualquer-api",
+        "requestType": "time_series",
+        "stepInterval": "60",
+        **window(),
+    }
+    result = await call(create_app(), "signoz_aggregate_traces", {**base, "error": True})
+
+    series = payload(result)["data"]["data"]["results"][0]["aggregations"][0]["series"]
+    values = [point["value"] for point in series[0]["values"]]
+    assert len(values) == 60
+    assert values[0] < values[-1]
+
+
 async def test_default_latency_and_throughput() -> None:
     app = create_app()
     p99 = await call(app, "signoz_aggregate_traces", {"aggregation": "p99", **window()})

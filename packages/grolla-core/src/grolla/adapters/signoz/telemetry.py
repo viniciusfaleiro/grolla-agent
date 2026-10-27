@@ -7,6 +7,7 @@ no todo; qualquer falha vira `ToolUnavailableError`.
 Os sinais neutros viram agregações sobre os spans do serviço (`signoz_aggregate_traces`), os
 logs WARN ou acima vêm de `signoz_search_logs` e os traces de `signoz_search_traces` (com erro) ou
 `signoz_get_service_top_operations` (lentos). As respostas são do Query Builder v5 do SigNoz.
+Os gráficos do console (`series`) usam os mesmos pontos do `query_metric`, sem o resumo.
 
 Para a memória: as regras de alerta vêm de `signoz_list_alert_rules`, com a condição de cada uma
 por `signoz_get_alert` (a lista não a traz); os serviços ativos de `signoz_list_services`; e as
@@ -108,6 +109,24 @@ class SignozTelemetry:
     async def query_metric(
         self, service: str, signal: Signal, start: datetime, end: datetime
     ) -> ToolResult:
+        points = await self._points(service, signal, start, end)
+        label = f"{_SIGNAL_LABELS[signal]} de {service} entre {_hhmm(start)} e {_hhmm(end)}"
+        return ToolResult(_series_summary(label, signal, points), self._service_url(service))
+
+    async def series(
+        self, service: str, signal: Signal, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]:
+        """Os mesmos pontos do `query_metric`, em UTC: erro em %, p99 em ms, vazão em req/s."""
+        scale = 1 / NANOS_PER_MS if signal == "latencia_p99" else 1.0
+        return [
+            (datetime.fromtimestamp(ts / 1000, UTC), value * scale)
+            for ts, value in await self._points(service, signal, start, end)
+        ]
+
+    async def _points(
+        self, service: str, signal: Signal, start: datetime, end: datetime
+    ) -> list[tuple[int, float]]:
+        """(timestamp em ms, valor) a cada STEP_SECONDS; a latência vem em nanossegundos."""
         arguments = {
             **_SIGNAL_QUERIES[signal],
             "service": service,
@@ -117,11 +136,8 @@ class SignozTelemetry:
         }
         series = await self._aggregate(arguments)
         if signal == "taxa_de_erro":
-            points = _error_rate(series, await self._aggregate({**arguments, "error": True}))
-        else:
-            points = _first(series)
-        label = f"{_SIGNAL_LABELS[signal]} de {service} entre {_hhmm(start)} e {_hhmm(end)}"
-        return ToolResult(_series_summary(label, signal, points), self._service_url(service))
+            return _error_rate(series, await self._aggregate({**arguments, "error": True}))
+        return _first(series)
 
     async def search_logs(
         self, service: str, text: str | None, start: datetime, end: datetime
@@ -182,11 +198,6 @@ class SignozTelemetry:
         window = _window(since, datetime.now(UTC))
         services = await self._pages("signoz_list_services", window, _ServicePage)
         return list(dict.fromkeys(s.service_name for s in services))
-
-    async def series(
-        self, service: str, signal: Signal, start: datetime, end: datetime
-    ) -> list[tuple[datetime, float]]:
-        raise NotImplementedError  # contrato do console: do grolla-integracoes
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
         arguments = {
