@@ -410,12 +410,15 @@ async def move_status(  # noqa: PLR0913 — a mudança precisa de qual, para ond
 ) -> PostMortem:
     """Levanta PostMortemNotFoundError ou InvalidPostMortemError (com o item que falta).
 
-    Com `repository`, aprovar pede o aprendizado do incidente com o post mortem como fonte
-    (contrato das métricas do agente: o grolla-dominio liga).
+    Com `repository`, aprovar pede de novo o aprendizado do incidente, que passa a usar o post
+    mortem aprovado como fonte.
     """
-    del repository
-    pm = moved(await _document(store, incident_id), to, author, clock.now())
+    now = clock.now()
+    pm = moved(await _document(store, incident_id), to, author, now)
     await store.save(pm, [])
+    if repository is not None and to is PostMortemStatus.APPROVED:
+        async with repository.transaction() as uow:
+            await uow.request_learning(incident_id, now)
     return pm
 
 

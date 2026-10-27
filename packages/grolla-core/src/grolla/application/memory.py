@@ -32,7 +32,7 @@ from grolla.application.investigation import (
 )
 from grolla.application.memory_retrieval import RagPolicy, index_documents
 from grolla.application.memory_store import MemoryStore, TextEmbedder, memory_for
-from grolla.application.post_mortem import PostMortemStore
+from grolla.application.post_mortem import PDF_STATUSES, PostMortemStore
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, Evaluation
 from grolla.domain.incidents import (
     UNKNOWN_SERVICE,
@@ -59,6 +59,7 @@ from grolla.domain.memory import (
     restored,
     written,
 )
+from grolla.domain.post_mortem import PostMortem, lessons_text
 
 
 class MemoryNotFoundError(LookupError):
@@ -203,14 +204,14 @@ async def run_next_learning(  # noqa: PLR0913 — o caso de uso liga os ports do
 ) -> bool:
     """Aprende com o próximo incidente encerrado; False se não havia pedido.
 
-    Com `post_mortems` e o post mortem do incidente aprovado, ele é a fonte: o episódio fica
-    confirmado com quem aprovou (contrato das métricas do agente: o grolla-dominio liga).
+    Com `post_mortems` e o post mortem do incidente aprovado (ou já encerrado), ele é a fonte:
+    o modelo recebe o texto dele, o episódio fica confirmado com quem aprovou como fonte e as
+    versões têm o motivo APPROVED_REASON.
 
     Escreve o episódio de cada serviço afetado (atualizando o existente se o incidente foi
     reaberto), marca ruído no descarte, grava os dossiês reescritos e marca as notas entregues
     como consolidadas. Falha nunca afeta o incidente.
     """
-    del post_mortems
     job = await queue.claim(clock.now())
     if job is None:
         return False
@@ -220,7 +221,9 @@ async def run_next_learning(  # noqa: PLR0913 — o caso de uso liga os ports do
         return True
     context = await memory_for(memory, incident, await repository.alerts_of(incident.id))
     events = tuple(await repository.events_of(incident.id))
-    brief = LearningBrief(incident, events, context, now=clock.now())
+    approved = await _approved(post_mortems, incident.id)
+    lessons = None if approved is None else lessons_text(approved)
+    brief = LearningBrief(incident, events, context, now=clock.now(), post_mortem=lessons)
     budget = TokenBudget(policy.learning_max_tokens)
     deadline = asyncio.timeout(policy.learning_timeout.total_seconds())
     try:
@@ -237,11 +240,12 @@ async def run_next_learning(  # noqa: PLR0913 — o caso de uso liga os ports do
                 body=draft.episode_body,
                 noise=noise,
                 now=now,
+                approved=approved,
             )
             for service in incident.services
         ]
         source = Source(SourceKind.INCIDENT, AGENT_AUTHOR, str(incident.id))
-        reason = f"incidente: {incident.title}"
+        reason = f"incidente: {incident.title}" if approved is None else APPROVED_REASON
         for dossier in {d.subject: d for d in draft.dossiers if d.subject.strip()}.values():
             kind = (
                 SubjectKind.ENVIRONMENT if dossier.subject == ENVIRONMENT else dossier.subject_kind
@@ -266,6 +270,15 @@ async def run_next_learning(  # noqa: PLR0913 — o caso de uso liga os ports do
     return True
 
 
+APPROVED_REASON = "post mortem aprovado"
+
+
+async def _approved(post_mortems: PostMortemStore | None, incident_id: UUID) -> PostMortem | None:
+    """O post mortem do incidente, se já foi aprovado (ou encerrado depois de aprovado)."""
+    pm = None if post_mortems is None else await post_mortems.get(incident_id)
+    return pm if pm is not None and pm.status in PDF_STATUSES else None
+
+
 async def _episode(  # noqa: PLR0913 — o episódio reúne incidente, assunto, texto e quando
     memory: MemoryStore,
     incident: Incident,
@@ -275,8 +288,15 @@ async def _episode(  # noqa: PLR0913 — o episódio reúne incidente, assunto, 
     body: str,
     noise: bool,
     now: datetime,
+    approved: PostMortem | None = None,
 ) -> Write:
-    """O episódio do incidente no serviço; reencerrar atualiza o mesmo, com versão."""
+    """O episódio do incidente no serviço; reencerrar atualiza o mesmo, com versão.
+
+    Com o post mortem aprovado, o episódio fica confirmado, com quem aprovou como fonte.
+    """
+    author = AGENT_AUTHOR if approved is None else approved.status_by
+    confidence = Confidence.LEARNED if approved is None else Confidence.CONFIRMED
+    source = Source(SourceKind.INCIDENT, author, str(incident.id))
     existing = await memory.episode_of(incident.id, service)
     if existing is None:
         created = Memory(
@@ -286,17 +306,20 @@ async def _episode(  # noqa: PLR0913 — o episódio reúne incidente, assunto, 
             subject_kind=SubjectKind.SERVICE,
             title=title,
             body=body,
-            confidence=Confidence.LEARNED,
-            source=Source(SourceKind.INCIDENT, AGENT_AUTHOR, str(incident.id)),
+            confidence=confidence,
+            source=source,
             created_at=now,
             updated_at=now,
             noise=noise,
             incident_id=incident.id,
         )
         return created, None
-    reason = f"incidente encerrado de novo: {incident.title}"
-    updated, version = written(existing, body, AGENT_AUTHOR, reason, now)
-    return replace(updated, title=title, noise=noise), version
+    if approved is None:
+        reason = f"incidente encerrado de novo: {incident.title}"
+        updated, version = written(existing, body, AGENT_AUTHOR, reason, now)
+        return replace(updated, title=title, noise=noise), version
+    updated, version = written(existing, body, AGENT_AUTHOR, APPROVED_REASON, now)
+    return replace(updated, title=title, noise=noise, confidence=confidence, source=source), version
 
 
 async def reap_stuck_learnings(queue: LearningQueue, clock: Clock, policy: MemoryPolicy) -> int:

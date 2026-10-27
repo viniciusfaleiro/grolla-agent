@@ -374,6 +374,10 @@ def test_learning_text_has_the_incident_closing_log_and_memory() -> None:
     assert "Ana: incident_discarded reason=batch" in text
     assert "<memoria>" in text
     assert "nenhum evento registrado" in silent
+    assert "Post mortem aprovado" not in text
+    taught = learning_text(replace(brief, post_mortem="## Fatores contribuintes\nPool pequeno"))
+    assert "Post mortem aprovado pelo time" in taught
+    assert "## Fatores contribuintes\nPool pequeno" in taught
 
 
 def test_study_text_has_the_service_and_each_rule() -> None:

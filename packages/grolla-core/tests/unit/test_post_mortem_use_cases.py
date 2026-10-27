@@ -439,6 +439,30 @@ async def test_plan_items_are_added_updated_and_the_post_mortem_approved() -> No
     assert overdue_items(approved, due + timedelta(days=1)) == approved.actions
 
 
+async def test_approving_requests_the_learning_again_and_other_moves_do_not() -> None:
+    world = World()
+    incident_id = await world.resolved(request=False)
+    await world.store.save(make_post_mortem(incident_id, status=PostMortemStatus.REVIEW), [])
+
+    async def move(to: PostMortemStatus) -> None:
+        await move_status(
+            store=world.store,
+            incident_id=incident_id,
+            to=to,
+            author="Ana",
+            clock=world.clock,
+            repository=world.repository,
+        )
+
+    await move(PostMortemStatus.APPROVED)
+    assert world.repository.learning_requests == {incident_id: world.clock.now()}
+
+    world.repository.learning_requests.clear()
+    world.clock.advance(timedelta(minutes=1))
+    await move(PostMortemStatus.REVIEW)
+    assert world.repository.learning_requests == {}
+
+
 async def test_unknown_plan_item_is_refused() -> None:
     world = World()
     incident_id = await world.drafted()
