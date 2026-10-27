@@ -702,3 +702,79 @@ def test_post_mortem_phases_ignore_the_analysis_mode() -> None:
     response = client.post(PATH, json=memory_request("body", POST_MORTEM_BRIEF, []))
 
     assert response.status_code == 200
+
+
+# ---- Triagem
+
+NEW = "0193a3a0-7c1e-7000-8000-00000000000a"
+OLD = "0193a3a0-7c1e-7000-8000-00000000000b"
+OTHER = "0193a3a0-7c1e-7000-8000-00000000000c"
+TRIAGE_BRIEF = (
+    f"Incidente novo: Taxa de erro alta (incidente {NEW})\nServiços: junta-b-api\n\n"
+    "Outros incidentes abertos na janela:\n"
+    f"- Latência alta (incidente {OLD})\n  Serviços: outro-api\n"
+    f"- Taxa de erro alta (incidente {OTHER})\n  Serviços: junta-a-api\n  Análise: banco lento\n\n"
+    f"<memoria>\n### [episodio] junta-a-api: x (12/10, incidente {NEW})\n</memoria>"
+)
+
+
+def triage_of(client: TestClient, brief: str = TRIAGE_BRIEF) -> dict[str, Any]:
+    body = client.post(PATH, json=memory_request("same_as", brief, [])).json()
+    assert body["stop_reason"] == "end_turn"
+    return json.loads(body["content"][0]["text"])
+
+
+def test_triage_by_default_has_no_merge_nor_severity() -> None:
+    assert triage_of(TestClient(create_app())) == {
+        "same_as": None,
+        "same_reason": "",
+        "severity": None,
+        "severity_reason": "",
+    }
+
+
+@pytest.mark.parametrize(
+    ("same_as", "expected"),
+    [
+        ("junta-a-api", OTHER),
+        ("auto", OLD),
+        (OTHER, OTHER),
+        ("nenhum-api", None),
+        ("junta-b-api", None),  # o próprio incidente novo não está na lista dos outros
+    ],
+)
+def test_triage_answers_the_script_from_the_control(same_as: str, expected: str | None) -> None:
+    client = TestClient(create_app())
+    script = {"same_as": same_as, "same_reason": "mesmo banco", "severity": "P1"}
+    client.post("/_control/llm", json={"triage": {**script, "severity_reason": "pagamentos"}})
+
+    assert triage_of(client) == {
+        "same_as": expected,
+        "same_reason": "mesmo banco",
+        "severity": "P1",
+        "severity_reason": "pagamentos",
+    }
+
+
+def test_triage_without_other_incidents_has_no_merge() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"triage": {"same_as": "auto"}})
+
+    assert triage_of(client, "Incidente novo: x\nServiços: junta-b-api")["same_as"] is None
+
+
+def test_triage_with_unknown_severity_is_rejected() -> None:
+    response = TestClient(create_app()).post("/_control/llm", json={"triage": {"severity": "P9"}})
+
+    assert response.status_code == 422
+
+
+def test_triage_ignores_the_analysis_mode_and_reset_goes_back_to_the_default() -> None:
+    client = TestClient(create_app())
+    control = {"mode": "fora_do_ar", "triage": {"same_as": "auto", "severity": "P0"}}
+    client.post("/_control/llm", json=control)
+
+    assert triage_of(client)["severity"] == "P0"
+    client.post("/_control/reset")
+    assert triage_of(client)["same_as"] is None
+    assert triage_of(client)["severity"] is None
