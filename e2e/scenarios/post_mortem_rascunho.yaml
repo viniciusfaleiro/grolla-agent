@@ -1,0 +1,105 @@
+# Resolver um incidente pelo war room gera o rascunho do post mortem: as 10 seções do template,
+# com as métricas e a timeline montadas pelo núcleo. Um incidente descartado não gera post
+# mortem. Alertas `warning` viram P2: o acompanhamento de P0/P1 não entra no caminho.
+name: resolver gera o rascunho do post mortem
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Latência alta no pm-rascunho-api
+              service_name: pm-rascunho-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no pm-rascunho-api
+              description: O p99 de latência do pm-rascunho-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=160
+            fingerprint: e2e-pm-rascunho-1
+          - <<: *alerta
+            labels:
+              alertname: Latência alta no pm-descarte-api
+              service_name: pm-descarte-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no pm-descarte-api
+              description: O p99 de latência do pm-descarte-api está em 1,8 s (limite 800 ms).
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=161
+            fingerprint: e2e-pm-descarte-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'pm-rascunho-api' = ANY(services)
+  - capture:
+      name: descartado
+      sql: SELECT id FROM incidents WHERE 'pm-descarte-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{descartado}/actions/discard
+      cookies: { grolla_author: Ana }
+      form: { motivo: alerta falso do teste de carga }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.1 }
+      status: 200
+then:
+  # O pedido entra na mesma transação do encerramento; o worker escreve o rascunho em seguida.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortem_jobs WHERE incident_id = '{incidente}'
+        AND section IS NULL
+      count: 1
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'rascunho' AND jsonb_array_length(sections) = 10
+      at_least: 1
+      timeout_seconds: 90
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortem_jobs WHERE incident_id = '{incidente}'
+        AND section IS NULL AND status = 'feito'
+      at_least: 1
+      timeout_seconds: 10
+  - expect_page:
+      service: api
+      path: /postmortems/{incidente}
+      contains: [Resumo executivo, Métricas do incidente, TTA, TTR, Timeline, Avaliação do agente]
+  - expect_page:
+      service: api
+      path: /postmortems
+      contains: [pm-rascunho-api]
+  # O descartado não ganha pedido nem documento.
+  - expect_db_count:
+      sql: SELECT count(*) FROM post_mortem_jobs WHERE incident_id = '{descartado}'
+      count: 0
+  - expect_db_count:
+      sql: SELECT count(*) FROM post_mortems WHERE incident_id = '{descartado}'
+      count: 0

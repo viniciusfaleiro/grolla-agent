@@ -28,3 +28,7 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 21 | 27/10 | S5 | Mitigado volta para em tratamento só quando um alerta volta a disparar | É fato objetivo; o "piorou" do modelo é julgamento e só vira card |
 | 22 | 27/10 | S5 | Proposta de mitigar só em tratamento | Mitigar pressupõe alguém conduzindo, como na ação humana |
 | 23 | 27/10 | S5 | Impacto financeiro estimado por valor por minuto no YAML vezes a taxa de erro | Simples, auditável e sempre rotulado "estimado"; métrica de negócio real fica para quando existir |
+| 24 | 27/10 | S6 | Métricas (TTD, TTA, TTM, TTR) e timeline do post mortem sem LLM | São fatos do log; números e horários são os primeiros a sair errados de um modelo |
+| 25 | 27/10 | S6 | PDF com fpdf2 (puro Python, texto em latin-1) atrás de `DocumentRenderer` | Sem dependências nativas na imagem slim, como Cairo e Pango, que o WeasyPrint exigiria |
+| 26 | 27/10 | S6 | Ciclo de vida no domínio: aprovar exige dono e prazo; encerrar exige itens concluídos ou aceitos | Regra de negócio pura, testável, e a página só mostra a mensagem |
+| 27 | 27/10 | S6 | Falha do modelo no rascunho grava o post mortem com as seções determinísticas | O time sempre tem o documento; "regenerar" completa depois |

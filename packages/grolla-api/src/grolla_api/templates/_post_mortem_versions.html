@@ -1,0 +1,17 @@
+{# Histórico de uma seção: cada versão é o texto ANTES de uma mudança. #}
+{% from "_macros.html" import when %}
+{% if versions %}
+<ol class="version-items">
+  {% for version in versions %}
+  <li>
+    <p class="version-head">Antes de <strong>{{ version.reason }}</strong>, por {{ display_name(version.author) }} · {{ when(version.at) }}</p>
+    <details>
+      <summary>Ver o texto desta versão</summary>
+      <div class="rich">{{ rich_text(version.body) }}</div>
+    </details>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Sem versões anteriores.</p>
+{% endif %}

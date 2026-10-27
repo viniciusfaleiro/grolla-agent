@@ -3,7 +3,8 @@
 Espera o stack do profile `e2e` do compose de pé (o `make e2e` sobe e derruba). Cada cenário:
 reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e confere (`then`).
 
-Ações: `http` (corpo em `json` ou em `form` urlencoded, e `cookies`), `expect_status`,
+Ações: `http` (corpo em `json` ou em `form` urlencoded, `cookies`, e `content_type` para
+conferir o início do header da resposta), `expect_status`,
 `expect_page` (espera o GET responder 200 com todos os trechos `contains` no HTML),
 `wait_for_db_row`, `expect_db_count`, `expect_fake_requests` (contagem exata por trechos do
 corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos),
@@ -11,7 +12,8 @@ corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos
 `then`) e `capture` (guarda a primeira coluna da primeira linha de um SQL com um nome; o `{nome}`
 é trocado pelo valor no `path`, no `sql` e nos `contains` dos passos seguintes; um
 `INSERT ... RETURNING id` semeia um registro e guarda o id, porque a conexão faz commit ao
-fechar). O modo do LLM fake se troca com `http` em `POST /_control/llm`.
+fechar) e `for_each` (para cada linha do `sql`, roda os passos de `do` com cada coluna capturada
+pelo nome). O modo do LLM fake se troca com `http` em `POST /_control/llm`.
 
 O banco não é limpo entre cenários (só o `make e2e` o recria, uma vez por rodada): cada cenário
 usa serviços e fingerprints próprios e filtra as consultas e os cards por eles. A memória do
@@ -71,11 +73,15 @@ def fill(text: str, captured: Captured) -> str:
 
 
 def filled(key: str, value: Any, captured: Captured) -> Any:
-    """Troca os capturados no `path`, no `sql` e em cada trecho de `contains`."""
+    """Troca os capturados no `path`, no `sql`, em cada trecho de `contains` e no `form`."""
     if key in ("path", "sql"):
         return fill(cast(str, value), captured)
     if key == "contains":
         return [fill(text, captured) for text in cast(list[str], value)]
+    if key == "form":
+        return {
+            name: fill(str(text), captured) for name, text in cast(dict[str, Any], value).items()
+        }
     return value
 
 
@@ -86,9 +92,7 @@ def run_step(step: Step, captured: Captured) -> None:
     args: dict[str, Any] = {key: filled(key, value, captured) for key, value in args.items()}
     match action:
         case "http":
-            response = http(args["service"], args.get("method", "GET"), args["path"], args)
-            if "status" in args:
-                assert response.status_code == args["status"], response.text
+            http_step(args)
         case "expect_status":
             response = http(args["service"], args.get("method", "GET"), args["path"])
             assert response.status_code == args["status"], response.text
@@ -100,6 +104,8 @@ def run_step(step: Step, captured: Captured) -> None:
             wait_for_db_row(args["sql"], args["at_least"], args["timeout_seconds"])
         case "capture":
             captured[args["name"]] = db_value(args["sql"])
+        case "for_each":
+            for_each(args["sql"], cast(list[Step], args["do"]), captured)
         case "expect_db_count":
             count = db_count(args["sql"])
             assert count == args["count"], f"esperava {args['count']} em `{args['sql']}`: {count}"
@@ -123,6 +129,23 @@ def run_step(step: Step, captured: Captured) -> None:
             raise ValueError(f"ação desconhecida no cenário: {action}")
 
 
+def for_each(sql: str, steps: list[Step], captured: Captured) -> None:
+    """Roda os passos uma vez por linha do SQL, com as colunas da linha capturadas pelo nome."""
+    for row in db_rows(sql):
+        for step in steps:
+            run_step(step, captured | row)
+
+
+def http_step(args: dict[str, Any]) -> None:
+    """A requisição do passo, conferindo o `status` e o `content_type` quando o passo os traz."""
+    response = http(args["service"], args.get("method", "GET"), args["path"], args)
+    if "status" in args:
+        assert response.status_code == args["status"], response.text
+    if "content_type" in args:
+        content_type = response.headers.get("content-type", "")
+        assert content_type.startswith(args["content_type"]), content_type
+
+
 def db_count(sql: str) -> int:
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(cast(Any, sql)).fetchone()
@@ -134,6 +157,14 @@ def db_value(sql: str) -> str:
         row = connection.execute(cast(Any, sql)).fetchone()
     assert row is not None, f"nenhuma linha em `{sql}`"
     return str(row[0])
+
+
+def db_rows(sql: str) -> list[dict[str, str]]:
+    """Cada linha do SQL com as colunas pelo nome."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        cursor = connection.execute(cast(Any, sql))
+        names = [column.name for column in cursor.description or []]
+        return [dict(zip(names, map(str, row), strict=True)) for row in cursor.fetchall()]
 
 
 def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:

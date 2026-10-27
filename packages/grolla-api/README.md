@@ -21,7 +21,8 @@ O processo que precisa responder rápido, sempre: é por ele que os alertas cheg
 autentica e traduz o webhook pelo port `AlertIngress`, chama o caso de uso `receive_alerts` e
 renderiza as páginas (Jinja2 + HTMX e um `war-room.js` pequeno, servidos como estáticos) a partir do
 `IncidentRepository`. No war room, as ações e as mensagens viram chamadas aos casos de uso `act`
-e `ask` da `grolla.application.war_room`; na página da memória, aos casos de uso da
+e `ask` da `grolla.application.war_room`; no post mortem, aos casos de uso da
+`grolla.application.post_mortem`, lendo do `PostMortemStore` e gerando o PDF pelo `DocumentRenderer`; na página da memória, aos casos de uso da
 `grolla.application.memory`, lendo do `MemoryStore`, do `StudyQueue` e do `LearningQueue`. A api
 só lê o form e o autor e devolve o fragmento ou recarrega a página. Não tem regra de
 negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
@@ -45,6 +46,10 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Memória do Grolla** | Link "Memória" na barra. O dossiê do ambiente em destaque (markdown seguro, com as seções como títulos), os assuntos por tipo (ambiente, serviços, integrações) com registros, última atualização e último estudo, o estado da última rodada de estudo (modo, quem pediu, quando, status, tokens; serviços estudados, pendentes por orçamento e falhos com o motivo), os aprendizados que falharam com o link do incidente e "ensinar sobre outro assunto" (`?assunto=` redireciona para a página dele). Estado vazio "Ainda não estudei o ambiente"; sem `memory.study` no YAML, diz que o estudo está desligado e esconde os botões | `GET /memoria` |
 | **Assunto da memória** | Dossiê, episódios (link do incidente, marca de ruído) e notas, cada um com o selo aprendido/confirmado, a fonte com link (incidente, chat, links consultados pelo estudo, pessoa) e as datas; esquecidos esmaecidos. Com nome: editar, confirmar (só aprendido), esquecer e o formulário "adicionar conhecimento", que funciona em assunto sem dossiê (escolhe serviço ou integração). O histórico de versões carrega ao abrir, com "restaurar esta versão" | `GET /memoria/{assunto}` · `GET /memoria/registros/{id}/versoes` |
 | **Escrita na memória** | Forms HTMX sobre os casos de uso `add_note` (`texto`, `tipo` só em assunto novo), `edit_memory` (`texto`), `confirm_memory`, `forget_memory`, `restore_memory` (`versao`, ISO) e `request_study` (`FULL` em estudar; `RELEARN` em reaprender, que exige `confirmar=sim` e mostra num popover o que é esquecido e o que fica). Sucesso: `204` com `HX-Redirect` para a página (HTMX) ou `303` (form comum). `401` "informe seu nome" sem cookie, `422` com a mensagem do `InvalidMemoryError`, `409` se já há estudo na fila, `404` para registro inexistente; os erros voltam com `HX-Retarget` para a área de erro do registro, da nota ou do estudo | `POST /memoria/{assunto}/notas` · `POST /memoria/registros/{id}[/confirmar\|/esquecer\|/restaurar]` · `POST /memoria/estudar` · `POST /memoria/reaprender` |
+| **Lista de post mortems** | Link "Post mortems" na barra. Os post mortems, os mais recentes primeiro, com severidade, título, status (Rascunho, Em revisão, Aprovado, Encerrado), serviços, data da detecção e "N itens vencidos" em destaque. Filtros na query: `status` (`rascunho`, `em_revisao`, `aprovado`, `encerrado`), `severidade`, `servico`, `de` e `ate` (`YYYY-MM-DD`, detecção do incidente); valor inválido vale como sem filtro. Estados vazios: "Nenhum post mortem ainda" e "Nenhum post mortem com esses filtros" | `GET /postmortems` |
+| **Post mortem** | Cabeçalho com o ciclo Rascunho → Em revisão → Aprovado → Encerrado, quem moveu e quando, e só os botões válidos: "Começar revisão", "Aprovar", "Encerrar" e "Voltar para revisão"; "Baixar PDF" só em aprovado e encerrado. As 10 seções na ordem do template, em markdown seguro, com autor e data; seção "não gerada: …" em destaque. Com nome: editar (textarea) e regenerar com instrução opcional (fora de métricas e timeline, e fora de aprovado e encerrado), que confirma o pedido sem recarregar. Histórico de versões por seção, carregado ao abrir. No plano de ação, a tabela com descrição, tipo, dono, prazo e situação, com o item vencido marcado e o aviso no topo; concluir, aceitar, editar (popover) e adicionar. Sem documento: "O rascunho está sendo escrito" (incidente resolvido) ou "Ainda não há post mortem". A página do incidente resolvido tem o link "Post mortem" | `GET /postmortems/{id}` · `GET /postmortems/{id}/secoes/{secao}/versoes` |
+| **Escrita no post mortem** | Forms HTMX sobre `edit_section` (`texto`), `request_regeneration` (`instrucao`, opcional), `move_status` (`para`), `add_action` (`descricao`, `tipo` = `prevenir`\|`detectar`\|`mitigar`, `dono` e `prazo` opcionais) e `update_action` (`descricao`, `tipo`, `dono`, `prazo`, `situacao` = `aberto`\|`concluido`\|`aceito`; campo ausente fica como está, vazio limpa dono e prazo). Sucesso: `204` com `HX-Redirect` (HTMX) ou `303`; a regeneração pelo HTMX responde `202` com "Pedido enviado: o Grolla está regenerando esta seção…". `401` "informe seu nome", `422` com a mensagem do `InvalidPostMortemError` (ex.: aprovar com item sem dono) ou de campo inválido, `404` para incidente, post mortem, seção ou item inexistente; os erros voltam com `HX-Retarget` para `#erro-<secao>`, `#erro-status` ou `#erro-plano` | `POST /postmortems/{id}/secoes/{secao}[/regenerar]` · `POST /postmortems/{id}/status` · `POST /postmortems/{id}/plano[/{item}]` |
+| **PDF** | `application/pdf` com `Content-Disposition: attachment; filename="post-mortem-<id>.pdf"`, gerado pelo `DocumentRenderer` via `render_pdf`. `409` em rascunho ou em revisão, `503` se o renderer falha, `404` sem post mortem | `GET /postmortems/{id}.pdf` |
 | **Estáticos** | HTMX 2.0.4 (sem build; `htmx-config` faz as respostas `4xx` também aparecerem), `war-room.css` (tokens de cor e tipografia, tema escuro), `war-room.js` (Enter envia, caixa cresce, rolagem) e o mascote | `GET /static/…` |
 
 ## ⚡ Como rodar
@@ -76,8 +81,8 @@ uv run pytest packages/grolla-api
 ```
 
 - `tests/unit/` — `create_app` recebe `Services` (checagem de banco, heartbeat e os ports), montado
-  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room e memória (com os
-  casos de uso reais sobre os fakes da memória) testadas com `TestClient`,
+  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room, memória e post mortem (com os
+  casos de uso reais sobre os fakes da memória e do post mortem) testadas com `TestClient`,
   sem banco e sem rede; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — `/health` contra Postgres real (Testcontainers).
 
@@ -85,10 +90,11 @@ uv run pytest packages/grolla-api
 
 ```
 src/grolla_api/
-  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, autor)
+  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, post mortem, autor)
   war_room.py  apresentação do war room: rótulos, ciclo, tendência e proposta do acompanhamento, ação em destaque, durações, markdown seguro, leitura do form e do cookie
   memory_pages.py  apresentação da memória: rótulos, assuntos por tipo, fontes com link, progresso do estudo
-  templates/ páginas Jinja2 (base, lista, incidente, memory, memory_subject) e fragmentos _war_room, _follow_up (acompanhamento, impacto e proposta), _chat, _chat_messages, _timeline, _memory_versions
+  post_mortem_pages.py  apresentação do post mortem: rótulos, transições por status, filtros da lista e leitura dos forms do plano
+  templates/ páginas Jinja2 (base, lista, incidente, memory, memory_subject, postmortems, postmortem) e fragmentos _war_room, _follow_up (acompanhamento, impacto e proposta), _chat, _chat_messages, _timeline, _memory_versions, _post_mortem_versions
   static/    htmx.min.js · war-room.css · war-room.js · grolla.svg · grolla-avatar.svg
   main.py    entrypoint `grolla-api`: settings → migrações → uvicorn
 tests/       unit/ · integration/

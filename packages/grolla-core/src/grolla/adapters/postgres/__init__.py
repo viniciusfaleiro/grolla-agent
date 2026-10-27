@@ -14,6 +14,7 @@ from grolla.adapters.postgres.memory import (
     PostgresStudyQueue,
 )
 from grolla.adapters.postgres.migrate import migrate
+from grolla.adapters.postgres.post_mortem import PostgresPostMortemStore
 
 __all__ = [
     "PostgresAnalysisQueue",
@@ -24,6 +25,7 @@ __all__ = [
     "PostgresLearningQueue",
     "PostgresMemoryStore",
     "PostgresNotificationOutbox",
+    "PostgresPostMortemStore",
     "PostgresStudyQueue",
     "migrate",
 ]

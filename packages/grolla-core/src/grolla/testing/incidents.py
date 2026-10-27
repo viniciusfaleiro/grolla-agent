@@ -65,6 +65,7 @@ class InMemoryIncidentRepository:
         self.learning_requests: dict[UUID, datetime] = {}  # incidente → pedido do aprendizado
         self.cycle_requests: dict[UUID, datetime] = {}  # incidente → ciclo antecipado
         self.cycles: dict[tuple[UUID, int], Cycle] = {}  # (incidente, número) → ciclo
+        self.post_mortem_requests: dict[UUID, datetime] = {}  # incidente → pedido do rascunho
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator["InMemoryUnitOfWork"]:
@@ -82,6 +83,7 @@ class InMemoryIncidentRepository:
             dict(self.learning_requests),
             dict(self.cycle_requests),
             dict(self.cycles),
+            dict(self.post_mortem_requests),
         )
         try:
             yield InMemoryUnitOfWork(self)
@@ -100,6 +102,7 @@ class InMemoryIncidentRepository:
                 self.learning_requests,
                 self.cycle_requests,
                 self.cycles,
+                self.post_mortem_requests,
             ) = snapshot
             raise
 
@@ -208,6 +211,9 @@ class InMemoryUnitOfWork:
 
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
         self._repository.learning_requests[incident_id] = at
+
+    async def request_post_mortem(self, incident_id: UUID, at: datetime) -> None:
+        self._repository.post_mortem_requests.setdefault(incident_id, at)
 
     async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
         self._repository.cycle_requests[incident_id] = at

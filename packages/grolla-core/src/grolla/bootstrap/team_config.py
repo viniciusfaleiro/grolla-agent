@@ -13,6 +13,7 @@ from grolla.application.follow_up import FollowUpLimits, ImpactPolicy
 from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
 from grolla.application.memory_retrieval import RagPolicy
+from grolla.application.post_mortem import PostMortemPolicy
 from grolla.bootstrap.settings import ConfigError
 from grolla.domain.follow_up import FollowUpPolicy
 from grolla.domain.incidents import Severity, SeverityPolicy, SeverityRule
@@ -51,7 +52,15 @@ class StageConfig(_Section):
 
 class LlmConfig(_Section):
     stages: dict[
-        Literal["investigation", "verification", "warroom_chat", "learning", "study", "follow_up"],
+        Literal[
+            "investigation",
+            "verification",
+            "warroom_chat",
+            "learning",
+            "study",
+            "follow_up",
+            "post_mortem",
+        ],
         StageConfig,
     ]
 
@@ -126,6 +135,11 @@ class ImpactConfig(_Section):
     services: dict[str, ServiceImpactConfig] = Field(default_factory=dict[str, ServiceImpactConfig])
 
 
+class PostMortemConfig(_Section):
+    max_tokens: int = Field(default=80_000, gt=0)
+    timeout_seconds: int = Field(default=180, gt=0)
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -149,6 +163,7 @@ class TeamConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     follow_up: FollowUpConfig | None = None  # sem a seção, nenhum ciclo de acompanhamento
     impact: ImpactConfig = Field(default_factory=ImpactConfig)
+    post_mortem: PostMortemConfig = Field(default_factory=PostMortemConfig)
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -205,6 +220,12 @@ class TeamConfig(BaseModel):
             timeout=timedelta(seconds=section.cycle_timeout_seconds),
             max_tokens=section.cycle_max_tokens,
             max_tokens_per_incident=section.max_tokens_per_incident,
+        )
+
+    def post_mortem_policy(self) -> PostMortemPolicy:
+        return PostMortemPolicy(
+            max_tokens=self.post_mortem.max_tokens,
+            timeout=timedelta(seconds=self.post_mortem.timeout_seconds),
         )
 
     def impact_policy(self) -> ImpactPolicy:

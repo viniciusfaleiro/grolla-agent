@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "_macros.html" import day %}
+{% block title %}Post mortems{% endblock %}
+{% block content %}
+<div class="list-head">
+  <h1>Post mortems</h1>
+  {% if summaries %}<p class="muted">{{ summaries | length }} {{ "post mortem" if summaries | length == 1 else "post mortems" }}</p>{% endif %}
+</div>
+
+<form class="panel pm-filters" method="get" action="/postmortems">
+  <label>Status
+    <select name="status">
+      <option value="">todos</option>
+      {% for value, label in pm_status_labels.items() %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Severidade
+    <select name="severidade">
+      <option value="">todas</option>
+      {% for severity in severities %}<option value="{{ severity }}"{% if filters.severity == severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Serviço
+    <input name="servico" value="{{ filters.service or '' }}" placeholder="ex.: pedidos-api">
+  </label>
+  <label>Detectado de
+    <input type="date" name="de" value="{{ filters.since.isoformat() if filters.since else '' }}">
+  </label>
+  <label>até
+    <input type="date" name="ate" value="{{ filters.until.isoformat() if filters.until else '' }}">
+  </label>
+  <div class="pm-filters-actions">
+    <button class="button-primary">Filtrar</button>
+    {% if filtered %}<a class="button button-quiet" href="/postmortems">Limpar</a>{% endif %}
+  </div>
+</form>
+
+{% if summaries %}
+<ul class="incident-list pm-list">
+  {% for item in summaries %}
+  <li class="incident-row{% if item.overdue %} pm-row-overdue{% endif %}">
+    <span class="sev sev-{{ item.incident.severity }}">{{ item.incident.severity }}</span>
+    <a href="/postmortems/{{ item.incident.id }}">{{ item.incident.title }}</a>
+    <span class="when">{{ day(item.incident.detected_at) }}</span>
+    <span class="meta">
+      <span class="pm-status pm-status-{{ item.status }}">{{ pm_status_labels[item.status] }}</span>
+      {% for service in item.incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+      {% if item.overdue %}<span class="badge badge-overdue">{{ item.overdue }} {{ "item vencido" if item.overdue == 1 else "itens vencidos" }}</span>{% endif %}
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% elif filtered %}
+<div class="empty">
+  <h2>Nenhum post mortem com esses filtros</h2>
+  <p><a href="/postmortems">Ver todos</a></p>
+</div>
+{% else %}
+<div class="empty">
+  <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
+  <h2>Nenhum post mortem ainda</h2>
+  <p>Quando um incidente for resolvido, o Grolla escreve o rascunho aqui em minutos, com a timeline e as métricas do incidente.</p>
+</div>
+{% endif %}
+{% endblock %}

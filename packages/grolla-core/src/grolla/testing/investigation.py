@@ -17,6 +17,7 @@ from grolla.application.investigation import (
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
+    STAGE_POST_MORTEM,
     STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -25,6 +26,7 @@ from grolla.application.investigation import (
     InvestigationBrief,
     LearningBrief,
     LlmUsage,
+    PostMortemBrief,
     RepositoryDocument,
     ServiceStudyBrief,
     Signal,
@@ -44,6 +46,13 @@ from grolla.domain.memory import (
     LearningDraft,
     SubjectKind,
     SynthesisDraft,
+)
+from grolla.domain.post_mortem import (
+    DETERMINISTIC,
+    SECTION_TITLES,
+    ActionKind,
+    PostMortemDraft,
+    SectionKey,
 )
 from grolla.testing.builders import make_draft, make_verification_draft
 
@@ -320,7 +329,19 @@ class ScriptedLanguageModel:
         follow_up_calls: ToolCalls = (),
         follow_up_error: Exception | None = None,
         follow_up_delay: float = 0.0,
+        post_mortem: PostMortemDraft | None = None,
+        post_mortem_error: Exception | None = None,
+        post_mortem_delay: float = 0.0,
+        regeneration: str | None = None,
+        regeneration_error: Exception | None = None,
     ) -> None:
+        self.post_mortem = post_mortem
+        self.post_mortem_error = post_mortem_error
+        self.post_mortem_delay = post_mortem_delay
+        self.regeneration = regeneration
+        self.regeneration_error = regeneration_error
+        self.post_mortem_briefs: list[PostMortemBrief] = []
+        self.regenerations: list[tuple[PostMortemBrief, SectionKey, str | None]] = []
         self.follow_up_draft = follow_up_draft or CycleDraft(
             Trend.NORMAL, 0.0, "Serviço normalizado: erro em 0%.", changed=False
         )
@@ -410,6 +431,44 @@ class ScriptedLanguageModel:
         if self.follow_up_error is not None:
             raise self.follow_up_error
         return self.follow_up_draft
+
+    async def draft_post_mortem(
+        self, brief: PostMortemBrief, budget: TokenBudget
+    ) -> PostMortemDraft:
+        """Padrão: uma frase por seção escrita pelo modelo e dois itens no plano de ação."""
+        self.post_mortem_briefs.append(brief)
+        if self.post_mortem_delay:
+            await asyncio.sleep(self.post_mortem_delay)
+        budget.spend(replace(self.usage, stage=STAGE_POST_MORTEM))
+        if self.post_mortem_error is not None:
+            raise self.post_mortem_error
+        title = brief.incident.title
+        return self.post_mortem or PostMortemDraft(
+            sections={
+                key: f"{SECTION_TITLES[key]} de {title}."
+                for key in SectionKey
+                if key not in DETERMINISTIC
+            },
+            actions=(
+                ("Criar alarme de conexões no banco", ActionKind.DETECT),
+                ("Limitar o pool de conexões por instância", ActionKind.PREVENT),
+            ),
+        )
+
+    async def regenerate_section(
+        self,
+        brief: PostMortemBrief,
+        key: SectionKey,
+        instruction: str | None,
+        budget: TokenBudget,
+    ) -> str:
+        """Padrão: o título da seção reescrita, com a instrução, se houver."""
+        self.regenerations.append((brief, key, instruction))
+        budget.spend(replace(self.usage, stage=STAGE_POST_MORTEM))
+        if self.regeneration_error is not None:
+            raise self.regeneration_error
+        asked = f" ({instruction})" if instruction else ""
+        return self.regeneration or f"{SECTION_TITLES[key]} reescrita{asked}."
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)

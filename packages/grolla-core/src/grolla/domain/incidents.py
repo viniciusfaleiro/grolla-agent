@@ -13,6 +13,7 @@ if TYPE_CHECKING:  # o acompanhamento importa este módulo
     from grolla.domain.follow_up import Cycle
 
 UNKNOWN_SERVICE = "desconhecido"
+SYSTEM_AUTHOR = "sistema"  # autor dos eventos que o núcleo grava sozinho
 ALERT_REOPENED_REASON = "alerta voltou a disparar"  # mitigado volta para em tratamento
 
 
@@ -127,7 +128,7 @@ class IncidentEvent:
     at: datetime
     type: EventType
     data: Mapping[str, Any]
-    author: str = "sistema"
+    author: str = SYSTEM_AUTHOR
 
 
 class NotificationKind(StrEnum):
