@@ -7,7 +7,7 @@ from uuid import UUID
 import httpx2
 import pytest
 from contracts.chat_notifier_contract import ChatNotifierContract
-from grolla.adapters.teams import PROPOSAL_NOTE, TeamsChatNotifier, adaptive_card
+from grolla.adapters.teams import MERGE_NOTE, PROPOSAL_NOTE, TeamsChatNotifier, adaptive_card
 from grolla.application.incidents import ChatNotifier, NotificationFailedError
 from grolla.domain.analysis import (
     Analysis,
@@ -738,9 +738,57 @@ def test_follow_up_cards_use_only_elements_the_test_console_renders() -> None:
         follow_up_card(),
         follow_up_card(NotificationKind.AGENT_PROPOSAL, evidence="motivo"),
         follow_up_card(NotificationKind.ALERT_REOPENED, evidence="alerta"),
+        follow_up_card(NotificationKind.MERGE_SUGGESTED, evidence="motivo"),
+        follow_up_card(NotificationKind.INCIDENT_MERGED, evidence="juntado"),
     ]
     for card in cards:
         types = {e["type"] for e in card["body"]}
         types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
         assert types <= {"TextBlock", "FactSet", "Container"}
         assert {a["type"] for a in card["actions"]} == {"Action.OpenUrl"}
+
+
+# ---- Menos ruído: sugestão de junção e incidentes juntados
+
+
+def test_merge_suggestion_card_names_the_other_incident_and_why() -> None:
+    card = follow_up_card(
+        NotificationKind.MERGE_SUGGESTED,
+        summary="Parece o mesmo problema que Taxa de erro alta no pagamentos-api",
+        evidence="Os dois dependem do banco pedidos-db, que está lento.",
+        impact=None,
+    )
+
+    assert texts(card) == [
+        "Parece o mesmo problema que Taxa de erro alta no pagamentos-api · P2",
+        "Taxa de erro alta no capture-api",
+        "Severidade: P2",
+        "Serviços: capture-api, authorizer-api",
+        "Os dois dependem do banco pedidos-db, que está lento.",
+        MERGE_NOTE,
+    ]
+    assert card["body"][0]["color"] == "Accent"
+    war_room_only(card)
+
+
+def test_merge_suggestion_card_without_summary_keeps_the_default_headline() -> None:
+    card = follow_up_card(NotificationKind.MERGE_SUGGESTED, summary=" ", evidence="motivo")
+
+    assert texts(card)[0] == "Parece o mesmo problema · P2"
+
+
+def test_merged_card_says_which_incidents_were_joined() -> None:
+    card = follow_up_card(
+        NotificationKind.INCIDENT_MERGED,
+        summary="Juntado em Taxa de erro alta no pagamentos-api por ana",
+        evidence="Alertas e serviços passaram para o incidente principal.",
+        impact=None,
+    )
+
+    lines = texts(card)
+    assert lines[0] == "Incidentes juntados · P2"
+    assert "Juntado em Taxa de erro alta no pagamentos-api por ana" in lines
+    assert "Alertas e serviços passaram para o incidente principal." in lines
+    assert MERGE_NOTE not in lines
+    assert card["body"][0]["color"] == "Default"
+    war_room_only(card)

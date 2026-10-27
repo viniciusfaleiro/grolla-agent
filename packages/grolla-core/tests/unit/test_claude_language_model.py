@@ -15,6 +15,7 @@ from contracts.language_model_contract import (
     LanguageModelContract,
     MemoryModelContract,
     PostMortemModelContract,
+    TriageModelContract,
 )
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
@@ -25,6 +26,7 @@ from grolla.application.investigation import (
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
+    TRIAGE_PROMPT,
     VERIFICATION_PROMPT,
     AlertRule,
     BudgetExceededError,
@@ -40,6 +42,7 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
     ToolSpec,
+    TriageBrief,
     brief_text,
     verification_text,
 )
@@ -57,6 +60,7 @@ from grolla.domain.analysis import (
 )
 from grolla.domain.chat import ChatDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
+from grolla.domain.incidents import Severity
 from grolla.domain.memory import (
     ENVIRONMENT,
     DossierDraft,
@@ -66,6 +70,7 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 
@@ -1395,6 +1400,137 @@ class TestClaudePostMortemModelContract(PostMortemModelContract):
 
     @pytest.fixture
     def failing_post_mortem_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        )
+
+
+# ---- Triagem: uma chamada sem ferramentas ----
+
+TRIAGE_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=4000, effort="low")
+OTHER_ID = "0193a3a0-7c1e-7000-8000-000000000009"
+TRIAGED = {
+    "same_as": OTHER_ID,
+    "same_reason": " os dois usam o banco pedidos-db ",
+    "severity": "P1",
+    "severity_reason": " pagamentos parados ",
+}
+
+
+@pytest.fixture(autouse=True)
+def triage_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mensagem é do grolla-dominio: aqui o adapter só precisa entregá-la."""
+
+    def text(brief: TriageBrief) -> str:
+        return f"triagem de {brief.incident.title} com {len(brief.others)} outros"
+
+    monkeypatch.setattr("grolla.adapters.anthropic.triage_text", text)
+
+
+def triage_brief() -> TriageBrief:
+    incident = make_incident(services=("pedidos-api",))
+    other = make_incident(id=UUID(OTHER_ID), services=("pagamentos-api",))
+    return TriageBrief(
+        incident,
+        (make_alert(service="pedidos-api"),),
+        ((other, "erros 5xx"),),
+        MemoryContext(),
+        opened_by_default=True,
+        now=T0,
+    )
+
+
+async def triage(
+    api: Handler, budget: TokenBudget | None = None, **stages: ModelSettings
+) -> TriageDraft:
+    return await memory_model(api, **stages).triage(triage_brief(), budget or RecordingBudget())
+
+
+async def test_triage_returns_the_draft_in_one_call_without_tools() -> None:
+    api = ScriptedApi(ok(final(TRIAGED)))
+    budget = RecordingBudget()
+
+    draft = await triage(api, budget, triage=TRIAGE_SETTINGS)
+
+    assert draft == TriageDraft(
+        same_as=UUID(OTHER_ID),
+        same_reason="os dois usam o banco pedidos-db",
+        severity=Severity.P1,
+        severity_reason="pagamentos parados",
+    )
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["output_config"]["effort"] == "low"
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["required"] == ["same_as", "same_reason", "severity", "severity_reason"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["severity"]["anyOf"][0]["enum"] == ["P0", "P1", "P2", "P3"]
+    assert body["system"][0]["text"] == TRIAGE_PROMPT
+    title = triage_brief().incident.title
+    assert body["messages"] == [{"role": "user", "content": f"triagem de {title} com 1 outros"}]
+    assert [usage.stage for usage in budget.spent] == ["triage"]
+
+
+async def test_triage_without_its_own_stage_inherits_the_investigation_settings() -> None:
+    api = ScriptedApi(ok(final(TRIAGED)))
+
+    await triage(api)
+
+    assert api.bodies[0]["model"] == SETTINGS.model
+
+
+async def test_triage_without_merge_nor_severity() -> None:
+    answer = {"same_as": None, "same_reason": "", "severity": None, "severity_reason": ""}
+
+    draft = await triage(ScriptedApi(ok(final(answer))))
+
+    assert draft == TriageDraft(None, "", None, "")
+
+
+@pytest.mark.parametrize("same_as", ["incidente-9", "", "0193a3a0"])
+async def test_triage_with_an_id_that_is_not_a_uuid_has_no_merge(same_as: str) -> None:
+    draft = await triage(ScriptedApi(ok(final({**TRIAGED, "same_as": same_as}))))
+
+    assert draft.same_as is None
+    assert draft.severity is Severity.P1
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "não é json",
+        {**TRIAGED, "severity": "P9"},
+        {k: v for k, v in TRIAGED.items() if k != "same_reason"},
+        {**TRIAGED, "merge": True},
+    ],
+)
+async def test_triage_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError, match="triagem"):
+        await triage(ScriptedApi(ok(final(answer))))
+
+
+async def test_triage_api_error_refusal_and_budget() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await triage(ScriptedApi(response, response, response))
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await triage(ScriptedApi(ok(final("", stop_reason="refusal"))))
+    with pytest.raises(BudgetExceededError):
+        await triage(ScriptedApi(ok(final(TRIAGED))), RecordingBudget(fail_at=1))
+
+
+class TestClaudeTriageModelContract(TriageModelContract):
+    @pytest.fixture
+    def triage_model(self) -> LanguageModel:
+        answer = {**TRIAGED, "same_as": None}
+        return memory_model(lambda _request: ok(final(answer)))
+
+    @pytest.fixture
+    def failing_triage_model(self) -> LanguageModel:
         overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
         return memory_model(
             lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
