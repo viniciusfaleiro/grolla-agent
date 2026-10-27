@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import when %}
+{% from "_live.html" import alerts_table %}
 {% block title %}{{ incident.title }}{% endblock %}
 {% block content %}
 <div class="war-room">
@@ -10,26 +10,7 @@
   <div class="rest">
     <section class="panel" id="alertas">
       <h2>Alertas</h2>
-      {% if alerts %}
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
-        <tbody>
-        {% for alert in alerts %}
-          <tr>
-            <td>{{ alert.status }}</td>
-            <td>{{ alert.rule_name }}</td>
-            <td>{{ alert.summary }}</td>
-            <td>{{ when(alert.starts_at) }}</td>
-            <td>{% if alert.source_url %}<a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      </div>
-      {% else %}
-      <p class="muted">Nenhum alerta.</p>
-      {% endif %}
+      {{ alerts_table(alerts) }}
     </section>
 
     <section class="panel" id="timeline-panel">

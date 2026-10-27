@@ -53,3 +53,75 @@
     toBottom();
   });
 })();
+
+// Alarme do incidente: aviso na tela e título piscando quando a faixa muda com a página aberta,
+// e o "há X min" da faixa atualizado sem ir ao servidor.
+(() => {
+  const MESSAGES = {
+    normalizado: ["✅ Normalizado", "Alertas normalizados: nenhum alerta deste incidente está disparando."],
+    voltou: ["⚠️ Voltou a disparar", "O alarme voltou a disparar depois de normalizar."],
+  };
+  const banner = () => document.getElementById("alarm");
+  let shown = null; // situação na carga da página: abrir a página não avisa
+  let flashing = null;
+  const original = document.title;
+
+  const stopFlash = () => {
+    if (flashing) clearInterval(flashing);
+    flashing = null;
+    document.title = original;
+  };
+
+  const flash = (text) => {
+    stopFlash();
+    let on = false;
+    flashing = setInterval(() => {
+      on = !on;
+      document.title = on ? text : original;
+    }, 1000);
+    if (document.visibilityState === "visible" && document.hasFocus()) setTimeout(stopFlash, 10000);
+  };
+
+  const toast = (kind, text) => {
+    const el = document.createElement("div");
+    el.className = `toast toast-${kind}`;
+    el.setAttribute("role", "status");
+    el.innerHTML = "<p></p>";
+    el.querySelector("p").textContent = text;
+    el.addEventListener("click", () => el.remove());
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 8000);
+  };
+
+  const check = () => {
+    const el = banner();
+    if (!el) return;
+    const kind = el.dataset.alarm || "";
+    if (shown !== null && kind !== shown && MESSAGES[kind]) {
+      const [title, text] = MESSAGES[kind];
+      toast(kind, text);
+      flash(`${title} · ${el.dataset.title}`);
+    }
+    shown = kind;
+  };
+
+  const minutesAgo = (iso) => {
+    const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60000));
+    if (minutes === 0) return "agora";
+    if (minutes < 60) return `há ${minutes} min`;
+    return `há ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
+  };
+  const refreshAgo = () => {
+    document.querySelectorAll("[data-ago]").forEach((el) => {
+      el.textContent = minutesAgo(el.dataset.ago);
+    });
+  };
+
+  document.addEventListener("DOMContentLoaded", check);
+  document.addEventListener("htmx:afterSettle", check);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") stopFlash();
+  });
+  window.addEventListener("focus", stopFlash);
+  setInterval(refreshAgo, 30000);
+})();

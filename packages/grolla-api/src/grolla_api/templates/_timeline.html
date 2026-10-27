@@ -1,6 +1,7 @@
 {# Timeline com o autor; o polling só troca este bloco quando chega evento. #}
 {% from "_macros.html" import hhmm %}
-{% from "_follow_up.html" import impact_chip, proposal_notice, follow_up_section %}
+{% from "_follow_up.html" import proposal_notice, follow_up_section %}
+{% from "_live.html" import alarm_banner, alerts_table, incident_status %}
 <div id="timeline"
      hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
@@ -40,5 +41,7 @@
 {% if oob %}
 {{ follow_up_section(cycles, oob=True) }}
 {{ proposal_notice(proposal, header, author, "/incidents/" ~ incident.id ~ "/actions/", oob=True) }}
-{{ impact_chip(impact, oob=True) }}
+{{ alarm_banner(alarm, header, author, incident, now, oob=True) }}
+{{ incident_status(incident, header, impact, oob=True) }}
+{{ alerts_table(alerts, oob=True) }}
 {% endif %}

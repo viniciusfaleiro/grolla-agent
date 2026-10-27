@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from urllib.parse import parse_qs, quote, unquote
 from uuid import UUID
 
@@ -254,6 +255,47 @@ def header_of(incident: Incident, now: datetime, author: str | None = None) -> H
         primary=next((a for a in (PRIMARY_ACTION.get(incident.state),) if a in actions), None),
         stages=stages_of(incident.state),
         detected_ago=ago(now - detected),
+    )
+
+
+class AlarmKind(StrEnum):
+    NORMALIZED = "normalizado"
+    RETURNED = "voltou"
+
+
+@dataclass(frozen=True)
+class Alarm:
+    kind: AlarmKind
+    at: datetime  # da última normalização, ou do alerta que voltou
+
+
+_ALERT_ARRIVED = frozenset({EventType.ALERT_RECEIVED, EventType.ALERT_GROUPED})
+
+
+def alarm_of(incident: Incident, events: Sequence[IncidentEvent]) -> Alarm | None:
+    """Faixa do alarme: normalizado (nada disparando) ou voltou (disparou depois de normalizar).
+
+    Sem faixa no incidente encerrado, no que nunca teve alerta e enquanto dispara sem nunca ter
+    normalizado.
+    """
+    if incident.state not in OPEN_STATES:
+        return None
+    normalized = [e.at for e in events if e.type is EventType.INCIDENT_NORMALIZED]
+    if not normalized or not any(e.type in _ALERT_ARRIVED for e in events):
+        return None
+    last = max(normalized)
+    if not incident.firing:
+        return Alarm(AlarmKind.NORMALIZED, last)
+    returned = [e.at for e in events if e.type in _ALERT_ARRIVED and e.at > last]
+    return Alarm(AlarmKind.RETURNED, min(returned)) if returned else None
+
+
+def alarm_normalized(incident: Incident) -> bool:
+    """Selo da lista: aberto, teve alerta (o resolvido avança `last_alert_at`) e nada disparando."""
+    return (
+        incident.state in OPEN_STATES
+        and not incident.firing
+        and incident.last_alert_at > incident.detected_at
     )
 
 

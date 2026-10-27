@@ -1,47 +1,14 @@
 {# Condução, causa raiz e análise; é o fragmento devolvido pelas rotas de ação. #}
 {% from "_macros.html" import lookups, evidence_list, avatar, when %}
-{% from "_follow_up.html" import impact_chip, proposal_notice, follow_up_section %}
+{% from "_follow_up.html" import proposal_notice, follow_up_section %}
+{% from "_live.html" import alarm_banner, incident_status %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 <section id="war-room">
 <div class="conduct">
-  <div class="incident-head">
-    <div class="incident-title">
-      <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
-      <h1>{{ incident.title }}</h1>
-    </div>
-    <div class="chips">
-      <span class="state state-{{ incident.state }}">{{ header.state }}</span>
-      {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
-      <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
-      {{ impact_chip(impact) }}
-      {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
-    </div>
-  </div>
+  {{ alarm_banner(alarm, header, author, incident, now) }}
 
-  <svg class="pulse pulse-{{ incident.state }}" viewBox="0 0 600 44" preserveAspectRatio="none" aria-hidden="true">
-    {% if open %}
-    <path class="pulse-beat" d="M0 22 H200 L214 22 L224 6 L238 38 L250 14 L258 22 H330 L340 22 L348 12 L358 32 L366 22 H600"/>
-    {% else %}
-    <path d="M0 22 H600"/>
-    {% endif %}
-  </svg>
-
-  {% if header.stages %}
-  <ol class="stages" aria-label="Ciclo do incidente">
-    {% for stage in header.stages %}
-    <li class="{{ stage.status }}"{% if stage.status == "atual" %} aria-current="step"{% endif %}>{{ stage.label }}</li>
-    {% endfor %}
-  </ol>
-  {% endif %}
-
-  <dl class="facts">
-    <div><dt>IC</dt><dd class="commander">{% if incident.commander %}{{ avatar(incident.commander) }}{{ incident.commander }}{% else %}ninguém ainda{% endif %}</dd></div>
-    <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
-    <div><dt title="Tempo até alguém assumir">TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
-    <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
-    <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
-  </dl>
+  {{ incident_status(incident, header, impact) }}
 
   {{ proposal_notice(proposal, header, author, base) }}
 

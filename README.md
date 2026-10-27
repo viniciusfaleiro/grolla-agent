@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-cluster%20somente%20leitura%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-alarme%20normalizado%20na%20tela%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -162,6 +162,7 @@ por capacidade ficam em [`openspec/`](openspec/). As decisões que atravessam o 
 | **Transcrição de call** | Envie o `.vtt`, `.srt` ou texto da call no war room: o agente extrai decisões, ações com dono, horários ditos, participantes e o que a call disse das hipóteses, e tudo entra na timeline e no post mortem com "origem: transcrição" | `POST /incidents/{id}/transcricao` · job `run_transcripts` |
 | **AWS completa** | A investigação também lê ECS e EKS, eventos do AWS Health (tolerante a conta sem plano), cotas perto do limite (RDS, vCPUs, balanceadores) e várias contas por uma role somente leitura assumida, com a falha de uma conta isolada | ferramentas `cloud_health` e `cloud_quotas` · `cloud.accounts` |
 | **Cluster somente leitura** | Troubleshooting dentro do Kubernetes, em vários clusters (contas PCI e não PCI): estado dos pods (reinícios, OOMKilled, CrashLoop, probes, HPA no teto, eventos) e o que mudou fora do pipeline (revisões, variáveis, recursos, réplicas, ConfigMaps, HPA, NetworkPolicies) com horário e ferramenta (`kubectl-edit`, `helm`…); `enabled` por cluster e `show_values: false` para nenhum valor de configuração do PCI chegar ao LLM | ferramentas `cluster_state` e `cluster_changes` · `clusters` · `deploy/k8s-somente-leitura.yaml` |
+| **Alarme normalizado na tela** | O war room avisa na hora que o alarme parou ("✅ Alertas normalizados às 15:03 · há 2 min", com o próximo passo: assumir, marcar mitigado ou encerrar) ou voltou a disparar, com aviso na tela e o título da aba piscando; alertas e estado se atualizam sozinhos, e a lista marca os incidentes abertos com "alarme normalizado". Ninguém encerra sozinho: só sugere | `GET /incidents` · `GET /incidents/{id}` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
 | **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
@@ -366,6 +367,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S10 — Transcrição de call** · decisões, ações, horários e hipóteses da call na timeline ✅
 - **S11 — AWS completa** · ECS/EKS, Health, cotas e várias contas ✅
 - **Cluster somente leitura** · estado e mudanças no Kubernetes, vários clusters, PCI sem valores ✅
+- **Alarme normalizado na tela** · faixa ao vivo no war room, aviso e título piscando, selo na lista ✅
 - **S4 — On-call acionado sozinho** · aguardando conta no Spike.sh
 
 ## 📄 Licença
