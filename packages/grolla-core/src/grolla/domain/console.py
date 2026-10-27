@@ -58,12 +58,24 @@ class ConsoleMessage:
 
 
 def session_title(question: str) -> str:
-    """O título da sessão: a primeira pergunta, numa linha, cortada em TITLE_LIMIT."""
-    raise NotImplementedError
+    """O título da sessão: a primeira pergunta, numa linha, cortada em TITLE_LIMIT (com "…")."""
+    line = " ".join(question.split())
+    if len(line) <= TITLE_LIMIT:
+        return line
+    return line[: TITLE_LIMIT - 1].rstrip() + "…"
 
 
 def valid_charts(charts: Sequence[ChartRequest]) -> tuple[ChartRequest, ...]:
     """Até MAX_CHARTS gráficos com sinal conhecido e serviço não vazio, janela limitada entre
-    MIN_CHART_MINUTES e MAX_CHART_MINUTES.
+    MIN_CHART_MINUTES e MAX_CHART_MINUTES; o resto é descartado.
     """
-    raise NotImplementedError
+    valid = [
+        ChartRequest(
+            chart.service.strip(),
+            chart.signal,
+            min(max(chart.minutes, MIN_CHART_MINUTES), MAX_CHART_MINUTES),
+        )
+        for chart in charts
+        if chart.signal in CHART_SIGNALS and chart.service.strip()
+    ]
+    return tuple(valid[:MAX_CHARTS])

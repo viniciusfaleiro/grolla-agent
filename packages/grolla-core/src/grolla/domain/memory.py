@@ -37,7 +37,7 @@ class Confidence(StrEnum):
 class SourceKind(StrEnum):
     STUDY = "estudo"  # ref = links consultados, um por linha
     INCIDENT = "incidente"  # ref = id do incidente
-    CHAT = "chat"  # ref = id do incidente; author = quem escreveu a mensagem
+    CHAT = "chat"  # ref = id do incidente (None no console); author = quem escreveu a mensagem
     PERSON = "pessoa"  # ref = None; author = quem escreveu na página
 
 
@@ -222,6 +222,8 @@ def _source_text(source: Source) -> str:
         return "estudo do ambiente"
     if source.kind is SourceKind.INCIDENT:
         return f"incidente {source.ref}"
+    if source.kind is SourceKind.CHAT and source.ref is None:
+        return f"console, por {source.author}"
     if source.kind is SourceKind.CHAT:
         return f"chat do incidente {source.ref}, por {source.author}"
     return f"escrito por {source.author}"
