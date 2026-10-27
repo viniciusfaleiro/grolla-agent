@@ -19,7 +19,7 @@
 
 ## 2. grolla-persistencia
 
-- [ ] 2.1 Colunas `refusal` lidas e gravadas; `PostgresMessageCounter.sent_since` nas duas tabelas; contagem de recusas por período; suítes de contrato.
+- [x] 2.1 Colunas `refusal` lidas e gravadas; `PostgresMessageCounter.sent_since` nas duas tabelas; contagem de recusas por período; suítes de contrato.
 
 ## 3. grolla-integracoes
 

@@ -40,6 +40,7 @@ from grolla.domain.incidents import (
     NotificationKind,
     Severity,
 )
+from grolla.domain.safety import Scope
 
 SYSTEM_AUTHOR = "sistema"
 # Primeira chave dos advisory locks por serviço (a segunda é o hash do nome do serviço).
@@ -74,6 +75,7 @@ def _chat_message(row: sa.Row[Any]) -> ChatMessage:
         evaluations=evaluations_from(row.evaluations),
         reply_status=None if row.reply_status is None else ReplyStatus(row.reply_status),
         reply_to=row.reply_to,
+        refusal=None if row.refusal is None else Scope(row.refusal),
     )
 
 
@@ -396,9 +398,10 @@ async def insert_message(
     result = await connection.execute(
         sa.text(
             "INSERT INTO chat_messages (incident_id, author, text, at, evaluations,"
-            " reply_status, reply_to) VALUES (:incident_id, :author, :text, :at,"
-            " CAST(:evaluations AS jsonb), :reply_status, :reply_to)"
-            " RETURNING id, incident_id, author, text, at, evaluations, reply_status, reply_to"
+            " reply_status, reply_to, refusal) VALUES (:incident_id, :author, :text, :at,"
+            " CAST(:evaluations AS jsonb), :reply_status, :reply_to, :refusal)"
+            " RETURNING id, incident_id, author, text, at, evaluations, reply_status, reply_to,"
+            " refusal"
         ),
         {
             "incident_id": message.incident_id,
@@ -408,6 +411,7 @@ async def insert_message(
             "evaluations": json.dumps(evaluations_data(message.evaluations)),
             "reply_status": None if reply_status is None else reply_status.value,
             "reply_to": reply_to,
+            "refusal": None if message.refusal is None else message.refusal.value,
         },
     )
     return _chat_message(result.one())
@@ -668,8 +672,8 @@ class PostgresIncidentRepository:
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 sa.text(
-                    "SELECT id, incident_id, author, text, at, evaluations, reply_status, reply_to"
-                    " FROM chat_messages"
+                    "SELECT id, incident_id, author, text, at, evaluations, reply_status, reply_to,"
+                    " refusal FROM chat_messages"
                     " WHERE incident_id = :id ORDER BY at, id"
                 ),
                 {"id": incident_id},

@@ -60,11 +60,12 @@ os deployables só montam o processo.
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
 | **Fila dos ciclos de acompanhamento** | `CycleQueue`: candidatos (incidentes abertos com análise, ciclos, pedido antecipado e tokens), enfileiramento idempotente, reivindicação com `SKIP LOCKED`, ciclos presos e encerramento numa transação (ciclo, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresCycleQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
+| **Limite por pessoa** | `MessageCounter`: quando o autor mandou cada mensagem desde um horário, no chat do war room e no console juntos | `grolla.adapters.postgres.PostgresMessageCounter` |
 | **Console de operação no banco** | `ConsoleStore`: sessões pela última atividade, mensagens com gráficos e avaliações em `jsonb`, a pergunta como fila (`SKIP LOCKED`), resposta numa transação (mensagem, desfecho e `llm_usage` sem incidente), tokens da etapa `console` desde um horário e o incidente aberto a partir da sessão | `grolla.adapters.postgres.PostgresConsoleStore` |
 | **Transcrições de call** | `TranscriptStore`: a transcrição pendente e o `transcript_received` (com o id) numa transação, a transcrição como fila (`SKIP LOCKED`), presas, desfecho numa transação (eventos, `llm_usage` na etapa `transcript` e `concluida`/`falhou` com o motivo) e reprocessar a que falhou | `grolla.adapters.postgres.PostgresTranscriptStore` |
 | **Post mortem** | `PostMortemStore`: documento com seções, plano de ação e avaliação do agente em `jsonb`, versões só inserção, lista com filtros e itens vencidos, fila de rascunho e regeneração com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresPostMortemStore` |
 | **Fila da triagem** | `TriageQueue`: reivindicação com `SKIP LOCKED`, triagens presas, incidentes abertos na janela e encerramento numa transação (incidente, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresTriageQueue` |
-| **Métricas do agente** | `MetricsReader.facts(since)`: uma consulta por parte (incidentes resolvidos, post mortems aprovados ou encerrados com a avaliação e a última resposta do "já vi isso" de cada incidente, lida do log de eventos) | `grolla.adapters.postgres.PostgresMetricsReader` |
+| **Métricas do agente** | `MetricsReader.facts(since)`: uma consulta por parte (incidentes resolvidos, post mortems aprovados ou encerrados com a avaliação e a última resposta do "já vi isso" de cada incidente, lida do log de eventos, e as respostas recusadas do chat e do console) | `grolla.adapters.postgres.PostgresMetricsReader` |
 | **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; trechos com embedding (pgvector) e busca híbrida em SQL (vetor + texto com RRF) no `context_for` e no `search_chunks`; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Memória com RAG (núcleo)** | `chunk_text` recorta por seção `#`/`##` (seção longa por parágrafo, nunca trecho vazio). `index_memory` indexa em lote os registros pendentes (`unindexed`), com o título no trecho do episódio e da nota, e limpa os trechos velhos; `index_documents` indexa os `.md` do serviço no estudo. `query_for` monta a `Query` com vetor (falha do embedder vira consulta só textual). Com `embedder`, `memory_for` usa a busca híbrida (determinístico primeiro, depois RRF de vetor e texto) e traz até 3 trechos de documentação, que `memory_text` mostra no bloco `<documentacao>` (`### [documento] <serviço>: <caminho> — <seção>`, texto e `Link:`); `recall` devolve trechos (`chunks_text`, bloco `<memoria>` com `## Trechos`) | `grolla.application.memory_retrieval` · `grolla.application.memory_store.memory_for` · `grolla.domain.memory.chunk_text` |
 | **Fakes da memória com RAG** | `FakeTextEmbedder` determinístico e sem rede (saco de palavras normalizado por hash, com `concepts` para roteirizar paráfrases), `InMemoryMemoryStore` com trechos e busca híbrida em Python (RRF k=60) e `FakeChangeHistory.documents` | `grolla.testing.memory` · `grolla.testing.investigation` |
@@ -112,6 +113,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0011`: menos ruído: a fila de triagem dos incidentes novos (`triages`, abaixo).
 - `0012`: console de operação: sessões e mensagens fora de incidente (abaixo).
 - `0013`: transcrições de call e a fila de extração (`transcripts`, abaixo).
+- `0014`: recusas do agente: `refusal` (`fora_do_escopo`, `pedido_de_execucao`) nas respostas de
+  `chat_messages` e `console_messages`, e índices `(author, at)` nas duas para o limite por pessoa.
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -216,6 +219,10 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   (`SKIP LOCKED`); `finish` só grava se a transcrição ainda está `em_andamento` (eventos,
   `llm_usage` do incidente e o desfecho, uma vez só). `retry` devolve à fila, no fim dela, só a
   que falhou (`tests/integration/test_postgres_transcript.py`).
+- `PostgresMessageCounter.sent_since(author, since)`: os `at` das mensagens do autor no chat e no
+  console juntos, em ordem; as respostas do agente têm outro autor e não contam
+  (`tests/integration/test_postgres_messages.py`). A resposta recusada guarda o escopo em
+  `refusal`, e `PostgresMetricsReader` conta as recusas das duas tabelas.
 - `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
   esperando retentativa segura os seguintes do mesmo incidente, para a ordem por incidente;
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou

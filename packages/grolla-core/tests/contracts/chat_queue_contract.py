@@ -22,6 +22,7 @@ from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import STAGE_INVESTIGATION, STAGE_WARROOM_CHAT
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
+from grolla.domain.safety import REFUSALS, Scope
 from grolla.testing.builders import T0, make_evaluations, make_incident
 from grolla.testing.investigation import fake_usage
 
@@ -224,6 +225,18 @@ class ChatQueueContract:
 
         question, _ = await repository.chat_of(job.incident_id)
         assert question.reply_status is ReplyStatus.ANSWERED
+
+    async def test_refused_reply_keeps_the_scope(
+        self, repository: IncidentRepository, queue: ChatQueue
+    ) -> None:
+        job = await claimed(repository, queue)
+        refused = replace(reply_to(job), text=REFUSALS[Scope.EXECUTION], refusal=Scope.EXECUTION)
+
+        await queue.answer(job, refused, [], [], ANSWERED_AT)
+
+        _, answer = await repository.chat_of(job.incident_id)
+        assert answer.refusal is Scope.EXECUTION
+        assert answer.text == REFUSALS[Scope.EXECUTION]
 
     async def test_answer_is_recorded_once(
         self, repository: IncidentRepository, queue: ChatQueue

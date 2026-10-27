@@ -1,7 +1,8 @@
 """Fatos das métricas do agente no PostgreSQL: uma consulta por parte, sem tabela própria.
 
 Resolvidos vêm da projeção `incidents`, aprovados de `post_mortems` (com a avaliação) e as
-respostas do "já vi isso" do log de eventos, só a última de cada incidente.
+respostas do "já vi isso" do log de eventos, só a última de cada incidente, e as recusas das
+respostas do chat e do console (`refusal` não nulo).
 """
 
 from datetime import datetime
@@ -30,6 +31,12 @@ ANSWERS = sa.text(
     " ORDER BY incident_id, id DESC) AS last WHERE at >= :since ORDER BY at"
 )
 
+REFUSALS = sa.text(
+    "SELECT at FROM chat_messages WHERE refusal IS NOT NULL AND at >= :since"
+    " UNION ALL SELECT at FROM console_messages WHERE refusal IS NOT NULL AND at >= :since"
+    " ORDER BY at"
+)
+
 
 class PostgresMetricsReader:
     def __init__(self, database: PostgresDatabase) -> None:
@@ -51,10 +58,12 @@ class PostgresMetricsReader:
             answers = await connection.execute(
                 ANSWERS, {"type": EventType.SEEN_BEFORE_ANSWERED.value, "since": since}
             )
+            refusals = await connection.execute(REFUSALS, {"since": since})
             return MetricsFacts(
                 resolved=tuple(row.resolved_at for row in resolved),
                 approved=tuple(
                     (row.status_at, evaluation_from(row.evaluation)) for row in approved
                 ),
                 answers=tuple((row.at, row.same) for row in answers),
+                refusals=tuple(refusals.scalars()),
             )
