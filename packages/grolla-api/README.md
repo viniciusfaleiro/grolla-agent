@@ -24,7 +24,7 @@ renderiza as páginas (Jinja2 + HTMX e um `war-room.js` pequeno, servidos como e
 e `ask` da `grolla.application.war_room`; no post mortem, aos casos de uso da
 `grolla.application.post_mortem`, lendo do `PostMortemStore` e gerando o PDF pelo `DocumentRenderer`; na página da memória, aos casos de uso da
 `grolla.application.memory`, lendo do `MemoryStore`, do `StudyQueue` e do `LearningQueue`; nas
-métricas do agente, aos casos de uso da `grolla.application.metrics`, lendo do `MetricsReader`. A api
+métricas do agente, aos casos de uso da `grolla.application.metrics`, lendo do `MetricsReader`; no console, aos casos de uso da `grolla.application.console`, lendo do `ConsoleStore` e desenhando os gráficos com a série do `Telemetry`. A api
 só lê o form e o autor e devolve o fragmento ou recarrega a página. Não tem regra de
 negócio nem faz trabalho pesado — investigação, timers e notificações ficam no `grolla-worker`. Depende só do
 `grolla-core`; no startup aplica as migrações pendentes e monta as dependências pelo `bootstrap`.
@@ -55,6 +55,9 @@ negócio nem faz trabalho pesado — investigação, timers e notificações fic
 | **Avaliação do agente** | Na seção "Avaliação do agente" do post mortem, o bloco "Avaliação do time": hipótese principal certa (sim, não ou —), minutos até a hipótese certa e memória ajudou, com "Avaliado por Ana em …". Com nome e fora de encerrado, o form "Avaliar o agente" (ou "Editar a avaliação") sobre `evaluate_agent`: `hipotese_certa` e `memoria_ajudou` = `sim`\|`nao`\|vazio (sem resposta) e `minutos` (inteiro, vazio é sem resposta). Sucesso: `204` com `HX-Redirect` ou `303`; `401`, `422` com a mensagem do campo ou do `InvalidPostMortemError` (encerrado, minutos negativos), `404`; erros em `#erro-avaliacao`. Aprovar o post mortem passa o `IncidentRepository` ao `move_status`, que pede o aprendizado com o post mortem como fonte | `POST /postmortems/{id}/avaliacao` |
 | **Métricas do agente** | Link "Métricas" na barra. Tabela dos últimos 6 períodos, do mais recente ao mais antigo, por mês (padrão) ou por semana (`por=mes\|semana`; valor desconhecido vale mês): incidentes resolvidos, post mortems aprovados, acerto da hipótese principal ("75% (3 de 4)"), mediana dos minutos até a hipótese certa ("8 min"), "já vi isso" confirmados e recusados e vezes que a memória ajudou. Sem dado, "—". Tudo de `agent_metrics`, sem LLM | `GET /metricas` |
 | **PDF** | `application/pdf` com `Content-Disposition: attachment; filename="post-mortem-<id>.pdf"`, gerado pelo `DocumentRenderer` via `render_pdf`. `409` em rascunho ou em revisão, `503` se o renderer falha, `404` sem post mortem | `GET /postmortems/{id}.pdf` |
+| **Console de operação** | Link "Console" na barra. Conversa com o Grolla fora de incidente, com as sessões do time (título = a primeira pergunta, autor, última atividade e "virou incidente" com o link), as mais recentes primeiro, e a caixa "Nova conversa" com sugestões. `POST /console` (`texto`) cria a sessão e leva a ela (`303`, ou `204` com `HX-Redirect` no HTMX). Sem a seção `console` no YAML, a página diz "O console está desligado nesta instância" e as outras rotas do console dão `404` | `GET /console` · `POST /console` |
+| **Sessão do console** | O chat do war room (bolhas, Enter envia, rolagem, "Grolla está investigando", markdown seguro, consultas recolhidas) com polling de 3 s em `GET /console/{id}/mensagens?visto=` (`204` sem novidade). `POST /console/{id}` (`texto`) devolve a conversa; `401` "informe seu nome", `422` texto vazio, `404` sessão inexistente, erros em `#console-error`. Cada gráfico pedido pelo agente é um SVG desenhado no servidor com a série real (`chart_series` sobre `Telemetry.series`), lida ao abrir a página: linha no tempo, eixo HH:MM, valor com a unidade (% na taxa de erro, ms no p99, req/s na vazão), título "Latência p99 do pedidos-api, últimos 60 min" e legenda com o valor atual e o máximo; falha da telemetria (ou api sem telemetria) mostra "gráfico indisponível" e janela vazia, "sem dados na janela" | `GET /console/{id}` · `POST /console/{id}` · `GET /console/{id}/mensagens` |
+| **Abrir incidente pelo console** | Na sessão, "Abrir incidente" abre um popover com título (a pergunta), serviço e severidade P0–P3 (`titulo`, `servico`, `severidade`) sobre `open_incident_from_console`: o incidente segue o caminho normal e a sessão passa a mostrar o link. Sucesso: `303` (ou `204` com `HX-Redirect`) para o war room; `401`, `422` (severidade inválida ou campo recusado pelo domínio) em `#erro-incidente`, `404` sessão inexistente. A timeline do incidente diz "Aberto pelo console" | `POST /console/{id}/incidente` |
 | **Estáticos** | HTMX 2.0.4 (sem build; `htmx-config` faz as respostas `4xx` também aparecerem), `war-room.css` (tokens de cor e tipografia, tema escuro), `war-room.js` (Enter envia, caixa cresce, rolagem) e o mascote | `GET /static/…` |
 
 ## ⚡ Como rodar
@@ -86,8 +89,8 @@ uv run pytest packages/grolla-api
 ```
 
 - `tests/unit/` — `create_app` recebe `Services` (checagem de banco, heartbeat e os ports), montado
-  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room, memória, post mortem e métricas (com os
-  casos de uso reais sobre os fakes da memória e do post mortem) testadas com `TestClient`,
+  com os fakes de `grolla.testing`: rotas de saúde, webhook, páginas, war room, memória, post mortem, métricas e console (com os
+  casos de uso reais sobre os fakes da memória, do post mortem e do console; os gráficos sobre uma telemetria roteirizada) testadas com `TestClient`,
   sem banco e sem rede; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — `/health` contra Postgres real (Testcontainers).
 
@@ -95,12 +98,13 @@ uv run pytest packages/grolla-api
 
 ```
 src/grolla_api/
-  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, post mortem, métricas, autor)
+  app.py     create_app(): rotas HTTP (saúde, webhook, páginas, war room, memória, post mortem, métricas, console, autor)
   war_room.py  apresentação do war room: rótulos, ciclo, tendência e proposta do acompanhamento, ação em destaque, durações, markdown seguro, leitura do form e do cookie
   memory_pages.py  apresentação da memória: rótulos, assuntos por tipo, fontes com link, progresso do estudo
   post_mortem_pages.py  apresentação do post mortem: rótulos, transições por status, filtros da lista e leitura dos forms do plano
+  console_pages.py  apresentação do console: versão da conversa para o polling e os gráficos em SVG (título, unidade, eixos)
   metrics_pages.py  apresentação das métricas do agente (acerto, mediana, "—") e leitura do form da avaliação
-  templates/ páginas Jinja2 (base, lista, incidente, memory, memory_subject, postmortems, postmortem, metrics) e fragmentos _war_room, _follow_up (acompanhamento, impacto e proposta), _chat, _chat_messages, _timeline, _memory_versions, _post_mortem_versions
+  templates/ páginas Jinja2 (base, lista, incidente, memory, memory_subject, postmortems, postmortem, metrics, console, console_session) e fragmentos _war_room, _follow_up (acompanhamento, impacto e proposta), _chat, _chat_messages, _console_messages, _timeline, _memory_versions, _post_mortem_versions
   static/    htmx.min.js · war-room.css · war-room.js · grolla.svg · grolla-avatar.svg
   main.py    entrypoint `grolla-api`: settings → migrações → uvicorn
 tests/       unit/ · integration/
