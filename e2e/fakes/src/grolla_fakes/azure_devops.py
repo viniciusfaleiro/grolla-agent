@@ -3,7 +3,9 @@
 Sem roteiro, todo repositório existe (em qualquer projeto) e tem 1 deploy bem-sucedido há
 20 min, com a mensagem do commit em `triggerInfo`, coerente com a história padrão do MCP fake
 do SigNoz. Os repositórios estão no branch `main` e têm na raiz um `README.md` (que cita o
-banco `<serviço sem -api>-db`) e um `azure-pipelines.yml`, pela Git Items API. O roteiro
+banco `<serviço sem -api>-db`) e um `azure-pipelines.yml`, e em `docs/` um `runbook.md` com a
+seção "Pool de conexões esgotado", pela Git Items API (listagem da raiz com `OneLevel`, da
+árvore inteira com `Full`). O roteiro
 (`POST /_control/azure-devops`) limita os repositórios, fixa os builds ou faz a API falhar.
 """
 
@@ -66,9 +68,8 @@ class AzureDevOpsFake:
                 if "scopePath" not in request.query_params:  # como a API real
                     body = {"message": "VS403403: a listagem de pasta usa scopePath"}
                     return self._answer(request, body, 400)
-                listing = [{"path": "/", "isFolder": True, "gitObjectType": "tree"}]
-                listing += [{"path": f"/{name}", "gitObjectType": "blob"} for name in _files(repo)]
-                listing.append({"path": "/src", "isFolder": True, "gitObjectType": "tree"})
+                full = request.query_params["recursionLevel"] == "Full"
+                listing = _listing(repo, full=full)
                 return self._answer(request, {"count": len(listing), "value": listing}, 200)
             content = _files(repo).get(path.lstrip("/"))
             if content is None:
@@ -131,8 +132,17 @@ def _deploy(org: str, project: str, repo: str, started: datetime) -> dict[str, A
     }
 
 
+def _listing(repo: str, *, full: bool) -> list[dict[str, Any]]:
+    """A raiz (`OneLevel`) ou a árvore inteira (`Full`), como a Git Items API lista."""
+    paths = sorted(f"/{name}" for name in _files(repo) if full or "/" not in name)
+    folders = ["/", "/docs", "/src"]
+    items = [{"path": path, "isFolder": True, "gitObjectType": "tree"} for path in folders]
+    items += [{"path": path, "gitObjectType": "blob"} for path in paths]
+    return sorted(items, key=lambda item: item["path"])
+
+
 def _files(repo: str) -> dict[str, str]:
-    """Os arquivos da raiz de todo repositório: o README e o pipeline."""
+    """Os arquivos de todo repositório: o README e o pipeline na raiz e o runbook em docs/."""
     database = repo.removesuffix("-api")
     readme = (
         f"# {repo}\n\n"
@@ -142,7 +152,22 @@ def _files(repo: str) -> dict[str, str]:
         "- Erros de conexão com o banco costumam ser o pool esgotado depois de deploy.\n"
     )
     pipeline = f"trigger:\n  - main\nstages:\n  - stage: deploy\n    displayName: {repo}-deploy\n"
-    return {"README.md": readme, "azure-pipelines.yml": pipeline}
+    runbook = (
+        f"# Runbook do {repo}\n\n"
+        "## Erro depois de deploy\n\n"
+        "Se a taxa de erro sobe logo depois de um deploy, compare a versão nova com a anterior "
+        f"no pipeline `{repo}-deploy` e faça o rollback para o deploy anterior.\n\n"
+        "## Pool de conexões esgotado\n\n"
+        "Sintoma: as requisições falham com timeout aguardando conexão do pool do "
+        f"`{database}-db` e a latência p99 dispara, mesmo sem deploy recente.\n\n"
+        "Causa conhecida: a rotina de reconciliação abre transações longas e segura as 20 "
+        "conexões do pool.\n\n"
+        "O que fazer:\n\n"
+        "- pausar a rotina de reconciliação até o pool voltar ao normal;\n"
+        "- conferir no banco as sessões abertas pela reconciliação;\n"
+        "- retomar a rotina em lotes menores.\n"
+    )
+    return {"README.md": readme, "azure-pipelines.yml": pipeline, "docs/runbook.md": runbook}
 
 
 def _iso(moment: datetime) -> str:
