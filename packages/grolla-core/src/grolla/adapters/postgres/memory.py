@@ -3,6 +3,11 @@ versões, a fila do aprendizado e as rodadas de estudo.
 
 A tabela `learnings` é a fila do aprendizado e usa os mesmos status das rodadas de estudo.
 Os tokens de uma rodada são a soma do `llm_usage` gravado com o id dela.
+
+Os trechos (migração 0007) guardam o vetor em `vector` do pgvector, enviado como literal de
+texto (`[0.1,0.2]`) com CAST, e o `tsvector` do texto. A busca híbrida junta os K mais
+próximos pelo vetor (distância de cosseno exata, sem índice ANN) e os K melhores por `ts_rank`
+com a fusão de rankings (RRF): `score = soma de 1/(60 + posição)`.
 """
 
 from collections.abc import Sequence
@@ -26,9 +31,12 @@ from grolla.application.memory import (
 )
 from grolla.application.memory_store import Embedded, Query, SubjectSummary
 from grolla.domain.memory import (
+    DOCUMENT_LIMIT,
     ENVIRONMENT,
     EPISODE_LIMIT,
+    Chunk,
     ChunkHit,
+    ChunkOrigin,
     Confidence,
     Memory,
     MemoryContext,
@@ -76,6 +84,70 @@ SIMILAR_EPISODES = sa.text(
     " subject = ANY(CAST(:services AS text[])) DESC,"
     " ts_rank(search, query) DESC, updated_at DESC, id"
     " LIMIT :limit"
+)
+# Com vetor: o determinístico continua primeiro; depois o RRF do vetor (melhor trecho de cada
+# episódio) e do texto. Episódio de outro serviço só entra se um dos dois o trouxer no top K.
+RRF = 60
+HYBRID_EPISODES = sa.text(
+    "WITH q AS (SELECT websearch_to_tsquery('portuguese', :text) AS tsq),"  # noqa: S608 — idem
+    " vec AS (SELECT memory_id, row_number() OVER (ORDER BY distance, memory_id) AS pos"
+    " FROM (SELECT c.memory_id, min(c.embedding <=> CAST(:vector AS vector)) AS distance"
+    " FROM memory_chunks AS c JOIN memories AS m ON m.id = c.memory_id"
+    " WHERE c.model = :model AND m.kind = :episode AND m.active GROUP BY c.memory_id) AS d"
+    " ORDER BY pos LIMIT :k),"
+    " txt AS (SELECT m.id AS memory_id, row_number() OVER ("
+    "ORDER BY ts_rank(m.search, q.tsq) DESC, m.updated_at DESC, m.id) AS pos"
+    " FROM memories AS m, q WHERE m.kind = :episode AND m.active AND m.search @@ q.tsq"
+    " ORDER BY pos LIMIT :k),"
+    f" fused AS (SELECT memory_id, sum(1.0 / ({RRF} + pos)) AS score"
+    " FROM (SELECT * FROM vec UNION ALL SELECT * FROM txt) AS r GROUP BY memory_id)"
+    f" SELECT {MEMORY_COLUMNS} FROM memories LEFT JOIN fused ON fused.memory_id = memories.id"
+    " WHERE kind = :episode AND active"
+    " AND (subject = ANY(CAST(:services AS text[])) OR fused.memory_id IS NOT NULL)"
+    " ORDER BY (subject = ANY(CAST(:services AS text[])) AND EXISTS ("
+    "SELECT 1 FROM unnest(CAST(:alerts AS text[])) AS alert WHERE alert <> ''"
+    " AND strpos(lower(title || ' ' || body), lower(alert)) > 0)) DESC,"
+    " coalesce(fused.score, 0) DESC, subject = ANY(CAST(:services AS text[])) DESC,"
+    " updated_at DESC, id"
+    " LIMIT :limit"
+)
+CHUNK_COLUMNS = "id, origin, subject, memory_id, kind, path, url, heading, text"
+# Trechos de documentos e de registros ativos do modelo, filtrados por assunto e origem. Sem
+# vetor, `vec` fica vazio e sobra o ranking textual.
+SEARCH_CHUNKS = sa.text(
+    "WITH base AS (SELECT c.* FROM memory_chunks AS c"  # noqa: S608 — colunas e constantes fixas
+    " LEFT JOIN memories AS m ON m.id = c.memory_id"
+    " WHERE (CAST(:model AS text) IS NULL OR c.model = :model)"
+    " AND (c.origin = :document OR m.active)"
+    " AND (CAST(:subjects AS text[]) IS NULL OR c.subject = ANY(CAST(:subjects AS text[])))"
+    " AND (CAST(:origin AS text) IS NULL OR c.origin = :origin)),"
+    " q AS (SELECT websearch_to_tsquery('portuguese', :text) AS tsq),"
+    " vec AS (SELECT id, row_number() OVER ("
+    "ORDER BY embedding <=> CAST(:vector AS vector), id) AS pos"
+    " FROM base WHERE CAST(:vector AS text) IS NOT NULL ORDER BY pos LIMIT :k),"
+    " txt AS (SELECT id, row_number() OVER (ORDER BY ts_rank(search, q.tsq) DESC, id) AS pos"
+    " FROM base, q WHERE search @@ q.tsq ORDER BY pos LIMIT :k),"
+    f" fused AS (SELECT id, CAST(sum(1.0 / ({RRF} + pos)) AS float8) AS score"
+    " FROM (SELECT * FROM vec UNION ALL SELECT * FROM txt) AS r GROUP BY id)"
+    f" SELECT {CHUNK_COLUMNS}, fused.score FROM fused JOIN memory_chunks USING (id)"
+    " ORDER BY fused.score DESC, id LIMIT :limit"
+)
+# Sem trecho deste modelo, ou mudado depois da última indexação dele.
+UNINDEXED = sa.text(
+    f"SELECT {MEMORY_COLUMNS} FROM memories AS m, LATERAL ("  # noqa: S608 — colunas fixas
+    "SELECT max(c.indexed_at) AS indexed_at FROM memory_chunks AS c"
+    " WHERE c.memory_id = m.id AND c.model = :model) AS i"
+    " WHERE m.active AND (i.indexed_at IS NULL OR m.updated_at > i.indexed_at)"
+    " ORDER BY m.updated_at, m.id LIMIT :limit"
+)
+INSERT_CHUNK = sa.text(
+    "INSERT INTO memory_chunks (origin, subject, memory_id, kind, path, url, heading, text,"
+    " model, embedding, indexed_at) VALUES (:origin, :subject, :memory_id, :kind, :path, :url,"
+    " :heading, :text, :model, CAST(:embedding AS vector), :indexed_at)"
+)
+DROP_STALE_CHUNKS = sa.text(
+    "DELETE FROM memory_chunks AS c WHERE c.model <> :model OR EXISTS ("
+    "SELECT 1 FROM memories AS m WHERE m.id = c.memory_id AND NOT m.active)"
 )
 SEARCH = sa.text(
     f"{SELECT_MEMORIES} WHERE active"
@@ -203,6 +275,51 @@ def _version(row: sa.Row[Any]) -> MemoryVersion:
     )
 
 
+def _vector(values: Sequence[float]) -> str:
+    """Literal de texto do pgvector: `[0.1,0.2]`."""
+    return "[" + ",".join(str(float(value)) for value in values) + "]"
+
+
+def _chunk_hit(row: sa.Row[Any]) -> ChunkHit:
+    chunk = Chunk(
+        origin=ChunkOrigin(row.origin),
+        subject=row.subject,
+        heading=row.heading,
+        text=row.text,
+        memory_id=row.memory_id,
+        kind=None if row.kind is None else MemoryKind(row.kind),
+        path=row.path,
+        url=row.url,
+    )
+    return ChunkHit(chunk=chunk, score=row.score)
+
+
+def _chunk_params(
+    chunks: Sequence[Embedded], model: str, at: datetime, memory_id: UUID | None = None
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "origin": chunk.origin.value,
+            "subject": chunk.subject,
+            "memory_id": memory_id,
+            "kind": None if chunk.kind is None else chunk.kind.value,
+            "path": chunk.path,
+            "url": chunk.url,
+            "heading": chunk.heading,
+            "text": chunk.text,
+            "model": model,
+            "embedding": _vector(vector),
+            "indexed_at": at,
+        }
+        for chunk, vector in chunks
+    ]
+
+
+def _candidates(limit: int) -> int:
+    """Quantos candidatos cada ranking (vetor e texto) leva para a fusão."""
+    return max(limit * 4, 20)
+
+
 class PostgresMemoryStore:
     def __init__(self, database: PostgresDatabase) -> None:
         self._engine = database.engine
@@ -223,8 +340,8 @@ class PostgresMemoryStore:
         text: str,
         query: Query | None = None,
     ) -> MemoryContext:
-        del query  # contrato da memória com RAG: a busca híbrida é do grolla-persistencia
         services = list(services)
+        vector = None if query is None or query.vector is None else _vector(query.vector)
         async with self._engine.connect() as connection:
             result = await connection.execute(
                 DOSSIERS,
@@ -245,17 +362,28 @@ class PostgresMemoryStore:
                 PENDING_NOTES, {"note": MemoryKind.NOTE.value, "subjects": subjects}
             )
             notes = tuple(_memory(row) for row in result)
+            params: dict[str, Any] = {
+                "episode": MemoryKind.EPISODE.value,
+                "services": services,
+                "alerts": list(alert_names),
+                "text": text,
+                "limit": EPISODE_LIMIT,
+            }
+            if query is not None and vector is not None:
+                params |= {
+                    "vector": vector,
+                    "model": query.model,
+                    "k": _candidates(EPISODE_LIMIT),
+                }
             result = await connection.execute(
-                SIMILAR_EPISODES,
-                {
-                    "episode": MemoryKind.EPISODE.value,
-                    "services": services,
-                    "alerts": list(alert_names),
-                    "text": text,
-                    "limit": EPISODE_LIMIT,
-                },
+                SIMILAR_EPISODES if vector is None else HYBRID_EPISODES, params
             )
             episodes = tuple(_memory(row) for row in result)
+        documents: list[ChunkHit] = []
+        if query is not None and vector is not None and services:
+            documents = await self._search_chunks(
+                query, DOCUMENT_LIMIT, subjects=services, origin=ChunkOrigin.DOCUMENT
+            )
         # Ambiente, serviços na ordem pedida, integrações por nome.
         ordered = [
             by_subject[s] for s in dict.fromkeys([ENVIRONMENT, *services]) if s in by_subject
@@ -264,6 +392,7 @@ class PostgresMemoryStore:
             dossiers=(*ordered, *(i for i in integrations if i.subject not in by_subject)),
             notes=notes,
             episodes=episodes,
+            documents=tuple(documents),
         )
 
     async def search(self, subject: str | None, query: str, limit: int) -> list[Memory]:
@@ -370,26 +499,73 @@ class PostgresMemoryStore:
             )
             return [_version(row) for row in result]
 
-    # ---- memória com RAG (contrato: corpos do grolla-persistencia) ----
+    # ---- memória com RAG ----
+
+    async def _search_chunks(
+        self,
+        query: Query,
+        limit: int,
+        *,
+        subjects: Sequence[str] | None,
+        origin: ChunkOrigin | None = None,
+    ) -> list[ChunkHit]:
+        async with self._engine.connect() as connection:
+            result = await connection.execute(
+                SEARCH_CHUNKS,
+                {
+                    "model": query.model,
+                    "document": ChunkOrigin.DOCUMENT.value,
+                    "subjects": None if subjects is None else list(subjects),
+                    "origin": None if origin is None else origin.value,
+                    "text": query.text,
+                    "vector": None if query.vector is None else _vector(query.vector),
+                    "k": _candidates(limit),
+                    "limit": limit,
+                },
+            )
+            return [_chunk_hit(row) for row in result]
 
     async def search_chunks(self, subject: str | None, query: Query, limit: int) -> list[ChunkHit]:
-        raise NotImplementedError
+        return await self._search_chunks(
+            query, limit, subjects=None if subject is None else [subject]
+        )
 
     async def unindexed(self, model: str, limit: int) -> list[Memory]:
-        raise NotImplementedError
+        return await self._memories(UNINDEXED, model=model, limit=limit)
 
     async def replace_chunks(
         self, memory_id: UUID, model: str, chunks: Sequence[Embedded], at: datetime
     ) -> None:
-        raise NotImplementedError
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                sa.text("DELETE FROM memory_chunks WHERE memory_id = :id"), {"id": memory_id}
+            )
+            if chunks:
+                await connection.execute(
+                    INSERT_CHUNK, _chunk_params(chunks, model, at, memory_id=memory_id)
+                )
 
     async def replace_documents(
         self, service: str, model: str, chunks: Sequence[Embedded], at: datetime
     ) -> None:
-        raise NotImplementedError
+        document = ChunkOrigin.DOCUMENT.value
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                sa.text(
+                    "DELETE FROM memory_chunks WHERE origin = :document AND subject = :service"
+                ),
+                {"document": document, "service": service},
+            )
+            if chunks:
+                params = _chunk_params(chunks, model, at)
+                for param in params:  # o serviço e a origem são os da troca
+                    param |= {"origin": document, "subject": service, "kind": None}
+                await connection.execute(INSERT_CHUNK, params)
 
     async def drop_stale_chunks(self, model: str) -> int:
-        raise NotImplementedError
+        async with self._engine.begin() as connection:
+            result = await connection.execute(DROP_STALE_CHUNKS, {"model": model})
+            return result.rowcount
 
 
 def _job(row: sa.Row[Any]) -> LearningJob:
