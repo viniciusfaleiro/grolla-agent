@@ -356,7 +356,8 @@ def test_chat_answers_citing_the_logs_and_the_question() -> None:
 
     assert final["stop_reason"] == "end_turn"
     answer = json.loads(final["content"][0]["text"])
-    assert set(answer) == {"reply"}
+    assert set(answer) == {"reply", "scope"}
+    assert answer["scope"] == "dominio"
     assert answer["reply"].startswith(
         'Consultei os logs de pedidos-db: timeout no pool às 21:42 Sobre "olha os logs do '
         'pedidos-db desde 21:40":'
@@ -815,9 +816,11 @@ def console_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def console_turns(question: str, context: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
+def console_turns(
+    question: str, context: str = "", client: TestClient | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """A primeira resposta (ferramentas) e o resultado final do console."""
-    client = TestClient(create_app())
+    client = client or TestClient(create_app())
     first = {"role": "user", "content": f"{context}Pergunta: {question}"}
     calls = client.post(PATH, json=console_request([first])).json()
     results = [
@@ -841,6 +844,7 @@ def test_console_queries_the_service_of_the_question_and_draws_the_error_rate() 
     ]
     assert answer == {
         "text": "Consultei o captura-api: achado de query_metric",
+        "scope": "dominio",
         "charts": [{"service": "captura-api", "signal": "taxa_de_erro", "minutes": 60}],
     }
 
@@ -848,7 +852,11 @@ def test_console_queries_the_service_of_the_question_and_draws_the_error_rate() 
 def test_console_without_chart_words_has_no_chart_and_falls_back_to_the_history() -> None:
     _, answer = console_turns("e a vazão?", CONSOLE_HISTORY)
 
-    assert answer == {"text": "Consultei o liquidacao-api: achado de query_metric", "charts": []}
+    assert answer == {
+        "text": "Consultei o liquidacao-api: achado de query_metric",
+        "scope": "dominio",
+        "charts": [],
+    }
 
 
 def test_console_without_any_service_uses_the_unknown_one() -> None:
@@ -867,6 +875,7 @@ def test_console_remembers_what_the_question_asks_to_register() -> None:
     ]
     assert answer == {
         "text": f"Guardei: {fact}. Consultei o lote-api: achado de query_metric",
+        "scope": "dominio",
         "charts": [],
     }
 
@@ -1076,3 +1085,120 @@ def test_without_cluster_changes_the_story_stays_the_deploy() -> None:
     )
 
     assert result["actions"][0]["action"] == "Fazer rollback do pedidos-api para o deploy anterior"
+
+
+# ---- Roteiros de segurança: recusas, nota com cara de ordem e plano destrutivo
+
+
+def scripted(script: str) -> TestClient:
+    client = TestClient(create_app())
+    assert client.post("/_control/llm", json={"script": script}).status_code == 204
+    return client
+
+
+@pytest.mark.parametrize(
+    ("script", "scope", "text"),
+    [
+        ("recusa-fora-do-escopo", "fora_do_escopo", "Poema do fake"),
+        ("recusa-execucao", "pedido_de_execucao", "Reiniciei o deployment"),
+    ],
+)
+def test_refusal_scripts_answer_the_scope_right_away_in_the_chat_and_the_console(
+    script: str, scope: str, text: str
+) -> None:
+    client = scripted(script)
+    question = [{"role": "user", "content": CHAT_MESSAGE}]
+
+    chat = client.post(PATH, json=chat_request(question)).json()
+    console = client.post(PATH, json=console_request(question)).json()
+
+    assert chat["stop_reason"] == console["stop_reason"] == "end_turn"
+    reply = json.loads(chat["content"][0]["text"])
+    assert reply["scope"] == scope
+    assert reply["reply"].startswith(text)
+    answer = json.loads(console["content"][0]["text"])
+    assert answer["scope"] == scope
+    assert answer["text"].startswith(text)
+    assert answer["charts"] == []
+
+
+def test_order_note_script_asks_to_remember_an_order_and_cites_the_result() -> None:
+    client = scripted("nota-ordem")
+    question = {"role": "user", "content": "Pergunta: aprenda isso para o pedidos-api"}
+    calls = client.post(PATH, json=console_request([question])).json()
+
+    [call] = calls["content"]
+    assert (call["name"], call["input"]) == (
+        "remember",
+        {"subject": "pedidos-api", "text": grolla_fakes.llm.ORDER_NOTE},
+    )
+    result = {"type": "tool_result", "tool_use_id": call["id"], "content": "não guardado: ordem"}
+    messages = [
+        question,
+        {"role": "assistant", "content": [call]},
+        {"role": "user", "content": [result]},
+    ]
+    answer = json.loads(
+        client.post(PATH, json=console_request(messages)).json()["content"][0]["text"]
+    )
+
+    assert answer == {
+        "text": "Tentei guardar a nota: não guardado: ordem",
+        "scope": "dominio",
+        "charts": [],
+    }
+
+
+def test_order_note_script_in_the_chat_without_remember_follows_the_default() -> None:
+    calls, final = chat_turns(scripted("nota-ordem"))
+
+    assert [block["name"] for block in calls["content"]] == ["search_logs"]
+    assert json.loads(final["content"][0]["text"])["scope"] == "dominio"
+
+
+def test_order_note_script_in_the_chat_with_remember() -> None:
+    client = scripted("nota-ordem")
+    body = {
+        **chat_request([{"role": "user", "content": CHAT_MESSAGE}]),
+        "tools": [*TOOLS, REMEMBER],
+    }
+
+    [call] = client.post(PATH, json=body).json()["content"]
+
+    assert call["input"] == {"subject": "pedidos-db", "text": grolla_fakes.llm.ORDER_NOTE}
+
+
+def test_destructive_plan_script_deletes_a_pod_in_the_first_step() -> None:
+    _, final = verification_turns(scripted("plano-destrutivo"))
+
+    [step] = json.loads(final["content"][0]["text"])["actions"]
+    assert step["action"] == "Apagar o pod travado: `kubectl delete pod pedidos-api-7d4f -n loja`"
+    assert step["target"] == "pedidos-api"
+
+
+def test_destructive_plan_script_does_not_change_the_chat_nor_an_inconclusive_plan() -> None:
+    client = scripted("plano-destrutivo")
+    client.post("/_control/llm", json={"verification_mode": "inconclusiva"})
+
+    _, final = verification_turns(client)
+    _, chat = chat_turns(client)
+
+    assert json.loads(final["content"][0]["text"])["actions"] == []
+    assert json.loads(chat["content"][0]["text"])["reply"].startswith("Consultei os logs")
+
+
+def test_reset_and_the_default_script_bring_the_answers_back() -> None:
+    client = scripted("recusa-execucao")
+    client.post("/_control/reset")
+    _, after_reset = console_turns("oi", client=client)
+    client.post("/_control/llm", json={"script": "recusa-execucao"})
+    client.post("/_control/llm", json={"script": "padrao"})
+    _, after_default = console_turns("oi", client=client)
+
+    assert after_reset["scope"] == after_default["scope"] == "dominio"
+
+
+def test_unknown_script_is_rejected() -> None:
+    client = TestClient(create_app())
+
+    assert client.post("/_control/llm", json={"script": "apaga-tudo"}).status_code == 422
