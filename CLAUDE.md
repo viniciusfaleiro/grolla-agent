@@ -57,7 +57,8 @@ horários e hipóteses na timeline e no post mortem. `aws-completa` (S11): ECS/E
 cotas e várias contas por role somente leitura. `cluster-somente-leitura`: estado e mudanças do
 serviço no Kubernetes, em vários clusters, com `enabled` e `show_values` por cluster.
 `alarme-normalizado-na-tela`: faixa ao vivo do alarme normalizado ou de volta no war room, aviso
-e título piscando, selo na lista. Pendente: S4 (on-call), que espera a conta no
+e título piscando, selo na lista. `war-room-redesenhado`: barra fixa, cartão "Agora", hipóteses com
+o veredito e linha do tempo filtrável. Pendente: S4 (on-call), que espera a conta no
 Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

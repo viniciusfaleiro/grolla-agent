@@ -1,34 +1,21 @@
-{# Condução, causa raiz e análise; é o fragmento devolvido pelas rotas de ação. #}
-{% from "_macros.html" import lookups, evidence_list, avatar, when %}
+{# Barra do incidente, cartão "Agora" e a investigação; é o fragmento devolvido pelas rotas de ação. #}
+{% from "_macros.html" import lookups, evidence_list, hhmm, icon %}
 {% from "_follow_up.html" import proposal_notice, follow_up_section %}
-{% from "_live.html" import incident_status, next_step_buttons %}
+{% from "_live.html" import incident_status %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
+{% set s = situation %}
 <section id="war-room">
-<div class="conduct">
-  {{ incident_status(incident, header, impact, alarm, author, now, alerts) }}
+{{ incident_status(incident, header, impact, alarm, author, now, alerts, merge_candidates | length > 0) }}
 
-  {{ proposal_notice(proposal, header, author, base) }}
+<div class="wr-main">
+  <nav class="wr-jump" aria-label="Seções do war room">
+    <a href="#agora">Agora</a><a href="#investigacao">Investigação</a><a href="#linha-do-tempo">Linha do tempo</a><a href="#chat">Grolla</a>
+  </nav>
 
   {% if merged_into %}
   <aside class="merged-into" aria-label="Incidente juntado">
     <p>Juntado em <a href="/incidents/{{ merged_into.id }}">{{ merged_into.title }}</a></p>
-  </aside>
-  {% endif %}
-
-  {% if merge %}
-  <aside class="proposal merge-suggestion" aria-label="Sugestão de junção">
-    <span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>
-    <div class="proposal-text">
-      <p class="proposal-head">Parece o mesmo problema que <a href="/incidents/{{ merge.other.id }}">{{ merge.other.title }}</a></p>
-      {% if merge.reason %}<p class="muted">{{ merge.reason }}</p>{% endif %}
-    </div>
-    {% if author %}
-    <form method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar" hx-confirm="Juntar este incidente em &quot;{{ merge.other.title }}&quot;? Este fica descartado e os alertas passam para o outro.">
-      <input type="hidden" name="destino" value="{{ merge.other.id }}">
-      <button class="button-primary">Juntar</button>
-    </form>
-    {% endif %}
   </aside>
   {% endif %}
 
@@ -43,95 +30,220 @@
       <button class="button-primary">Entrar no war room</button>
     </form>
   </div>
-  {% elif open %}
-  <div class="panel next-step" hx-target="#war-room" hx-swap="outerHTML">
-    {{ next_step_buttons(incident, header) }}
-
-    {% if "record" in header.actions %}
-    <form class="record" hx-post="{{ base }}record">
-      <label class="visually-hidden" for="acao">O que você fez</label>
-      <input id="acao" name="texto" required placeholder="Registre o que foi feito, ex.: rollback do build 20261025.4">
-      <button>Registrar ação</button>
-    </form>
-    {% endif %}
-
-    <div class="more-actions">
-      {% if "severity" in header.actions %}
-      <form class="severity-picker" hx-post="{{ base }}severity" hx-confirm="Mudar a severidade? O canal do time recebe um card.">
-        <span class="muted">Severidade</span>
-        <span class="options" role="group" aria-label="Severidade">
-          {% for severity in severities %}
-          <button name="severidade" value="{{ severity }}" aria-pressed="{{ 'true' if severity == incident.severity else 'false' }}"{% if severity == incident.severity %} disabled{% endif %}>{{ severity }}</button>
-          {% endfor %}
-        </span>
-      </form>
-      {% endif %}
-      {% if merge_candidates %}
-      <button class="button-quiet" popovertarget="juntar">Juntar com…</button>
-      {% endif %}
-      {% if "discard" in header.actions %}
-      <button class="button-quiet button-danger" popovertarget="descartar">Descartar como falso positivo</button>
-      {% endif %}
-    </div>
-    <div id="war-room-error" class="error" role="alert"></div>
-
-    {% if "resolve" in header.actions %}
-    <div id="encerrar" popover>
-      <form class="popover-form" hx-post="{{ base }}resolve">
-        <h3>Encerrar o incidente</h3>
-        <p class="muted">O canal do time recebe o resumo com a duração, o motivo e as ações registradas.</p>
-        <label for="motivo-encerrar">O que resolveu</label>
-        <textarea id="motivo-encerrar" name="motivo" required rows="3" placeholder="ex.: rollback do build 20261025.4; taxa de erro voltou a 0%"></textarea>
-        <div class="row">
-          <button type="button" class="button-quiet" popovertarget="encerrar" popovertargetaction="hide">Cancelar</button>
-          <button class="button-primary">Encerrar</button>
-        </div>
-      </form>
-    </div>
-    {% endif %}
-    {% if merge_candidates %}
-    <div id="juntar" popover>
-      <form class="popover-form" method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar">
-        <h3>Juntar com outro incidente</h3>
-        <p class="muted">Este incidente fica descartado; os serviços, os alertas disparando e a pior severidade passam para o escolhido.</p>
-        <label for="destino">É o mesmo problema que</label>
-        <select id="destino" name="destino" required>
-          {% for other in merge_candidates %}
-          <option value="{{ other.id }}">{{ other.severity }} · {{ other.title }}</option>
-          {% endfor %}
-        </select>
-        <div class="row">
-          <button type="button" class="button-quiet" popovertarget="juntar" popovertargetaction="hide">Cancelar</button>
-          <button class="button-primary">Juntar</button>
-        </div>
-      </form>
-    </div>
-    {% endif %}
-    {% if "discard" in header.actions %}
-    <div id="descartar" popover>
-      <form class="popover-form" hx-post="{{ base }}discard">
-        <h3>Descartar como falso positivo</h3>
-        <label for="motivo-descartar">Por que não é um incidente</label>
-        <textarea id="motivo-descartar" name="motivo" required rows="3" placeholder="ex.: teste de carga programado"></textarea>
-        <div class="row">
-          <button type="button" class="button-quiet" popovertarget="descartar" popovertargetaction="hide">Cancelar</button>
-          <button class="button-primary">Descartar</button>
-        </div>
-      </form>
-    </div>
-    {% endif %}
-  </div>
-  {% else %}
-  <div id="war-room-error" class="error" role="alert"></div>
+  {% elif not open %}
   <p class="closed-note">Incidente {{ header.state | lower }}. O chat continua aberto para perguntas ao Grolla.</p>
   {% endif %}
+  <div id="war-room-error" class="error" role="alert"></div>
+
+  {{ proposal_notice(proposal, header, author, base) }}
+
+  <section class="panel agora" id="agora" aria-labelledby="agora-titulo">
+    <div class="agora-head">
+      <h2 id="agora-titulo" class="eyebrow">Agora</h2>
+      {% if s.kind == "causa" %}
+      <span class="badge badge-ok">{{ icon("check") }}Causa raiz confirmada</span>
+      {% if verification and verification.finished_at %}<span class="muted">validada pelo Grolla às {{ hhmm(verification.finished_at) }}</span>{% endif %}
+      {% elif s.kind == "hipotese" %}
+      <span class="badge badge-info">Hipótese mais provável{% if s.confidence is not none %} · {{ s.confidence }}%{% endif %}</span>
+      {% elif s.kind == "validando" %}
+      <span class="badge badge-info">Validando as hipóteses <span class="dots"><i></i><i></i><i></i></span></span>
+      {% elif s.kind == "sem_causa" %}
+      <span class="badge badge-warn">Causa raiz não confirmada</span>
+      {% elif s.kind == "investigando" %}
+      <span class="badge badge-info">O Grolla está investigando <span class="dots"><i></i><i></i><i></i></span></span>
+      {% endif %}
+    </div>
+
+    {% if s.text %}
+    <p class="agora-text">{{ s.text }}</p>
+    {% elif s.kind == "investigando" %}
+    <p class="agora-text agora-wait">Consultando métricas, logs, traces, deploys e o cluster.</p>
+    {% else %}
+    <p class="agora-text agora-wait">Nenhuma análise pedida.</p>
+    {% endif %}
+    {% if s.kind == "sem_causa" and s.missing %}<p class="agora-missing">O que faltou: {{ s.missing }}</p>{% endif %}
+
+    <dl class="tiles">
+      <div class="tile"><dt>Desde</dt><dd>{{ hhmm(incident.detected_at) }}</dd><span class="muted">detectado {{ header.detected_ago }}</span></div>
+      <div class="tile"><dt>Afetados</dt><dd class="tile-text">{{ incident.services | join(", ") }}</dd><span class="muted">{{ incident.services | length }} {{ "serviço" if incident.services | length == 1 else "serviços" }}</span></div>
+      {% set rated = cycles | selectattr("error_rate", "ne", none) | list %}
+      {% if rated %}<div class="tile"><dt>Taxa de erro</dt><dd class="tile-bad">{{ percent(rated[0].error_rate) }}</dd><span class="muted">no ciclo das {{ hhmm(rated[0].finished_at or rated[0].requested_at) }}</span></div>{% endif %}
+      {% if impact %}<div class="tile"><dt>Impacto estimado</dt><dd class="tile-text">{{ impact }}</dd></div>{% endif %}
+    </dl>
+
+    {% if s.steps %}
+    {% set first = s.steps[0] %}
+    <div class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}">
+      <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Comece por aqui" }}</h3>
+      <p class="next-move-what">{{ first.what }}</p>
+      {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
+      {% if first.command %}
+      <div class="command"><code>{{ first.command }}</code><button type="button" class="button-copy" data-copy="{{ first.command }}">{{ icon("copy") }}<span>Copiar</span></button></div>
+      {% endif %}
+      {% if first.expected %}<p class="next-move-why">Esperado: {{ first.expected }}</p>{% endif %}
+      {% if s.steps | length > 1 %}
+      <details class="more-steps">
+        <summary>Depois: mais {{ s.steps | length - 1 }} {{ "passo" if s.steps | length == 2 else "passos" }}</summary>
+        <ol start="2">
+          {% for step in s.steps[1:] %}
+          <li><strong>{{ step.what }}</strong>{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+      {% if not s.steps_from_analysis %}<p class="next-move-note">O Grolla não executa nada; quem roda é o time.</p>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if merge %}
+    <aside class="signal signal-merge merge-suggestion" aria-label="Sugestão de junção">
+      {{ icon("merge") }}
+      <p class="signal-text">Parece o mesmo problema que <a href="/incidents/{{ merge.other.id }}">{{ merge.other.title }}</a>{% if merge.reason %}<span class="muted"> · {{ merge.reason }}</span>{% endif %}</p>
+      {% if author %}
+      <form method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar" hx-confirm="Juntar este incidente em &quot;{{ merge.other.title }}&quot;? Este fica descartado e os alertas passam para o outro.">
+        <input type="hidden" name="destino" value="{{ merge.other.id }}">
+        <button>Juntar</button>
+      </form>
+      {% endif %}
+    </aside>
+    {% endif %}
+
+    {% if analysis and analysis.seen_before %}
+    {% set seen = analysis.seen_before %}
+    <aside class="signal seen-before" aria-label="Caso parecido">
+      {{ icon("history") }}
+      <div class="signal-text">
+        <p class="seen-before-head">Já vi isso: <a href="/incidents/{{ seen.incident_id }}">{{ seen.title }}</a> <span class="muted">({{ seen.at.strftime("%d/%m") }})</span></p>
+        <p class="seen-before-reason muted">{{ seen.reason }}</p>
+        {% if seen_answer %}<p class="seen-before-answer">{{ seen_answer_text(seen_answer) }}</p>{% endif %}
+      </div>
+      {% if author %}
+      <form class="seen-before-ask" hx-post="/incidents/{{ incident.id }}/ja-vi-isso">
+        <span class="visually-hidden">{{ "Mudou de ideia?" if seen_answer else "Era o mesmo problema?" }}</span>
+        <button name="mesmo" value="sim">Era o mesmo problema</button>
+        <button name="mesmo" value="nao" class="button-quiet">Não era</button>
+      </form>
+      {% endif %}
+      <div id="erro-ja-vi-isso" class="error" role="alert"></div>
+    </aside>
+    {% endif %}
+  </section>
+
+  {{ follow_up_section(cycles) }}
+
+  <section class="panel investigation" id="investigacao" aria-labelledby="investigacao-titulo">
+    <div class="panel-head">
+      <h2 id="investigacao-titulo">Como o Grolla chegou lá</h2>
+      {% if analysis %}
+      <span class="status-line muted"><span class="analysis-status">{{ analysis_labels[analysis.status] }}{% if analysis.partial_reason %}: {{ partial_reasons[analysis.partial_reason] }}{% endif %}</span>{% if verification %} · <span class="verification-status">{{ verification_labels[verification.status] }}{% if verification.partial_reason %}: {{ partial_reasons[verification.partial_reason] }}{% endif %}</span>{% endif %}</span>
+      {% endif %}
+    </div>
+    {% if analysis is none %}
+    <p class="muted">Nenhuma análise pedida.</p>
+    {% else %}
+    {% if s.kind == "causa" and analysis.summary %}<p class="summary muted">{{ analysis.summary }}</p>{% endif %}
+    {% if hypotheses %}
+    <ol class="hypotheses">
+      {% for row in hypotheses %}
+      {% set gone = discarded.get(row.title) %}
+      <li class="hypothesis{% if gone %} hypothesis-discarded{% endif %}">
+        <span class="verdict verdict-{{ row.verdict or 'pendente' }}">{{ row.verdict or ("validando" if verification and verification.status in ("pendente", "em_andamento") else "sem veredito") }}</span>
+        <div class="hypothesis-body">
+          <h3 class="hypothesis-title">{{ row.title }}</h3>
+          {% if row.reason %}<p class="hypothesis-reason">{{ row.reason }}</p>{% endif %}
+          {% if row.evidence %}
+          <details class="evidence">
+            <summary>{{ row.evidence | length }} {{ "evidência" if row.evidence | length == 1 else "evidências" }}</summary>
+            {{ evidence_list(row.evidence) }}
+          </details>
+          {% endif %}
+          {% if gone %}
+          <p class="discarded-note">Descartada por {{ gone[0] }}: {{ gone[1] }}</p>
+          {% elif author and row.confidence is not none and "discard-hypothesis" in header.actions %}
+          {% set pid = "descartar-hipotese-" ~ loop.index %}
+          <div><button class="button-quiet button-small" popovertarget="{{ pid }}">Descartar hipótese</button></div>
+          <div id="{{ pid }}" popover>
+            <form class="popover-form" hx-post="{{ base }}discard-hypothesis" hx-target="#war-room" hx-swap="outerHTML">
+              <h3>Descartar "{{ row.title }}"</h3>
+              <input type="hidden" name="titulo" value="{{ row.title }}">
+              <label for="{{ pid }}-motivo">Por que não é essa</label>
+              <textarea id="{{ pid }}-motivo" name="motivo" required rows="2"></textarea>
+              <div class="row">
+                <button type="button" class="button-quiet" popovertarget="{{ pid }}" popovertargetaction="hide">Cancelar</button>
+                <button class="button-primary">Descartar hipótese</button>
+              </div>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% if row.confidence is not none %}<span class="confidence"><meter min="0" max="100" value="{{ row.confidence }}"></meter>{{ row.confidence }}%</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+    {% set consulted = analysis.evaluations + (verification.evaluations if verification else ()) %}
+    {% if consulted %}
+    <details class="subsection">
+      <summary>O que o Grolla consultou ({{ consulted | length }})</summary>
+      {{ lookups(consulted) }}
+    </details>
+    {% endif %}
+    {% endif %}
+  </section>
 
   {% if author %}
+  {% if "resolve" in header.actions %}
+  <div id="encerrar" popover>
+    <form class="popover-form" hx-post="{{ base }}resolve" hx-target="#war-room" hx-swap="outerHTML">
+      <h3>Encerrar o incidente</h3>
+      <p class="muted">O canal do time recebe o resumo com a duração, o motivo e as ações registradas.</p>
+      <label for="motivo-encerrar">O que resolveu</label>
+      <textarea id="motivo-encerrar" name="motivo" required rows="3" placeholder="ex.: rollback do build 20261025.4; taxa de erro voltou a 0%"></textarea>
+      <div class="row">
+        <button type="button" class="button-quiet" popovertarget="encerrar" popovertargetaction="hide">Cancelar</button>
+        <button class="button-primary">Encerrar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+  {% if merge_candidates %}
+  <div id="juntar" popover>
+    <form class="popover-form" method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar">
+      <h3>Juntar com outro incidente</h3>
+      <p class="muted">Este incidente fica descartado; os serviços, os alertas disparando e a pior severidade passam para o escolhido.</p>
+      <label for="destino">É o mesmo problema que</label>
+      <select id="destino" name="destino" required>
+        {% for other in merge_candidates %}
+        <option value="{{ other.id }}">{{ other.severity }} · {{ other.title }}</option>
+        {% endfor %}
+      </select>
+      <div class="row">
+        <button type="button" class="button-quiet" popovertarget="juntar" popovertargetaction="hide">Cancelar</button>
+        <button class="button-primary">Juntar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+  {% if "discard" in header.actions %}
+  <div id="descartar" popover>
+    <form class="popover-form" hx-post="{{ base }}discard" hx-target="#war-room" hx-swap="outerHTML">
+      <h3>Descartar como falso positivo</h3>
+      <label for="motivo-descartar">Por que não é um incidente</label>
+      <textarea id="motivo-descartar" name="motivo" required rows="3" placeholder="ex.: teste de carga programado"></textarea>
+      <div class="row">
+        <button type="button" class="button-quiet" popovertarget="descartar" popovertargetaction="hide">Cancelar</button>
+        <button class="button-primary">Descartar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
   {# Também depois de encerrar: a transcrição da call costuma chegar depois. #}
+  {% if not open %}
   <div class="transcript-upload">
     <button class="button-quiet" popovertarget="transcricao">Enviar transcrição</button>
     <span class="muted">da call, para o Grolla tirar decisões, ações e horários</span>
   </div>
+  {% endif %}
   <div id="transcricao" popover>
     <form class="popover-form" method="post" action="/incidents/{{ incident.id }}/transcricao" enctype="multipart/form-data" hx-post="/incidents/{{ incident.id }}/transcricao" hx-encoding="multipart/form-data">
       <h3>Enviar a transcrição da call</h3>
@@ -150,141 +262,5 @@
     </form>
   </div>
   {% endif %}
-
-  {% if verification and verification.root_cause %}
-  <div class="root-cause">
-    <h2>Causa raiz</h2>
-    <p>{{ verification.root_cause }}</p>
-  </div>
-  {% elif verification and verification.finished_at %}
-  <div class="root-cause root-cause-missing">
-    <h2>Causa raiz não confirmada</h2>
-    {% if verification.missing %}<p>O que faltou: {{ verification.missing }}</p>{% endif %}
-  </div>
-  {% endif %}
-
-  {% if verification and verification.actions %}
-  <div class="panel">
-    <h2>Plano de ação sugerido</h2>
-    <ol class="plan">
-      {% for action in verification.actions %}
-      <li>
-        <span class="step">{{ loop.index }}</span>
-        <span class="what">{{ action.action }}</span>
-        <span class="muted">{{ action.target }}{% if action.link %} · <a href="{{ action.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</span>
-        <span class="why">{{ action.expected }}</span>
-      </li>
-      {% endfor %}
-    </ol>
-  </div>
-  {% endif %}
-</div>
-
-<div class="analysis">
-  {{ follow_up_section(cycles) }}
-
-  <section class="panel" id="analise">
-    <h2>Análise do Grolla</h2>
-    {% if analysis is none %}
-    <p class="muted">Nenhuma análise pedida.</p>
-    {% else %}
-    <p class="status-line analysis-status">{{ analysis_labels[analysis.status] }}{% if analysis.partial_reason %}: {{ partial_reasons[analysis.partial_reason] }}{% endif %}</p>
-    {% if analysis.summary %}<p class="summary">{{ analysis.summary }}</p>{% endif %}
-
-    {% if analysis.seen_before %}
-    {% set seen = analysis.seen_before %}
-    <aside class="seen-before" aria-label="Caso parecido">
-      <p class="seen-before-head">Já vi isso: <a href="/incidents/{{ seen.incident_id }}">{{ seen.title }}</a> <span class="muted">({{ seen.at.strftime("%d/%m") }})</span></p>
-      <p class="seen-before-reason">{{ seen.reason }}</p>
-      {% if seen_answer %}<p class="seen-before-answer">{{ seen_answer_text(seen_answer) }}</p>{% endif %}
-      {% if author %}
-      <form class="seen-before-ask" hx-post="/incidents/{{ incident.id }}/ja-vi-isso">
-        <span>{{ "Mudou de ideia?" if seen_answer else "Era o mesmo problema?" }}</span>
-        <button name="mesmo" value="sim">Era o mesmo problema</button>
-        <button name="mesmo" value="nao" class="button-quiet">Não era</button>
-      </form>
-      {% endif %}
-      <div id="erro-ja-vi-isso" class="error" role="alert"></div>
-    </aside>
-    {% endif %}
-
-    {% if analysis.hypotheses %}
-    <ol class="hypotheses">
-      {% for hypothesis in analysis.hypotheses %}
-      {% set gone = discarded.get(hypothesis.title) %}
-      {% set pct = (hypothesis.confidence * 100) | round | int %}
-      <li class="hypothesis{% if gone %} hypothesis-discarded{% endif %}">
-        <div class="hypothesis-head">
-          <h3 class="hypothesis-title">{{ hypothesis.title }}</h3>
-          <span class="confidence"><meter min="0" max="100" value="{{ pct }}"></meter>{{ pct }}%</span>
-        </div>
-        {% if hypothesis.evidence %}{{ evidence_list(hypothesis.evidence) }}{% endif %}
-        {% if gone %}
-        <p class="discarded-note">Descartada por {{ gone[0] }}: {{ gone[1] }}</p>
-        {% elif author and "discard-hypothesis" in header.actions %}
-        {% set pid = "descartar-hipotese-" ~ loop.index %}
-        <div><button class="button-quiet" popovertarget="{{ pid }}">Descartar hipótese</button></div>
-        <div id="{{ pid }}" popover>
-          <form class="popover-form" hx-post="{{ base }}discard-hypothesis" hx-target="#war-room" hx-swap="outerHTML">
-            <h3>Descartar "{{ hypothesis.title }}"</h3>
-            <input type="hidden" name="titulo" value="{{ hypothesis.title }}">
-            <label for="{{ pid }}-motivo">Por que não é essa</label>
-            <textarea id="{{ pid }}-motivo" name="motivo" required rows="2"></textarea>
-            <div class="row">
-              <button type="button" class="button-quiet" popovertarget="{{ pid }}" popovertargetaction="hide">Cancelar</button>
-              <button class="button-primary">Descartar hipótese</button>
-            </div>
-          </form>
-        </div>
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ol>
-    {% endif %}
-
-    {% if analysis.plan %}
-    <div class="subsection">
-      <h3>Plano proposto na análise</h3>
-      <ol>{% for step in analysis.plan %}<li>{{ step }}</li>{% endfor %}</ol>
-    </div>
-    {% endif %}
-
-    {% if analysis.evaluations %}
-    <details class="subsection">
-      <summary>O que o Grolla consultou ({{ analysis.evaluations | length }})</summary>
-      {{ lookups(analysis.evaluations) }}
-    </details>
-    {% endif %}
-    {% endif %}
-  </section>
-
-  <section class="panel" id="validacao">
-    <h2>Validação das hipóteses</h2>
-    {% if verification is none %}
-    <p class="muted">Nenhuma validação pedida.</p>
-    {% else %}
-    <p class="status-line verification-status">{{ verification_labels[verification.status] }}{% if verification.partial_reason %}: {{ partial_reasons[verification.partial_reason] }}{% endif %}</p>
-    {% if verification.verdicts %}
-    <ol class="verdicts">
-      {% for item in verification.verdicts %}
-      <li>
-        <div class="hypothesis-head">
-          <h3>{{ item.hypothesis }}</h3>
-          <span class="verdict verdict-{{ item.verdict.name | lower }}">{{ item.verdict }}</span>
-        </div>
-        {% if item.reasoning %}<p>{{ item.reasoning }}</p>{% endif %}
-        {% if item.evidence %}{{ evidence_list(item.evidence) }}{% endif %}
-      </li>
-      {% endfor %}
-    </ol>
-    {% endif %}
-    {% if verification.evaluations %}
-    <details class="subsection">
-      <summary>O que o Grolla consultou na validação ({{ verification.evaluations | length }})</summary>
-      {{ lookups(verification.evaluations) }}
-    </details>
-    {% endif %}
-    {% endif %}
-  </section>
 </div>
 </section>

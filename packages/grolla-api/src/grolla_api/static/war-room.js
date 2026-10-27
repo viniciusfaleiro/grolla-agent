@@ -25,6 +25,7 @@
 
   document.addEventListener("htmx:afterRequest", (event) => {
     const form = event.detail.elt;
+    if (event.detail.successful && form.matches && form.matches("form[data-reset]")) form.reset();
     if (event.detail.successful && form.matches && form.matches("form[data-chat-form]")) {
       form.reset();
       const area = form.querySelector("textarea");
@@ -124,4 +125,35 @@
   });
   window.addEventListener("focus", stopFlash);
   setInterval(refreshAgo, 30000);
+})();
+
+// Linha do tempo e cartão "Agora": filtro por tipo de evento, eventos de sistema recolhidos e o
+// botão de copiar o comando do próximo passo. O estado do filtro fica na seção, fora do bloco que o
+// polling troca, então sobrevive a cada evento novo.
+(() => {
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const filter = target.closest("[data-filtro]");
+    const panel = filter && filter.closest("#linha-do-tempo");
+    if (filter && panel && filter.tagName === "BUTTON") {
+      panel.dataset.filtro = filter.dataset.filtro;
+      panel.querySelectorAll("button[data-filtro]").forEach((b) => b.setAttribute("aria-pressed", String(b === filter)));
+      return;
+    }
+    const toggle = target.closest("[data-system-toggle]");
+    if (toggle) {
+      toggle.closest("#linha-do-tempo")?.classList.toggle("com-sistema");
+      return;
+    }
+    const copy = target.closest("[data-copy]");
+    if (copy && navigator.clipboard) {
+      navigator.clipboard.writeText(copy.dataset.copy).then(() => {
+        const label = copy.querySelector("span");
+        if (!label) return;
+        label.textContent = "Copiado";
+        setTimeout(() => { label.textContent = "Copiar"; }, 2000);
+      });
+    }
+  });
 })();

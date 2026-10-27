@@ -163,9 +163,9 @@ def test_completed_analysis_shows_summary_evaluations_hypotheses_and_plan(
     assert "72%" in page
     assert "15%" in page
     assert 'href="https://devops.interno/deploy/9"' in page
-    assert "Plano proposto" in page
+    assert "O Grolla investigaria primeiro" in page  # sem validação, o plano é o da análise
     assert "Avaliar rollback do 1.4.2" in page
-    assert page.index("Análise") < page.index("Alertas")
+    assert page.index("Como o Grolla chegou lá") < page.index("Alertas")
 
 
 @pytest.mark.parametrize("status", [AnalysisStatus.PENDING, AnalysisStatus.RUNNING])
@@ -313,23 +313,24 @@ def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
 ) -> None:
     page = page_with(client, repository, make_verification(uuid4()))
 
-    validation = page.index("<h2>Validação das hipóteses</h2>")
-    analysis = page.index("<h2>Análise do Grolla</h2>")
-    assert analysis < validation < page.index("<h2>Alertas</h2>")
+    agora = page.index('id="agora-titulo"')
+    investigation = page.index("Como o Grolla chegou lá")
+    assert agora < investigation < page.index('<h2 id="alertas-titulo">Alertas</h2>')
     assert "validação concluída" in page
-    assert page.index(ROOT_CAUSE) < analysis  # em destaque, perto do título
+    assert agora < page.index(ROOT_CAUSE) < investigation  # em destaque, no cartão "Agora"
     assert page.count(ROOT_CAUSE) == 1
+    assert "Causa raiz confirmada" in page
     assert "confirmada" in page
     assert "rejeitada" in page
     assert "inconclusiva" in page
     assert "O deploy é um revert e saiu 10 min antes do problema." in page
     assert 'href="https://nuvem.interno/auditoria/1"' in page
-    assert "Plano de ação sugerido" in page
+    assert "Comece por aqui" in page
     assert "Religar o banco grolla-lab-db" in page
     assert "RDS grolla-lab-db" in page
     assert "Conexões voltam e a taxa de erro cai para o normal" in page
     assert 'href="https://nuvem.interno/rds/grolla-lab-db"' in page
-    assert "O que o Grolla consultou na validação" in page
+    assert "O que o Grolla consultou (" in page  # análise e validação juntas
     assert "StopDBInstance em grolla-lab-db às 10:00" in page
     assert "não confirmada" not in page
 
@@ -389,7 +390,7 @@ def test_partial_verification_shows_the_reason_in_portuguese(
     assert "LLM indisponível" in page
     assert "falha_do_llm" not in page
     assert "Causa raiz não confirmada" in page
-    assert "O que o Grolla consultou na validação" in page
+    assert "O que o Grolla consultou (" in page  # análise e validação juntas
 
 
 def test_incident_without_verification_says_so(
@@ -397,7 +398,7 @@ def test_incident_without_verification_says_so(
 ) -> None:
     page = page_with(client, repository, None)
 
-    assert "Nenhuma validação pedida" in page
+    assert "Hipótese mais provável" in page  # sem validação, o cartão mostra a melhor hipótese
     assert "Causa raiz" not in page
 
 

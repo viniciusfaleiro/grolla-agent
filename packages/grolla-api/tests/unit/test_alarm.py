@@ -81,7 +81,7 @@ def test_alarm_firing_since_the_first_alert_while_it_never_normalized() -> None:
     assert alarm_of(incident, events) == Alarm(AlarmKind.FIRING, T0 + timedelta(minutes=2))
 
 
-def test_firing_banner_lists_the_firing_alerts_with_their_link(
+def test_firing_pill_counts_the_alerts_and_the_list_links_each_one(
     client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     incident = make_incident(firing=frozenset({"fp-1"}))
@@ -94,16 +94,24 @@ def test_firing_banner_lists_the_firing_alerts_with_their_link(
     store(repository, incident, [event(incident, EventType.ALERT_RECEIVED, 0)])
     repository.links += [(incident.id, firing), (incident.id, resolved)]
 
-    banner = client.get(f"/incidents/{incident.id}").text.split('id="alarm"')[1].split("</ul>")[0]
+    page = client.get(f"/incidents/{incident.id}").text
+    pill = page.split('id="alarm"')[1].split("</a>")[0]
+    alerts = page.split('id="alerts"')[1]
 
-    assert 'data-alarm="disparando"' in banner
-    assert "Alarme disparando</strong> desde" in banner
-    assert 'Latência alta na estoque-api · <a href="https://origem/alerta/1"' in banner
-    assert "abrir o alerta" in banner
-    assert "Erros na estoque-api" not in banner
+    assert 'data-alarm="disparando"' in pill
+    assert 'href="#alertas"' in pill
+    assert "Alarme disparando</strong> desde" in pill
+    assert "1 alerta" in pill
+    assert (
+        '<strong>Latência alta na estoque-api</strong> · <a href="https://origem/alerta/1"'
+        in alerts
+    )
+    assert "abrir o alerta" in alerts
+    assert alerts.index("Latência alta na estoque-api") < alerts.index("Erros na estoque-api")
+    assert 'class="alert-item alert-on"' in alerts
 
 
-def test_firing_banner_shows_three_alerts_and_how_many_more(
+def test_firing_pill_counts_many_alerts(
     client: TestClient, repository: InMemoryIncidentRepository
 ) -> None:
     prints = [f"fp-{n}" for n in range(5)]
@@ -111,9 +119,9 @@ def test_firing_banner_shows_three_alerts_and_how_many_more(
     store(repository, incident, [event(incident, EventType.ALERT_RECEIVED, 0)])
     repository.links += [(incident.id, make_alert(fingerprint=fp)) for fp in prints]
 
-    page = client.get(f"/incidents/{incident.id}").text
+    pill = client.get(f"/incidents/{incident.id}").text.split('id="alarm"')[1].split("</a>")[0]
 
-    assert "e mais 2" in page
+    assert "5 alertas" in pill
 
 
 def test_no_alarm_without_alerts() -> None:
@@ -145,12 +153,12 @@ def test_page_shows_the_normalized_banner_without_buttons(
     store(repository, incident, events)
 
     page = ana.get(f"/incidents/{incident.id}").text
-    banner = page.split('id="alarm"')[1].split("</div>")[0]
+    banner = page.split('id="alarm"')[1].split("</a>")[0]
 
     assert 'data-alarm="normalizado"' in banner
     assert "Alertas normalizados</strong> às" in banner
     assert "há 5 min" in banner
-    assert "<button" not in banner  # as ações ficam no painel de ações
+    assert "<button" not in banner  # a pílula só informa; o botão do próximo passo fica ao lado
     assert 'popovertarget="encerrar"' in page
 
 
@@ -234,7 +242,8 @@ def test_polling_brings_the_buttons_of_the_new_state(
     )
 
     fragment = ana.get(f"/incidents/{incident.id}/timeline").text
-    buttons = fragment.split('id="next-step-main" hx-swap-oob="true"')[1].split("</div>")[0]
+    status = fragment.split('id="incident-status" hx-swap-oob="true"')[1]
+    buttons = status.split('id="next-step-main"')[1].split('id="mais-acoes"')[0]
 
     assert "Marcar mitigado" in buttons
     assert "Reabrir" not in buttons

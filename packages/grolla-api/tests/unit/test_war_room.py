@@ -722,7 +722,7 @@ def test_timeline_reads_well_and_hides_card_queueing(
 
     assert "Detectado → Em tratamento" in fragment
     assert "Notificação enfileirada" not in fragment
-    assert '<li class="quiet">' in fragment
+    assert '<li class="quiet" data-kind="sistema">' in fragment
     assert "Taxa: 0%" in fragment
     assert "**" not in fragment
     assert "visto=4" in fragment  # a versão conta todos os eventos, mesmo os escondidos

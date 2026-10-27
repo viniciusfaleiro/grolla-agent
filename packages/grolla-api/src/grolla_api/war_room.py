@@ -8,7 +8,14 @@ from enum import StrEnum
 from urllib.parse import parse_qs, quote, unquote
 from uuid import UUID
 
-from grolla.domain.analysis import PARTIAL_REASON_TEXT, PartialReason
+from grolla.domain.analysis import (
+    PARTIAL_REASON_TEXT,
+    Analysis,
+    AnalysisStatus,
+    Evidence,
+    PartialReason,
+    Verification,
+)
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
 from grolla.domain.follow_up import Cycle, CycleStatus, Proposal, Trend
 from grolla.domain.incidents import (
@@ -746,3 +753,134 @@ def merge_target(form: Mapping[str, str]) -> UUID:
         return UUID(form.get("destino", ""))
     except ValueError as error:
         raise InvalidActionError("escolha o incidente em que este será juntado") from error
+
+
+# ---- Cartão "Agora" e investigação do war room ----
+
+_COMMAND = re.compile(r"`([^`\n]+)`")
+_RUNNING = frozenset({AnalysisStatus.PENDING, AnalysisStatus.RUNNING})
+
+
+@dataclass(frozen=True)
+class Step:
+    what: str
+    target: str
+    expected: str
+    link: str | None
+    command: str | None  # primeiro trecho entre crases da ação, para copiar
+
+
+@dataclass(frozen=True)
+class Situation:
+    """O que o cartão "Agora" diz: a frase, a confiança e o plano, do que a investigação tem."""
+
+    kind: str  # causa, hipotese, investigando, validando, sem_causa, sem_analise
+    text: str
+    confidence: int | None
+    missing: str
+    steps: tuple[Step, ...]
+    steps_from_analysis: bool  # plano da análise: o que investigar, não o que executar
+
+
+def _command(text: str) -> str | None:
+    found = _COMMAND.search(text)
+    return found.group(1) if found else None
+
+
+def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:
+    """Causa confirmada, validação rodando, hipótese mais provável, investigando ou sem análise."""
+    if verification is not None and verification.root_cause:
+        steps = tuple(
+            Step(a.action, a.target, a.expected, a.link, _command(a.action))
+            for a in verification.actions
+        )
+        return Situation("causa", verification.root_cause, None, "", steps, False)
+    plan = () if analysis is None else analysis.plan
+    analysis_steps = tuple(Step(p, "", "", None, _command(p)) for p in plan)
+    if analysis is None:
+        return Situation("sem_analise", "", None, "", (), False)
+    if analysis.status in _RUNNING:
+        return Situation("investigando", "", None, "", (), False)
+    top = analysis.hypotheses[0] if analysis.hypotheses else None
+    confidence = None if top is None else round(top.confidence * 100)
+    text = analysis.summary or (top.title if top else "")
+    if verification is not None and verification.status in _RUNNING:
+        return Situation("validando", text, confidence, "", analysis_steps, True)
+    if verification is not None and verification.finished_at is not None:
+        return Situation("sem_causa", text, confidence, verification.missing, analysis_steps, True)
+    return Situation("hipotese", text, confidence, "", analysis_steps, True)
+
+
+@dataclass(frozen=True)
+class HypothesisRow:
+    title: str
+    confidence: int | None  # da análise; None no veredito sem hipótese correspondente
+    verdict: str | None  # confirmada, rejeitada, inconclusiva
+    reason: str
+    evidence: tuple[Evidence, ...]
+
+
+def _key(title: str) -> str:
+    return " ".join(title.split()).casefold()
+
+
+def hypothesis_rows(
+    analysis: Analysis | None, verification: Verification | None
+) -> tuple[HypothesisRow, ...]:
+    """Cada hipótese uma vez, com o veredito de mesmo título; veredito sem hipótese vai no fim."""
+    verdicts = {_key(v.hypothesis): v for v in (verification.verdicts if verification else ())}
+    rows: list[HypothesisRow] = []
+    for h in analysis.hypotheses if analysis else ():
+        v = verdicts.pop(_key(h.title), None)
+        first = h.evidence[0].text if h.evidence else ""
+        rows.append(
+            HypothesisRow(
+                title=h.title,
+                confidence=round(h.confidence * 100),
+                verdict=None if v is None else v.verdict.value,
+                reason=v.reasoning if v is not None and v.reasoning else first,
+                evidence=h.evidence + (v.evidence if v is not None else ()),
+            )
+        )
+    rows += [
+        HypothesisRow(v.hypothesis, None, v.verdict.value, v.reasoning, v.evidence)
+        for v in verdicts.values()
+    ]
+    return tuple(rows)
+
+
+_ALERT_EVENTS = frozenset(
+    {
+        EventType.ALERT_RECEIVED,
+        EventType.ALERT_GROUPED,
+        EventType.ALERT_RESOLVED,
+        EventType.INCIDENT_NORMALIZED,
+    }
+)
+_SYSTEM_EVENTS = frozenset(
+    {
+        EventType.NOTIFICATION_QUEUED,
+        EventType.NOTIFICATION_DELIVERED,
+        EventType.NOTIFICATION_FAILED,
+        EventType.ANALYSIS_REQUESTED,
+        EventType.VERIFICATION_REQUESTED,
+    }
+)
+
+
+def event_kind(event: IncidentEvent) -> str:
+    """Filtro da linha do tempo: alerta, sistema (recolhido), grolla ou pessoa."""
+    if event.type in _ALERT_EVENTS:
+        return "alerta"
+    if event.type in _SYSTEM_EVENTS:
+        return "sistema"
+    if event.data.get("origin") == TRANSCRIPT_ORIGIN:  # o que a call disse conta como das pessoas
+        return "pessoa"
+    if event.author in SYSTEM_AUTHORS:
+        return "grolla"
+    return "pessoa"
+
+
+def system_count(events: Iterable[IncidentEvent]) -> int:
+    """Quantos eventos de sistema a linha do tempo recolhe atrás de "mostrar"."""
+    return sum(1 for e in events if event_kind(e) == "sistema")
