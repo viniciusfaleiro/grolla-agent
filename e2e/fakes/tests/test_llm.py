@@ -440,13 +440,22 @@ RESULTS = {
 
 def test_analysis_with_an_episode_in_the_memory_says_seen_before() -> None:
     client = TestClient(create_app())
-    brief = f"{BRIEF}\n\n{MEMORY}"
+    brief = f"Incidente: Taxa de erro alta\nServiços: estudo-api\n\n{MEMORY}"
 
     final = answer_after_tools(client, request([{"role": "user", "content": brief}]))
 
     draft = json.loads(final["content"][0]["text"])
     assert draft["seen_before"]["incident_id"] == PAST
     assert "estudo-api com 5xx" in draft["seen_before"]["reason"]
+
+
+def test_an_episode_of_another_service_is_not_seen_before() -> None:
+    client = TestClient(create_app())
+    brief = f"{BRIEF}\n\n{MEMORY}"
+
+    final = answer_after_tools(client, request([{"role": "user", "content": brief}]))
+
+    assert json.loads(final["content"][0]["text"])["seen_before"] is None
 
 
 def memory_request(prop: str, content: str, tools: list[dict[str, Any]]) -> dict[str, Any]:

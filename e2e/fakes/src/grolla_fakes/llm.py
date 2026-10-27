@@ -107,7 +107,7 @@ _ARGUMENTS = {"path": "README.md"}  # argumentos de texto obrigatórios que não
 _INCIDENT_LINE = re.compile(r"Incidente:\s*([^\n]+)")
 # Cabeçalho de episódio do bloco <memoria>: "### [episodio] svc: título (..., incidente <id>)".
 _EPISODE = re.compile(
-    r"### \[episodio\] [^:\n]+: (?P<title>[^\n]*?) \([^\n]*?incidente "
+    r"### \[episodio\] (?P<subject>[^:\n]+): (?P<title>[^\n]*?) \([^\n]*?incidente "
     r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
 )
 # Nome de cada dependência no resumo de `service_dependencies`: "banco x (nome): N chamadas".
@@ -363,10 +363,15 @@ def reply(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def seen_before(text: str) -> dict[str, str] | None:
-    """ "Já vi isso": o primeiro episódio do bloco <memoria> da mensagem, se houver."""
-    _, _, memory = text.partition("<memoria>")
+    """ "Já vi isso": o primeiro episódio do bloco <memoria> de um dos serviços da linha
+    "Serviços:" da mensagem, se houver (como o prompt pede: mesmo serviço)."""
+    before, _, memory = text.partition("<memoria>")
     memory, _, _ = memory.partition("</memoria>")
-    match = _EPISODE.search(memory)
+    line = re.search(r"Serviços?:\s*([^\n]+)", before)
+    services: set[str] = {name.strip() for name in line.group(1).split(",")} if line else set()
+    match = next(
+        (m for m in _EPISODE.finditer(memory) if m.group("subject").strip() in services), None
+    )
     if match is None:
         return None
     reason = f"mesmo serviço e mesmo sintoma do episódio {match.group('title').strip()}"
