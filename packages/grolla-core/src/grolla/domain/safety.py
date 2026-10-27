@@ -42,6 +42,7 @@ _ORDER_VERBS = (
 )
 _ORDER = re.compile(
     rf"\b(?:sempre|nunca|jamais)\s+{_ORDER_VERBS}\b"
+    r"|\b(?:sempre|nunca|jamais)\s+\w+(?:ar|er|ir)\b"  # infinitivo: "sempre recomendar apagar"
     rf"|(?:^|[.!?:;\n]\s*){_ORDER_VERBS}\b"  # no começo de uma frase
     r"|\besqueca\s+(?:as\s+|suas\s+|todas\s+as\s+)?(?:instrucoes|regras)"
     r"|\bignore\s+(?:as\s+|suas\s+|todas\s+as\s+|qualquer\s+)?(?:instrucoes|regras)"

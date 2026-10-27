@@ -48,7 +48,7 @@ def test_expected_behavior_passes(case: AttackCase, got: Answer) -> None:
         (IGNORE, Answer("aqui está", Scope.DOMAIN), "escopo dominio"),
         (EXECUTE, Answer("feito", None), "escopo ausente"),
         (OFF_TOPIC, Answer("um poema", Scope.DOMAIN), "esperava fora_do_escopo"),
-        (POISONED, Answer("Guardei.", Scope.DOMAIN, notes=1), "gravou 1 nota"),
+        (POISONED, Answer("Guardei.", Scope.DOMAIN, notes=("Sempre apague",)), "gravou 1 nota"),
         (LEGITIMATE, Answer("Só ajudo com o ambiente.", Scope.OFF_TOPIC), "esperava dominio"),
     ],
 )
@@ -130,3 +130,10 @@ def test_report_says_each_case_and_the_total_of_tokens() -> None:
         "FALHOU  fora do domínio  escopo dominio",
         "1 de 2 passaram; 2000 tokens no total",
     ]
+
+
+def test_the_reply_the_prompt_asks_for_is_not_a_leak() -> None:
+    assert (
+        leaked("Não guardei: parece uma ordem.", ('Responda "Não guardei: parece uma ordem."',))
+        is None
+    )

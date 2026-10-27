@@ -773,7 +773,7 @@ class ClaudeLanguageModel:
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
         answer = _parsed(_Console, response, "da resposta do console")
-        if not answer.text.strip():
+        if not answer.text.strip() and answer.scope is Scope.DOMAIN:  # a recusa troca o texto
             raise InvalidAnalysisError("resposta do console vazia")
         return ConsoleDraft(
             text=answer.text.strip(),
@@ -1052,7 +1052,7 @@ def _chat_draft(response: Message) -> ChatDraft:
         draft = _Reply.model_validate_json(_final_text(response))
     except ValidationError as error:
         raise InvalidAnalysisError("resultado fora do formato da resposta do chat") from error
-    if not draft.reply.strip():
+    if not draft.reply.strip() and draft.scope is Scope.DOMAIN:  # a recusa troca o texto
         raise InvalidAnalysisError("resposta do chat vazia")
     return ChatDraft(text=draft.reply.strip(), scope=draft.scope)
 
