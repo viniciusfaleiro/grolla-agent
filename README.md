@@ -4,7 +4,7 @@
 
 # agent-grolla
 
-**Agente de SRE para adquirência e cartões: detecta, investiga, aciona o on-call e conduz o incidente até o post mortem — chegando antes do humano, com as evidências organizadas.**
+**Agente de SRE para qualquer sistema em produção: detecta, investiga, aciona o on-call e conduz o incidente até o post mortem — chegando antes do humano, com as evidências organizadas.**
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspace-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
@@ -27,13 +27,19 @@
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
 [![Status](https://img.shields.io/badge/status-telas%20redesenhadas%20%E2%9C%93-brightgreen)](#-roadmap)
 
+### ▶️ Veja o Grolla em ação
+
+<a href="docs/assets/grolla-demo.mp4"><img src="docs/assets/grolla-demo.gif" alt="Demonstração do Grolla: lista de incidentes, war room com a causa raiz e o alarme normalizando ao vivo" width="880"></a>
+
+<sub>Um incidente real no laboratório (CPU da estoque-api cortada para 25m): o Grolla abre o incidente, confirma a causa raiz, responde no chat com o comando para voltar ao normal, avisa ao vivo quando o alarme normaliza e escreve o post mortem. <a href="docs/assets/grolla-demo.mp4"><b>Assista ao vídeo completo (mp4)</b></a>.</sub>
+
 </div>
 
 ---
 
 ## ✨ O que é
 
-O `agent-grolla` acompanha o ambiente de adquirência e cartões 24x7. Ele recebe os alertas do
+O `agent-grolla` acompanha qualquer ambiente em produção 24x7, de qualquer domínio. Ele recebe os alertas do
 sistema de observabilidade, decide a severidade, aciona o on-call quando é P0/P1, investiga a
 causa com um LLM, conduz o incidente num **war room web** e, no fim, escreve o rascunho do post
 mortem para revisão humana.
@@ -167,7 +173,7 @@ por capacidade ficam em [`openspec/`](openspec/). As decisões que atravessam o 
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
 | **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
 | **Heartbeat do worker** | Prova de vida gravada no banco a cada 15 s | job periódico `heartbeat` |
-| **Deploy manual** | Compose de produção, config da Credenciadora e passo a passo | [`deploy/`](deploy/) |
+| **Deploy manual** | Compose de produção, um YAML de exemplo de time e passo a passo | [`deploy/`](deploy/) |
 | **Migrações** | Schema versionado por Alembic, aplicado no startup sob advisory lock | `grolla.adapters.postgres.migrate` |
 | **Harness** | Todos os gates num comando só | `make check` |
 | **Testes integrados** | Stack completo com fakes dos serviços externos e cenários YAML | `make e2e` |

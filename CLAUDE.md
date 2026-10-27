@@ -18,7 +18,7 @@ precedência é: pedido explícito do usuário → este arquivo → README.md.
 
 ## O que é
 
-Agente de SRE para o ambiente de adquirência e cartões: recebe alertas, decide a severidade,
+Agente de SRE para qualquer ambiente em produção, de qualquer domínio: recebe alertas, decide a severidade,
 aciona o on-call, investiga a causa com um LLM, conduz o incidente num war room web e gera o
 rascunho do post mortem. É a tentativa de ter um agente que faz o que fazia um dos melhores
 profissionais de SRE com quem o autor trabalhou — o Grolla. A spec de produto está em
