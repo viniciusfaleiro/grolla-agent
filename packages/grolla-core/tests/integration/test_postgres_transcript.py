@@ -1,5 +1,6 @@
-"""Transcrições de call sobre Postgres real: o evento no log, a fila com SKIP LOCKED, o desfecho
-numa transação só e o reprocessar.
+"""Transcrições de call sobre Postgres real: a suíte de contrato e o que só o banco mostra (a
+chave do incidente, SKIP LOCKED, o uso em `llm_usage`, o motivo gravado e a posição na fila
+depois de reprocessar).
 
 A fila pega a pendente mais antiga de todo o banco, então este módulo usa um banco próprio
 dentro do container da sessão.
@@ -12,6 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.transcript_store_contract import TranscriptStoreContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -19,10 +21,11 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import STAGE_TRANSCRIPT
-from grolla.application.transcript import TranscriptJob
+from grolla.application.transcript import TranscriptJob, TranscriptStore
 from grolla.domain.incidents import EventType, IncidentEvent
-from grolla.domain.transcript import TRANSCRIPT_ORIGIN, Transcript
+from grolla.domain.transcript import Transcript
 from grolla.testing.builders import T0, make_incident
 from grolla.testing.investigation import fake_usage
 from sqlalchemy.exc import IntegrityError
@@ -55,30 +58,32 @@ async def clean(database: PostgresDatabase) -> None:
         await connection.execute(sa.text("TRUNCATE transcripts, llm_usage"))
 
 
+class TestPostgresTranscriptStoreContract(TranscriptStoreContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def store(self, database: PostgresDatabase) -> TranscriptStore:
+        return PostgresTranscriptStore(database)
+
+
 @pytest.fixture
 def store(database: PostgresDatabase) -> PostgresTranscriptStore:
     return PostgresTranscriptStore(database)
 
 
-@pytest.fixture
-def repository(database: PostgresDatabase) -> PostgresIncidentRepository:
-    return PostgresIncidentRepository(database)
-
-
-async def new_incident(repository: PostgresIncidentRepository) -> UUID:
-    incident = make_incident()
-    async with repository.transaction() as uow:
-        await uow.save(incident)
-    return incident.id
-
-
-async def received(
-    store: PostgresTranscriptStore, incident_id: UUID, text: str = "Ana: vamos reverter"
-) -> Transcript:
-    event = IncidentEvent(
-        incident_id, T0, EventType.TRANSCRIPT_RECEIVED, {"chars": len(text)}, "Ana"
+async def received(database: PostgresDatabase, incident_id: UUID | None = None) -> Transcript:
+    """Transcrição pendente de um incidente novo (ou do incidente dado)."""
+    if incident_id is None:
+        incident = make_incident()
+        async with PostgresIncidentRepository(database).transaction() as uow:
+            await uow.save(incident)
+        incident_id = incident.id
+    event = IncidentEvent(incident_id, T0, EventType.TRANSCRIPT_RECEIVED, {"chars": 5}, "Ana")
+    return await PostgresTranscriptStore(database).add(
+        Transcript(0, incident_id, "Ana", "Ana: oi", T0), event
     )
-    return await store.add(Transcript(0, incident_id, "Ana", text, T0), event)
 
 
 async def claimed(store: PostgresTranscriptStore, transcript: Transcript) -> TranscriptJob:
@@ -88,44 +93,12 @@ async def claimed(store: PostgresTranscriptStore, transcript: Transcript) -> Tra
     return job
 
 
-def item(incident_id: UUID) -> IncidentEvent:
-    return IncidentEvent(
-        incident_id,
-        FINISHED,
-        EventType.TRANSCRIPT_ITEM,
-        {"kind": "decisao", "text": "reverter", "origin": TRANSCRIPT_ORIGIN},
-        TRANSCRIPT_ORIGIN,
-    )
-
-
-async def usage_rows(database: PostgresDatabase) -> list[tuple[UUID | None, str]]:
-    async with database.engine.connect() as connection:
-        result = await connection.execute(sa.text("SELECT incident_id, stage FROM llm_usage"))
-        return [(row.incident_id, row.stage) for row in result]
-
-
-async def test_add_saves_pending_transcript_and_event_with_its_id(
-    store: PostgresTranscriptStore, repository: PostgresIncidentRepository
-) -> None:
-    incident_id = await new_incident(repository)
-
-    saved = await received(store, incident_id)
-
-    assert saved.id > 0
-    assert await store.get(saved.id) == saved
-    assert await store.get(saved.id + 1_000) is None
-    (event,) = await repository.events_of(incident_id)
-    assert event.type is EventType.TRANSCRIPT_RECEIVED
-    assert event.data == {"chars": len(saved.text), "transcript": saved.id}
-    assert event.author == "Ana"
-
-
 async def test_add_without_incident_saves_nothing(
     store: PostgresTranscriptStore, database: PostgresDatabase
 ) -> None:
     missing = uuid4()
     with pytest.raises(IntegrityError):
-        await received(store, missing)
+        await received(database, missing)
 
     assert await store.claim(STARTED) is None
     async with database.engine.connect() as connection:
@@ -136,92 +109,44 @@ async def test_add_without_incident_saves_nothing(
         assert events.scalar_one() == 0
 
 
-async def test_claim_takes_oldest_pending_once_and_stuck_lists_running(
-    store: PostgresTranscriptStore, repository: PostgresIncidentRepository
-) -> None:
-    incident_id = await new_incident(repository)
-    first = await received(store, incident_id, "Ana: primeira")
-    second = await received(store, incident_id, "Ana: segunda")
-
-    job = await claimed(store, first)
-    assert job.started_at == STARTED
-    assert await store.stuck(STARTED) == []
-    assert await store.stuck(STARTED + timedelta(seconds=1)) == [job]
-    await claimed(store, second)
-    assert await store.claim(STARTED) is None
-
-
 async def test_parallel_claims_never_take_the_same_transcript(
-    store: PostgresTranscriptStore, repository: PostgresIncidentRepository
+    store: PostgresTranscriptStore, database: PostgresDatabase
 ) -> None:
-    incident_id = await new_incident(repository)
-    ids = {(await received(store, incident_id, f"Ana: {n}")).id for n in range(PARALLEL_CLAIMS)}
+    ids = {(await received(database)).id for _ in range(PARALLEL_CLAIMS)}
 
     jobs = await asyncio.gather(*(store.claim(STARTED) for _ in range(PARALLEL_CLAIMS)))
 
     assert {job.transcript.id for job in jobs if job is not None} == ids
 
 
-async def test_finish_writes_events_and_usage_once(
-    store: PostgresTranscriptStore,
-    repository: PostgresIncidentRepository,
-    database: PostgresDatabase,
+async def test_finish_records_usage_of_the_incident_and_the_reason(
+    store: PostgresTranscriptStore, database: PostgresDatabase
 ) -> None:
-    incident_id = await new_incident(repository)
-    job = await claimed(store, await received(store, incident_id))
-    usage = fake_usage(1_000, STAGE_TRANSCRIPT)
-
-    await store.finish(job, [item(incident_id)], [usage], None, FINISHED)
-    await store.finish(job, [item(incident_id)], [usage], None, FINISHED)
-
-    events = await repository.events_of(incident_id)
-    assert [e.type for e in events] == [EventType.TRANSCRIPT_RECEIVED, EventType.TRANSCRIPT_ITEM]
-    assert events[1].author == TRANSCRIPT_ORIGIN
-    assert await usage_rows(database) == [(incident_id, STAGE_TRANSCRIPT)]
-    assert await store.stuck(FINISHED) == []
-    assert not await store.retry(job.transcript.id, FINISHED)
-
-
-async def test_failed_transcript_keeps_reason_and_retry_requeues_it(
-    store: PostgresTranscriptStore,
-    repository: PostgresIncidentRepository,
-    database: PostgresDatabase,
-) -> None:
-    incident_id = await new_incident(repository)
-    transcript = await received(store, incident_id)
-    assert not await store.retry(transcript.id, STARTED)  # pendente não falhou
+    transcript = await received(database)
     job = await claimed(store, transcript)
-    failed = IncidentEvent(
-        incident_id, FINISHED, EventType.TRANSCRIPT_FAILED, {"transcript": transcript.id}
-    )
 
-    await store.finish(job, [failed], [], "tempo esgotado", FINISHED)
+    await store.finish(job, [], [fake_usage(1_000, STAGE_TRANSCRIPT)], "tempo esgotado", FINISHED)
 
     async with database.engine.connect() as connection:
+        usage = (
+            await connection.execute(sa.text("SELECT incident_id, stage FROM llm_usage"))
+        ).all()
         row = (
             await connection.execute(
                 sa.text("SELECT status, reason, finished_at FROM transcripts WHERE id = :id"),
                 {"id": transcript.id},
             )
         ).one()
+    assert [tuple(u) for u in usage] == [(transcript.incident_id, STAGE_TRANSCRIPT)]
     assert (row.status, row.reason, row.finished_at) == ("falhou", "tempo esgotado", FINISHED)
-    assert await store.claim(STARTED) is None
-
-    assert await store.retry(transcript.id, FINISHED)
-    assert not await store.retry(transcript.id, FINISHED)
-    again = await claimed(store, transcript)
-    await store.finish(again, [item(incident_id)], [], None, FINISHED)
-    types = [e.type for e in await repository.events_of(incident_id)]
-    assert types[-2:] == [EventType.TRANSCRIPT_FAILED, EventType.TRANSCRIPT_ITEM]
 
 
 async def test_retried_transcript_goes_to_the_end_of_the_queue(
-    store: PostgresTranscriptStore, repository: PostgresIncidentRepository
+    store: PostgresTranscriptStore, database: PostgresDatabase
 ) -> None:
-    incident_id = await new_incident(repository)
-    old = await received(store, incident_id, "Ana: antiga")
+    old = await received(database)
     await store.finish(await claimed(store, old), [], [], "falhou", FINISHED)
-    new = await received(store, incident_id, "Ana: nova")
+    new = await received(database)
 
     assert await store.retry(old.id, FINISHED)
 
