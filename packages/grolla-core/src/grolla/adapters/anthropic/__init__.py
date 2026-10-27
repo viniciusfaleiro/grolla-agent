@@ -118,6 +118,7 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import DETERMINISTIC, ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.transcript import TranscriptDraft
 from grolla.domain.triage import TriageDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
@@ -523,6 +524,7 @@ class ClaudeLanguageModel:
         post_mortem: ModelSettings | None = None,
         triage: ModelSettings | None = None,
         console: ModelSettings | None = None,
+        transcript: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -534,6 +536,7 @@ class ClaudeLanguageModel:
         self._post_mortem = post_mortem or settings
         self._triage = triage or settings
         self._console = console or chat or settings  # o console herda do chat
+        self._transcript = transcript or post_mortem or settings  # herda do post mortem
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -682,6 +685,11 @@ class ClaudeLanguageModel:
             text=answer.text.strip(),
             charts=tuple(ChartRequest(c.service, c.signal, c.minutes) for c in answer.charts),
         )
+
+    async def extract_transcript(
+        self, context: str, transcript: str, budget: TokenBudget
+    ) -> TranscriptDraft:
+        raise NotImplementedError  # contrato da transcrição: do grolla-integracoes
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

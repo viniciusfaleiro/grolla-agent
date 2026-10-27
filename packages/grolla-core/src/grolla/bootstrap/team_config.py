@@ -15,6 +15,7 @@ from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
 from grolla.application.memory_retrieval import RagPolicy
 from grolla.application.post_mortem import PostMortemPolicy
+from grolla.application.transcript import TranscriptPolicy
 from grolla.application.triage import TriagePolicy
 from grolla.bootstrap.settings import ConfigError
 from grolla.domain.follow_up import FollowUpPolicy
@@ -64,6 +65,7 @@ class LlmConfig(_Section):
             "post_mortem",
             "triage",
             "console",
+            "transcript",
         ],
         StageConfig,
     ]
@@ -158,6 +160,14 @@ class ConsoleConfig(_Section):
     timeout_seconds: int = Field(default=120, gt=0)
 
 
+class TranscriptConfig(_Section):
+    """Transcrição de call: limites do texto aceito e da extração."""
+
+    max_chars: int = Field(default=200_000, gt=0)
+    max_tokens: int = Field(default=80_000, gt=0)
+    timeout_seconds: int = Field(default=180, gt=0)
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -184,6 +194,7 @@ class TeamConfig(BaseModel):
     post_mortem: PostMortemConfig = Field(default_factory=PostMortemConfig)
     noise: NoiseConfig | None = None  # sem a seção, nenhuma triagem
     console: ConsoleConfig | None = None  # sem a seção, o console fica desligado
+    transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -240,6 +251,13 @@ class TeamConfig(BaseModel):
             timeout=timedelta(seconds=section.cycle_timeout_seconds),
             max_tokens=section.cycle_max_tokens,
             max_tokens_per_incident=section.max_tokens_per_incident,
+        )
+
+    def transcript_policy(self) -> TranscriptPolicy:
+        return TranscriptPolicy(
+            max_chars=self.transcript.max_chars,
+            max_tokens=self.transcript.max_tokens,
+            timeout=timedelta(seconds=self.transcript.timeout_seconds),
         )
 
     def console_policy(self) -> ConsolePolicy | None:

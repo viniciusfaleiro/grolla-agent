@@ -40,6 +40,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.transcript import TranscriptDraft
 from grolla.domain.triage import TriageDraft
 
 STAGE_INVESTIGATION = "investigation"
@@ -51,6 +52,7 @@ STAGE_FOLLOW_UP = "follow_up"
 STAGE_POST_MORTEM = "post_mortem"
 STAGE_TRIAGE = "triage"
 STAGE_CONSOLE = "console"
+STAGE_TRANSCRIPT = "transcript"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -808,6 +810,14 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def extract_transcript(
+        self, context: str, transcript: str, budget: TokenBudget
+    ) -> TranscriptDraft:
+        """Decisões, ações, horários, participantes e o que a call disse das hipóteses, sem
+        ferramentas; levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         """Escreve o episódio e reescreve os dossiês do incidente encerrado, sem ferramentas;
         levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
@@ -1497,3 +1507,14 @@ def console_text(context: str, question: str) -> str:
     pergunta.
     """
     return f"{context}\n\nPergunta: {question}"
+
+
+# ---- Transcrição de call: prompt e mensagem da etapa `transcript` ----
+# Contrato da transcrição de call: o texto e o corpo são do grolla-dominio.
+
+TRANSCRIPT_PROMPT = ""
+
+
+def transcript_text(context: str, transcript: str) -> str:
+    """Mensagem da extração: o incidente e as hipóteses (`context`) e a transcrição como dado."""
+    raise NotImplementedError

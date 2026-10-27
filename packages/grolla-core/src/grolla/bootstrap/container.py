@@ -18,6 +18,7 @@ from grolla.adapters.postgres import (
     PostgresNotificationOutbox,
     PostgresPostMortemStore,
     PostgresStudyQueue,
+    PostgresTranscriptStore,
     PostgresTriageQueue,
     migrate,
 )
@@ -44,6 +45,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRANSCRIPT,
     STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -57,6 +59,7 @@ from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
 from grolla.application.metrics import MetricsReader
 from grolla.application.post_mortem import DocumentRenderer, PostMortemPolicy, PostMortemStore
+from grolla.application.transcript import TranscriptPolicy, TranscriptStore
 from grolla.application.triage import TriagePolicy, TriageQueue
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
@@ -83,6 +86,8 @@ class ApiContainer:
     metrics: MetricsReader
     console: ConsoleStore
     console_policy: ConsolePolicy | None = None  # None: console desligado
+    transcripts: TranscriptStore | None = None
+    transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
     telemetry: Telemetry | None = None  # gráficos do console; None sem a seção `signoz`
 
 
@@ -119,6 +124,8 @@ class WorkerContainer:
     triage_policy: TriagePolicy | None = None
     console: ConsoleStore | None = None  # só com `console`
     console_policy: ConsolePolicy | None = None
+    transcripts: TranscriptStore | None = None
+    transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -146,6 +153,8 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         metrics=PostgresMetricsReader(database),
         console=PostgresConsoleStore(database),
         console_policy=config.console_policy(),
+        transcripts=PostgresTranscriptStore(database),
+        transcript_policy=config.transcript_policy(),
         telemetry=None
         if config.signoz is None
         else SignozTelemetry(
@@ -190,6 +199,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             post_mortem=_model_settings(config.llm.stages.get(STAGE_POST_MORTEM)),
             triage=_model_settings(config.llm.stages.get(STAGE_TRIAGE)),
             console=_model_settings(config.llm.stages.get(STAGE_CONSOLE)),
+            transcript=_model_settings(config.llm.stages.get(STAGE_TRANSCRIPT)),
         ),
         telemetry=SignozTelemetry(
             config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
@@ -222,6 +232,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         triage_policy=config.triage_policy(),
         console=None if config.console is None else PostgresConsoleStore(database),
         console_policy=config.console_policy(),
+        transcripts=PostgresTranscriptStore(database),
+        transcript_policy=config.transcript_policy(),
     )
 
 

@@ -17,6 +17,7 @@ from grolla.adapters.postgres.memory import (
 from grolla.adapters.postgres.metrics import PostgresMetricsReader
 from grolla.adapters.postgres.migrate import migrate
 from grolla.adapters.postgres.post_mortem import PostgresPostMortemStore
+from grolla.adapters.postgres.transcript import PostgresTranscriptStore
 from grolla.adapters.postgres.triage import PostgresTriageQueue
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "PostgresNotificationOutbox",
     "PostgresPostMortemStore",
     "PostgresStudyQueue",
+    "PostgresTranscriptStore",
     "PostgresTriageQueue",
     "migrate",
 ]

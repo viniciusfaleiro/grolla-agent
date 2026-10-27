@@ -58,6 +58,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.transcript import TranscriptDraft
 from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
@@ -540,6 +541,11 @@ class ScriptedLanguageModel:
             return ConsoleDraft("Nada fora do normal nas consultas.")
         chart = ChartRequest(cited[0], "taxa_de_erro", CONSOLE_CHART_MINUTES)
         return ConsoleDraft(f"{cited[0]} estável: taxa de erro em 0,2% na última hora.", (chart,))
+
+    async def extract_transcript(
+        self, context: str, transcript: str, budget: TokenBudget
+    ) -> TranscriptDraft:
+        raise NotImplementedError  # contrato da transcrição: implementado pelo grolla-dominio
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)
