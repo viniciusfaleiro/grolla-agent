@@ -24,6 +24,8 @@ def services_from(container: ApiContainer) -> Services:
         renderer=container.renderer,
         metrics=container.metrics,
         impact=container.impact_policy,
+        console=container.console if container.console_policy is not None else None,
+        telemetry=container.telemetry,
     )
 
 

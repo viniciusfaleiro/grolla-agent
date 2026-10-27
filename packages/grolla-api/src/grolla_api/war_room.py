@@ -103,6 +103,7 @@ SUGGESTIONS = (
 )
 
 FAILED_REPLY_PREFIX = "não consegui responder"
+OPENED_FROM_CONSOLE = "Aberto pelo console"
 
 TREND_LABELS = {
     Trend.WORSE: "piorando",
@@ -343,6 +344,8 @@ def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
         AGENT_SEVERITY_REASON
     ):
         return AGENT_SEVERITY_LABEL
+    if event.type is EventType.INCIDENT_OPENED_MANUALLY and data.get("origin") == "console":
+        return OPENED_FROM_CONSOLE
     return labels.get(event.type, event.type)
 
 
