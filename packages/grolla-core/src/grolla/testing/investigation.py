@@ -14,6 +14,7 @@ from grolla.application.investigation import (
     NO_DEPENDENCIES,
     NO_REPOSITORY,
     READ_LIMIT,
+    STAGE_CONSOLE,
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
@@ -40,7 +41,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
-from grolla.domain.console import ConsoleDraft
+from grolla.domain.console import ChartRequest, ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, Trend
 from grolla.domain.incidents import IncidentState
 from grolla.domain.memory import (
@@ -61,6 +62,8 @@ from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
+SERIES_POINTS = 12
+SERIES_VALUES: Mapping[Signal, float] = {"taxa_de_erro": 0.2, "latencia_p99": 180.0, "vazao": 42.0}
 
 
 class FakeTelemetry:
@@ -69,8 +72,12 @@ class FakeTelemetry:
     `results` troca a resposta de uma ferramenta (`query_metric`, `search_logs`, `find_traces`);
     `rules` e `services` são as regras de alerta e os serviços ativos; `dependencies` mapeia
     serviço → resumo das dependências (fora do mapa, NO_DEPENDENCIES). As consultas em
-    `failing` (inclusive `alert_rules`, `active_services` e `dependencies`) levantam `error`
-    (ToolUnavailableError por padrão). Cada chamada fica em `calls`.
+    `failing` (inclusive `alert_rules`, `active_services`, `dependencies` e `series`) levantam
+    `error` (ToolUnavailableError por padrão). Cada chamada fica em `calls`.
+
+    `points` mapeia (serviço, sinal) → pontos da série; `series` devolve os que caem na janela.
+    Fora do mapa, devolve SERIES_POINTS pontos igualmente espaçados na janela, com o valor de
+    SERIES_VALUES do sinal.
     """
 
     def __init__(  # noqa: PLR0913 — cada consulta da telemetria é roteirizável no teste
@@ -82,7 +89,9 @@ class FakeTelemetry:
         rules: Sequence[AlertRule] = (),
         services: Sequence[str] = (),
         dependencies: Mapping[str, str] | None = None,
+        points: Mapping[tuple[str, str], Sequence[tuple[datetime, float]]] | None = None,
     ) -> None:
+        self.points = {key: list(values) for key, values in (points or {}).items()}
         self.results = dict(results or {})
         self.failing = set(failing)
         self.error = error
@@ -120,7 +129,12 @@ class FakeTelemetry:
     async def series(
         self, service: str, signal: Signal, start: datetime, end: datetime
     ) -> list[tuple[datetime, float]]:
-        raise NotImplementedError  # contrato do console: implementado pelo grolla-dominio
+        self._called("series", {"service": service, "signal": signal, "start": start, "end": end})
+        scripted = self.points.get((service, signal))
+        if scripted is not None:
+            return sorted(p for p in scripted if start <= p[0] <= end)
+        step = (end - start) / (SERIES_POINTS - 1)
+        return [(start + step * n, SERIES_VALUES[signal]) for n in range(SERIES_POINTS)]
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
         self._called("dependencies", {"service": service, "start": start, "end": end})
@@ -273,6 +287,7 @@ class FakeCloudInventory:
 
 
 FAKE_MODEL = "modelo-fake"
+CONSOLE_CHART_MINUTES = 60
 
 
 def fake_usage(tokens: int = 1_000, stage: str = STAGE_INVESTIGATION) -> LlmUsage:
@@ -314,6 +329,12 @@ class ScriptedLanguageModel:
     Em `triage`, sem ferramentas: gasta um uso da etapa `triage` e levanta `triage_error` ou
     devolve `triage_draft` (por padrão, nada a juntar e nenhuma severidade sugerida). Os briefs
     ficam em `triage_briefs`.
+
+    Em `consult`, o mesmo roteiro de `reply` com `console_calls`, `console_error`,
+    `console_delay` e `console` (a resposta devolvida), gastando o uso com a etapa `console`.
+    Cada (contexto, pergunta) recebido fica em `consultations`. Por padrão, a resposta é um
+    texto curto sobre o primeiro serviço citado nos argumentos de `console_calls`, com o gráfico
+    de `taxa_de_erro` dele na última hora; sem serviço citado, um texto curto sem gráfico.
     """
 
     def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
@@ -349,7 +370,16 @@ class ScriptedLanguageModel:
         regeneration_error: Exception | None = None,
         triage_draft: TriageDraft | None = None,
         triage_error: Exception | None = None,
+        console: ConsoleDraft | None = None,
+        console_calls: ToolCalls = (),
+        console_error: Exception | None = None,
+        console_delay: float = 0.0,
     ) -> None:
+        self.console = console
+        self.console_calls = list(console_calls)
+        self.console_error = console_error
+        self.console_delay = console_delay
+        self.consultations: list[tuple[str, str]] = []
         self.triage_draft = triage_draft or TriageDraft(None, "", None, "")
         self.triage_error = triage_error
         self.triage_briefs: list[TriageBrief] = []
@@ -498,7 +528,18 @@ class ScriptedLanguageModel:
     async def consult(
         self, context: str, question: str, toolbox: Toolbox, budget: TokenBudget
     ) -> ConsoleDraft:
-        raise NotImplementedError  # contrato do console: implementado pelo grolla-dominio
+        self.consultations.append((context, question))
+        usage = replace(self.usage, stage=STAGE_CONSOLE)
+        await self._play(self.console_delay, self.console_calls, usage, toolbox, budget)
+        if self.console_error is not None:
+            raise self.console_error
+        if self.console is not None:
+            return self.console
+        cited = [str(args["service"]) for _, args in self.console_calls if "service" in args]
+        if not cited:
+            return ConsoleDraft("Nada fora do normal nas consultas.")
+        chart = ChartRequest(cited[0], "taxa_de_erro", CONSOLE_CHART_MINUTES)
+        return ConsoleDraft(f"{cited[0]} estável: taxa de erro em 0,2% na última hora.", (chart,))
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)
