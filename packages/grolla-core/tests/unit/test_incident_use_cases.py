@@ -79,6 +79,20 @@ async def test_grouped_alert_does_not_request_another_analysis() -> None:
     assert events.count(EventType.ANALYSIS_REQUESTED) == 1
     assert list(repository.analyses) == [incident.id]
     assert repository.analyses[incident.id].requested_at == T0
+    # O alerta agrupado antecipa o próximo ciclo de acompanhamento; o que abriu, não.
+    assert repository.cycle_requests == {incident.id: T0 + timedelta(minutes=2)}
+
+
+async def test_resolved_alert_does_not_bring_the_cycle_forward() -> None:
+    repository = InMemoryIncidentRepository()
+    firing = make_alert(service="authorizer-api", labels=team_alert())
+    resolved = make_alert(
+        fingerprint=firing.fingerprint, status=AlertStatus.RESOLVED, labels=team_alert()
+    )
+
+    await receive_alerts([firing, resolved], repository, POLICY, FakeClock(T0))
+
+    assert repository.cycle_requests == {}
 
 
 async def test_resent_alert_changes_nothing() -> None:
