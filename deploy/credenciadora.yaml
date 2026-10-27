@@ -81,3 +81,9 @@ follow_up:
 impact:
   currency: BRL
   services: {}              # ex.: autorizador: { per_minute: 25000 }
+
+# ---- Menos ruído (S8) ----
+# Triagem de todo incidente novo: o agente sugere juntar com outro aberto na janela (quem junta é
+# o time) e sobe a severidade quando nenhuma regra casou (nunca baixa).
+noise:
+  window_minutes: 30

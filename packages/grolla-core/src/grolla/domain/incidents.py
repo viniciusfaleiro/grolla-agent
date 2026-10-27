@@ -121,6 +121,10 @@ class EventType(StrEnum):
     FOLLOW_UP_STOPPED = "follow_up_stopped"
     AGENT_PROPOSAL = "agent_proposal"
     SEEN_BEFORE_ANSWERED = "seen_before_answered"  # data: {"past": <id>, "same": bool}
+    TRIAGE_COMPLETED = "triage_completed"
+    MERGE_SUGGESTED = "merge_suggested"  # data: {"other": <id>, "reason": str}
+    INCIDENT_MERGED = "incident_merged"  # no principal; data: {"merged": <id>}
+    MERGED_INTO = "merged_into"  # no juntado; data: {"into": <id>}
 
 
 @dataclass(frozen=True)
@@ -146,6 +150,8 @@ class NotificationKind(StrEnum):
     FOLLOW_UP_UPDATE = "follow_up_update"  # "Atualização" ou "Sem mudança"
     AGENT_PROPOSAL = "agent_proposal"  # "Grolla sugere marcar como mitigado/encerrar"
     ALERT_REOPENED = "alert_reopened"  # mitigado voltou para em tratamento
+    MERGE_SUGGESTED = "merge_suggested"  # "Parece o mesmo problema que <outro>"
+    INCIDENT_MERGED = "incident_merged"
 
 
 @dataclass(frozen=True)

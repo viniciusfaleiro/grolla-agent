@@ -1,0 +1,153 @@
+# Dois serviços abrem incidentes quase juntos e o agente diz que é o mesmo problema: o incidente
+# novo ganha a sugestão "Parece o mesmo problema que…" (evento, card e aviso no war room). O
+# agente não junta: Ana clica em "Juntar", o juntado fica descartado com "juntado em <título>" e o
+# principal recebe os dois serviços, com o evento nos dois e o card no canal.
+# O roteiro da triagem aponta o outro incidente pelo serviço (`same_as: junta-a-api`), porque o
+# banco do e2e não é limpo e a janela traz incidentes abertos de outros cenários.
+name: sugestão de junção e juntar
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json:
+        triage:
+          same_as: junta-a-api
+          same_reason: os dois serviços usam o banco junta-db, que parou de aceitar conexões
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no junta-a-api
+              service_name: junta-a-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 6% no junta-a-api
+              description: A taxa de erro HTTP 5xx do junta-a-api está em 6% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=180
+            fingerprint: e2e-junta-a-1
+  - capture:
+      name: principal
+      sql: SELECT id FROM incidents WHERE 'junta-a-api' = ANY(services)
+  # A triagem do principal termina antes do segundo alerta: ele não tem com quem juntar.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events
+        WHERE incident_id = '{principal}' AND type = 'triage_completed'
+      at_least: 1
+      timeout_seconds: 60
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no junta-b-api
+              service_name: junta-b-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 8% no junta-b-api
+              description: A taxa de erro HTTP 5xx do junta-b-api está em 8% (limite 2%).
+            startsAt: "2026-01-01T10:02:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=181
+            fingerprint: e2e-junta-b-1
+  - capture:
+      name: juntado
+      sql: SELECT id FROM incidents WHERE 'junta-b-api' = ANY(services)
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events
+        WHERE incident_id = '{juntado}' AND type = 'merge_suggested'
+        AND data->>'other' = '{principal}'
+        AND data->>'reason' LIKE '%usam o banco junta-db%'
+      at_least: 1
+      timeout_seconds: 60
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [junta-b-api, Parece o mesmo problema]
+      count: 1
+      timeout_seconds: 30
+  - expect_page:
+      service: api
+      path: /incidents/{juntado}
+      contains:
+        - Parece o mesmo problema que
+        - Taxa de erro alta no junta-a-api
+        - usam o banco junta-db
+        # O botão "Juntar" só aparece para quem informou o nome; a junção é provada pelo POST.
+  # O agente só sugere: até alguém juntar, os dois seguem abertos.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id IN ('{principal}', '{juntado}')
+        AND state NOT IN ('resolvido', 'descartado')
+      count: 2
+  # Sucesso redireciona para o principal (303); o cliente do runner não segue o redirect.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{juntado}/juntar
+      cookies: { grolla_author: Ana }
+      form: { destino: "{principal}" }
+      status: 303
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE id = '{juntado}' AND state = 'descartado'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{principal}'
+        AND state NOT IN ('resolvido', 'descartado')
+        AND 'junta-a-api' = ANY(services) AND 'junta-b-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{principal}'
+        AND type = 'incident_merged' AND author = 'Ana' AND data->>'merged' = '{juntado}'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{juntado}'
+        AND type = 'merged_into' AND author = 'Ana' AND data->>'into' = '{principal}'
+      count: 1
+  # O motivo do descarte cita o título do principal.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{juntado}'
+        AND data::text LIKE '%juntado em Taxa de erro alta no junta-a-api%'
+      at_least: 1
+      timeout_seconds: 5
+  - expect_page:
+      service: api
+      path: /incidents/{juntado}
+      contains: [Juntado em, Taxa de erro alta no junta-a-api]
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [Incidentes juntados, junta-a-api]
+      count: 1
+      timeout_seconds: 30

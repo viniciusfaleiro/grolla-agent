@@ -55,3 +55,7 @@ follow_up:
 impact:
   services:
     lembra-api: { per_minute: 1000 }
+
+# Menos ruído: triagem do incidente novo (sugestão de junção e severidade sugerida).
+noise:
+  window_minutes: 30

@@ -54,10 +54,17 @@ from grolla.application.post_mortem import (
     request_regeneration,
     update_action,
 )
+from grolla.application.triage import merge_incidents
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.chat import AGENT_AUTHOR
-from grolla.domain.incidents import OPEN_STATES, EventType, Incident, IncidentState
+from grolla.domain.incidents import (
+    OPEN_STATES,
+    EventType,
+    Incident,
+    IncidentEvent,
+    IncidentState,
+)
 from grolla.domain.memory import ENVIRONMENT, Memory, SubjectKind
 from grolla.domain.post_mortem import (
     SECTION_TITLES,
@@ -128,6 +135,12 @@ from grolla_api.war_room import (
     is_failure,
     is_quiet,
     is_waiting,
+    linked_ids,
+    linked_incident,
+    merge_candidates,
+    merge_suggestion,
+    merge_target,
+    merged_into,
     parse_form,
     partial_text,
     percent,
@@ -177,6 +190,10 @@ EVENT_LABELS = {
     EventType.FOLLOW_UP_STOPPED: "Acompanhamento parado",
     EventType.AGENT_PROPOSAL: "Proposta do Grolla",
     EventType.SEEN_BEFORE_ANSWERED: "Resposta ao já vi isso",
+    EventType.TRIAGE_COMPLETED: "Triagem do Grolla",
+    EventType.MERGE_SUGGESTED: "Grolla sugere juntar com",  # + o link do outro incidente
+    EventType.MERGED_INTO: "Juntado em",
+    EventType.INCIDENT_MERGED: "Recebeu o incidente",
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -215,6 +232,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "is_failure": is_failure,
     "is_quiet": is_quiet,
     "is_waiting": is_waiting,
+    "linked_incident": linked_incident,
     "partial_text": partial_text,
     "percent": percent,
     "trend_label": trend_label,
@@ -340,16 +358,26 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "proposal": current_proposal(incident, await repository.events_of(incident.id)),
         }
 
+    async def linked_of(events: list[IncidentEvent]) -> dict[UUID, Incident]:
+        """Os incidentes citados pelos eventos da junção, para o título e o link."""
+        found = [await repository.get_incident(ref) for ref in linked_ids(events)]
+        return {incident.id: incident for incident in found if incident is not None}
+
     async def war_room_context(incident: Incident, author: str | None) -> dict[str, Any]:
         analysis = await repository.analysis_of(incident.id)
         events = await repository.events_of(incident.id)
+        linked = await linked_of(events)
         seen = analysis.seen_before if analysis else None
+        recent = await repository.list_incidents(INCIDENT_LIST_LIMIT)
         return {
             **await follow_up_context(incident, author),
             "analysis": analysis,
             "verification": await repository.verification_of(incident.id),
             "discarded": discarded_hypotheses(events),
             "seen_answer": seen_before_answer(events, seen.incident_id) if seen else None,
+            "merge": merge_suggestion(incident, events, linked),
+            "merge_candidates": merge_candidates(incident, recent),
+            "merged_into": merged_into(events, linked),
         }
 
     async def chat_context(incident: Incident, author: str | None) -> dict[str, Any]:
@@ -363,7 +391,12 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
 
     async def timeline_context(incident: Incident) -> dict[str, Any]:
         events = await repository.events_of(incident.id)
-        return {"incident": incident, "events": events, "event_labels": EVENT_LABELS}
+        return {
+            "incident": incident,
+            "events": events,
+            "event_labels": EVENT_LABELS,
+            "linked": await linked_of(events),
+        }
 
     @app.get("/health")
     async def health(response: Response) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
@@ -463,6 +496,28 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
                 str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, SEEN_BEFORE_ERROR
             )
         return reload_page(request, f"/incidents/{found.id}")
+
+    @app.post("/incidents/{incident_id}/juntar")
+    async def merge(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        """Junta este incidente no `destino` e leva ao war room do principal."""
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, WAR_ROOM_ERROR)
+        found = await incident_or_404(incident_id)
+        try:
+            target = await merge_incidents(
+                repository=repository,
+                source_id=found.id,
+                target_id=merge_target(parse_form(await request.body())),
+                author=author,
+                clock=services.clock,
+                page_url=services.intake.page_url,
+            )
+        except IncidentNotFoundError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "incidente não encontrado") from error
+        except InvalidActionError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, WAR_ROOM_ERROR)
+        return reload_page(request, f"/incidents/{target.id}")
 
     @app.get("/incidents/{incident_id}/chat", response_class=HTMLResponse)
     async def chat(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]

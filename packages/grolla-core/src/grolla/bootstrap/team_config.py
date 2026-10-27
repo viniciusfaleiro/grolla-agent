@@ -14,6 +14,7 @@ from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
 from grolla.application.memory_retrieval import RagPolicy
 from grolla.application.post_mortem import PostMortemPolicy
+from grolla.application.triage import TriagePolicy
 from grolla.bootstrap.settings import ConfigError
 from grolla.domain.follow_up import FollowUpPolicy
 from grolla.domain.incidents import Severity, SeverityPolicy, SeverityRule
@@ -60,6 +61,7 @@ class LlmConfig(_Section):
             "study",
             "follow_up",
             "post_mortem",
+            "triage",
         ],
         StageConfig,
     ]
@@ -140,6 +142,12 @@ class PostMortemConfig(_Section):
     timeout_seconds: int = Field(default=180, gt=0)
 
 
+class NoiseConfig(_Section):
+    """Triagem do incidente novo: sugestão de junção e severidade sugerida."""
+
+    window_minutes: int = Field(default=30, gt=0)
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -164,6 +172,7 @@ class TeamConfig(BaseModel):
     follow_up: FollowUpConfig | None = None  # sem a seção, nenhum ciclo de acompanhamento
     impact: ImpactConfig = Field(default_factory=ImpactConfig)
     post_mortem: PostMortemConfig = Field(default_factory=PostMortemConfig)
+    noise: NoiseConfig | None = None  # sem a seção, nenhuma triagem
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -222,6 +231,11 @@ class TeamConfig(BaseModel):
             max_tokens_per_incident=section.max_tokens_per_incident,
         )
 
+    def triage_policy(self) -> TriagePolicy | None:
+        if self.noise is None:
+            return None
+        return TriagePolicy(window=timedelta(minutes=self.noise.window_minutes))
+
     def post_mortem_policy(self) -> PostMortemPolicy:
         return PostMortemPolicy(
             max_tokens=self.post_mortem.max_tokens,
@@ -243,6 +257,7 @@ class TeamConfig(BaseModel):
             ),
             window=timedelta(minutes=self.grouping_window_minutes),
             page_url=self.page_url,
+            triage=self.noise is not None,
         )
 
 

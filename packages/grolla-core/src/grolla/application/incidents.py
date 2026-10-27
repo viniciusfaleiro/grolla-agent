@@ -90,6 +90,10 @@ class IncidentUnitOfWork(Protocol):
         """Grava o pedido de análise inicial do incidente, pendente desde `at`."""
         ...
 
+    async def request_triage(self, incident_id: UUID, at: datetime) -> None:
+        """Pede a triagem do incidente recém-aberto (ignora se já existe)."""
+        ...
+
     async def request_post_mortem(self, incident_id: UUID, at: datetime) -> None:
         """Pede o rascunho do post mortem do incidente resolvido (ignora se já existe)."""
         ...
@@ -177,6 +181,7 @@ class IntakePolicy:
     severity: SeverityPolicy
     window: timedelta
     page_url: Callable[[UUID], str]
+    triage: bool = False  # com `noise`: todo incidente aberto pede a triagem
 
 
 async def receive_alerts(
@@ -222,6 +227,8 @@ async def _receive(
     await uow.link_alert(alert, decision.incident.id)
     if decision.request_analysis:
         await uow.request_analysis(decision.incident.id, now)
+        if policy.triage:
+            await uow.request_triage(decision.incident.id, now)
     elif alert.status is AlertStatus.FIRING:  # alerta agrupado antecipa o próximo ciclo
         await uow.request_cycle(decision.incident.id, now)
     for notification in decision.notifications:

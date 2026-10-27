@@ -34,3 +34,6 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 27 | 27/10 | S6 | Falha do modelo no rascunho grava o post mortem com as seções determinísticas | O time sempre tem o documento; "regenerar" completa depois |
 | 28 | 27/10 | S7 | Métricas de acerto só de respostas humanas (hipótese certa, minutos, memória ajudou, "era o mesmo") | Auditável, sem um segundo modelo julgando o primeiro |
 | 29 | 27/10 | S7 | Post mortem aprovado reescreve o episódio como confirmado, pelo mesmo caminho do aprendizado | É a fonte mais confiável; sem fila nova |
+| 30 | 27/10 | S8 | Triagem no worker, não no webhook | O caminho do alerta continua determinístico e rápido; a sugestão chega segundos depois |
+| 31 | 27/10 | S8 | O agente sugere juntar; quem junta é uma pessoa. O juntado vira descartado com motivo | Mexe no war room de duas pessoas; reaproveita estado e páginas sem um estado novo |
+| 32 | 27/10 | S8 | Severidade sugerida só quando nenhuma regra casou, e só sobe | Segue as regras do time ("só sobe", "na dúvida, o mais alto"); nunca baixa |

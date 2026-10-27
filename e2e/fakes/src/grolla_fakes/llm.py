@@ -53,6 +53,13 @@ As fases do post mortem também respondem sempre como `completa`, sem ferramenta
   <serviço>, seguindo a instrução: <texto da linha "Instrução:">" ("sem instrução" quando a
   linha não vem ou está vazia).
 
+A triagem do incidente novo (schema com `same_as`) também responde sempre como `completa`, sem
+ferramentas, com o roteiro de `POST /_control/llm {"triage": {...}}` (`same_as`, `same_reason`,
+`severity` e `severity_reason`; o padrão é sem junção e sem severidade). `same_as` pode ser:
+null; um UUID, devolvido como está; o nome de um serviço, que vira o id do outro incidente aberto
+da mensagem com esse serviço (null se nenhum tiver); ou `auto`, o primeiro outro incidente da
+mensagem. O roteiro troca inteiro a cada controle e o `/_control/reset` volta ao padrão.
+
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
 """
@@ -93,6 +100,9 @@ _EPISODE = re.compile(
 _DEPENDENCY = re.compile(r"(?:\(([^)]+)\)|(?:serviço|host) ([^\s:;(]+)): \d+ chamadas")
 _INTEGRATION_LINE = re.compile(r"Integração: (\S+) chamada por (\S+)")
 _INSTRUCTION_LINE = re.compile(r"Instrução:[ \t]*([^\n]*)")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_OTHERS = "Outros incidentes abertos"  # cabeçalho da lista na mensagem da triagem
+AUTO = "auto"
 
 
 class LlmMode(StrEnum):
@@ -112,6 +122,7 @@ class Phase(StrEnum):
     FOLLOW_UP = "acompanhamento"
     POST_MORTEM = "post_mortem"
     REGENERATION = "regeneracao"
+    TRIAGE = "triagem"
 
 
 class FollowUpScript(BaseModel):
@@ -123,6 +134,15 @@ class FollowUpScript(BaseModel):
     summary: str = ""
 
 
+class TriageScript(BaseModel):
+    """O que a triagem responde; `same_as` é null, um UUID, um serviço ou `auto`."""
+
+    same_as: str | None = None
+    same_reason: str = ""
+    severity: Literal["P0", "P1", "P2", "P3"] | None = None
+    severity_reason: str = ""
+
+
 # Fases da memória, pela propriedade que só o schema delas tem; sempre no modo `completa`.
 _MEMORY_PHASES = {
     "episode_title": Phase.LEARNING,
@@ -131,6 +151,8 @@ _MEMORY_PHASES = {
 }
 # Fases do post mortem, idem: sem ferramentas e sempre no modo `completa`.
 _POST_MORTEM_PHASES = {"avaliacao_agente": Phase.POST_MORTEM, "body": Phase.REGENERATION}
+# Fases sem modo: sempre `completa`, sem ferramentas ou com as próprias.
+_FIXED_PHASES = {**_MEMORY_PHASES, **_POST_MORTEM_PHASES, "same_as": Phase.TRIAGE}
 
 
 class LlmControl(BaseModel):
@@ -139,6 +161,7 @@ class LlmControl(BaseModel):
     chat_mode: LlmMode | None = None
     follow_up_mode: LlmMode | None = None
     follow_up: FollowUpScript | None = None  # troca o roteiro inteiro
+    triage: TriageScript | None = None  # idem
 
 
 def llm_router(state: FakesState) -> APIRouter:
@@ -156,15 +179,19 @@ def llm_router(state: FakesState) -> APIRouter:
             state.llm_follow_up_mode = control.follow_up_mode
         if control.follow_up is not None:
             state.llm_follow_up = control.follow_up.model_dump()
+        if control.triage is not None:
+            state.llm_triage = control.triage.model_dump()
 
     @router.post(MESSAGES_PATH)
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         body: dict[str, Any] = await request.json()
         current = phase(body)
-        if current in _MEMORY_PHASES.values() or current in _POST_MORTEM_PHASES.values():
+        if current in _FIXED_PHASES.values():
             state.requests.append(
                 RecordedRequest(method="POST", path=MESSAGES_PATH, body=body, status=200)
             )
+            if current is Phase.TRIAGE:
+                return JSONResponse(triage_reply(body, TriageScript(**state.llm_triage)))
             if current in _POST_MORTEM_PHASES.values():
                 return JSONResponse(post_mortem_reply(body, current))
             return JSONResponse(memory_reply(body, current))
@@ -215,7 +242,7 @@ def phase(body: dict[str, Any]) -> Phase:
     output_format: dict[str, Any] = output.get("format") or {}
     schema: dict[str, Any] = output_format.get("schema") or {}
     properties: dict[str, Any] = schema.get("properties") or {}
-    for key, fixed_phase in (_MEMORY_PHASES | _POST_MORTEM_PHASES).items():
+    for key, fixed_phase in _FIXED_PHASES.items():
         if key in properties:
             return fixed_phase
     if "verdicts" in properties:
@@ -284,6 +311,33 @@ def seen_before(text: str) -> dict[str, str] | None:
         return None
     reason = f"mesmo serviço e mesmo sintoma do episódio {match.group('title').strip()}"
     return {"incident_id": match.group("id"), "reason": reason}
+
+
+def triage_reply(body: dict[str, Any], script: TriageScript) -> dict[str, Any]:
+    """Triagem: o roteiro, com `same_as` resolvido contra os outros incidentes da mensagem."""
+    same_as = script.same_as
+    if same_as is not None and not _UUID.fullmatch(same_as):
+        others = _other_incidents(_first_text(body["messages"][0]))
+        found = [i for i, entry in others if same_as == AUTO or same_as in entry]
+        same_as = found[0] if found else None
+    return _final(body, {**script.model_dump(), "same_as": same_as})
+
+
+def _other_incidents(text: str) -> list[tuple[str, str]]:
+    """(id, trecho) de cada outro incidente aberto: o trecho vai da linha com o id até a linha
+    com o id seguinte, fora o bloco <memoria>."""
+    before, _, rest = text.partition("<memoria>")
+    _, _, after = rest.partition("</memoria>")
+    _, _, others = (before + after).partition(_OTHERS)
+    entries: list[tuple[str, str]] = []
+    for line in others.splitlines():
+        match = _UUID.search(line)
+        if match:
+            entries.append((match.group(), line))
+        elif entries:
+            incident, entry = entries[-1]
+            entries[-1] = (incident, f"{entry}\n{line}")
+    return entries
 
 
 def memory_reply(body: dict[str, Any], current: Phase) -> dict[str, Any]:

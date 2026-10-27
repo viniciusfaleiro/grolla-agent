@@ -1,0 +1,70 @@
+# Alerta sem regra de severidade (sem o label `severity` e com um alertname fora das regras) abre
+# o incidente na severidade padrão P3. A triagem pede a severidade ao agente, que sugere P1 com
+# o motivo: o incidente sobe para P1 com "sugerida pelo agente: <motivo>" na timeline e o card
+# de severidade elevada no canal.
+name: severidade sugerida pelo agente sobe
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json:
+        triage:
+          severity: P1
+          severity_reason: o sobe-api autoriza as compras com cartão
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Fila de autorização crescendo no sobe-api
+              service_name: sobe-api
+              team: credenciadora
+            annotations:
+              summary: Fila de autorização com 4 mil mensagens no sobe-api
+              description: A fila de autorização do sobe-api passou de 4 mil mensagens.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=182
+            fingerprint: e2e-sobe-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'sobe-api' = ANY(services)
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'severity_changed' AND data->>'from' = 'P3' AND data->>'to' = 'P1'
+        AND data::text LIKE '%sugerida pelo agente: o sobe-api autoriza as compras com cartão%'
+      at_least: 1
+      timeout_seconds: 60
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE id = '{incidente}' AND severity = 'P1'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'triage_completed'
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [sobe-api, Severidade elevada, P1]
+      count: 1
+      timeout_seconds: 30
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains: [Severidade sugerida pelo agente, o sobe-api autoriza as compras com cartão]

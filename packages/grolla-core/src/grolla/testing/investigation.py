@@ -19,6 +19,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     TRUNCATED,
@@ -35,6 +36,7 @@ from grolla.application.investigation import (
     Toolbox,
     ToolResult,
     ToolUnavailableError,
+    TriageBrief,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
@@ -54,6 +56,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -301,6 +304,10 @@ class ScriptedLanguageModel:
     `synthesize`, gasta com a etapa `study` e levanta `synthesis_error` ou devolve `synthesis`
     (por padrão, só o dossiê do ambiente). Os briefs ficam em `learning_briefs`, `study_briefs`
     e `synthesis_briefs`.
+
+    Em `triage`, sem ferramentas: gasta um uso da etapa `triage` e levanta `triage_error` ou
+    devolve `triage_draft` (por padrão, nada a juntar e nenhuma severidade sugerida). Os briefs
+    ficam em `triage_briefs`.
     """
 
     def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
@@ -334,7 +341,12 @@ class ScriptedLanguageModel:
         post_mortem_delay: float = 0.0,
         regeneration: str | None = None,
         regeneration_error: Exception | None = None,
+        triage_draft: TriageDraft | None = None,
+        triage_error: Exception | None = None,
     ) -> None:
+        self.triage_draft = triage_draft or TriageDraft(None, "", None, "")
+        self.triage_error = triage_error
+        self.triage_briefs: list[TriageBrief] = []
         self.post_mortem = post_mortem
         self.post_mortem_error = post_mortem_error
         self.post_mortem_delay = post_mortem_delay
@@ -469,6 +481,13 @@ class ScriptedLanguageModel:
             raise self.regeneration_error
         asked = f" ({instruction})" if instruction else ""
         return self.regeneration or f"{SECTION_TITLES[key]} reescrita{asked}."
+
+    async def triage(self, brief: TriageBrief, budget: TokenBudget) -> TriageDraft:
+        self.triage_briefs.append(brief)
+        budget.spend(replace(self.usage, stage=STAGE_TRIAGE))
+        if self.triage_error is not None:
+            raise self.triage_error
+        return self.triage_draft
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)
