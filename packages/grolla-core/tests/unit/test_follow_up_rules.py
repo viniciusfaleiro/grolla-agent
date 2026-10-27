@@ -362,8 +362,6 @@ def normal(number: int, minutes: float, *, posted: bool = False) -> Cycle:
 @pytest.mark.parametrize(
     ("state", "proposal", "text"),
     [
-        (IncidentState.DETECTED, Proposal.MITIGATE, "Grolla sugere marcar como mitigado"),
-        (IncidentState.INFORMED, Proposal.MITIGATE, "Grolla sugere marcar como mitigado"),
         (IncidentState.HANDLING, Proposal.MITIGATE, "Grolla sugere marcar como mitigado"),
         (IncidentState.MITIGATED, Proposal.RESOLVE, "Grolla sugere encerrar"),
     ],
@@ -465,3 +463,13 @@ def test_cycles_without_error_rate_do_not_count_and_the_next_covers_their_time()
 )
 def test_error_rate_text(rate: float | None, text: str) -> None:
     assert error_rate_text(rate) == text
+
+
+@pytest.mark.parametrize("state", [IncidentState.DETECTED, IncidentState.INFORMED])
+def test_without_an_ic_there_is_no_proposal_to_mitigate(state: IncidentState) -> None:
+    """Mitigar pressupõe alguém conduzindo o incidente: sem IC, não há o que propor."""
+    history = (normal(1, 6, posted=True), normal(2, 11), normal(3, 16))
+
+    decision = decide(p1(state), normal(4, 21), history)
+
+    assert not [e for e in decision.events if e.type is EventType.AGENT_PROPOSAL]

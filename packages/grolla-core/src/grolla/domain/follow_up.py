@@ -103,7 +103,8 @@ class MadeProposal:
 
 
 MAX_EVIDENCE = 3
-MITIGABLE = frozenset({IncidentState.DETECTED, IncidentState.INFORMED, IncidentState.HANDLING})
+# Mitigar pressupõe alguém conduzindo: a proposta só vale em tratamento (como a ação humana).
+MITIGABLE = frozenset({IncidentState.HANDLING})
 ACTIVE = frozenset({CycleStatus.PENDING, CycleStatus.RUNNING})
 
 # Como a tendência aparece para o time.

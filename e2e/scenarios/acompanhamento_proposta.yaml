@@ -35,6 +35,13 @@ when:
   - capture:
       name: incidente
       sql: SELECT id FROM incidents WHERE 'propoe-api' = ANY(services) AND severity = 'P1'
+  # Mitigar pressupõe alguém conduzindo: Ana assume, e a proposta vale em tratamento.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
   - capture:
       name: estado
       sql: SELECT state FROM incidents WHERE id = '{incidente}'

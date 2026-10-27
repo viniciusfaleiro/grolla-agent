@@ -42,7 +42,7 @@ Um alerta agrupado num incidente acompanhado, ou uma mensagem de uma pessoa no c
 
 ### Requirement: Proposta de mitigar e de encerrar
 Quando os ciclos dizem `normalizado` sem interrupção por 15 min, o agente SHALL propor:
-- **marcar como mitigado**, se o incidente está detectado, informado ou em tratamento;
+- **marcar como mitigado**, se o incidente está em tratamento (sem IC não há quem mitigue, como na ação humana);
 - **encerrar**, se o incidente está mitigado.
 
 A proposta SHALL virar evento, card e aviso no war room, com o motivo. O agente SHALL NOT mudar o estado: a pessoa confirma pelos botões do war room. A mesma proposta SHALL NOT se repetir no mesmo estado do incidente.
