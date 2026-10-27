@@ -35,6 +35,7 @@ do procrastinate.
 | **Acompanhamento da crise** | Com `follow_up` no YAML: a varredura enfileira os ciclos devidos dos incidentes abertos acompanhados (P0/P1 por padrão), a partir de `cycle_minutes` depois da análise inicial ou antes, num pedido antecipado (alerta agrupado ou mensagem no chat), até `max_cycles` e `max_tokens_per_incident`. Cada ciclo diz tendência, taxa de erro e resumo; o card "Atualização" sai só quando muda (ou o curto "sem mudança" a cada `quiet_minutes`), e a proposta de mitigar ou encerrar sai depois de `stable_minutes` normalizado. O ciclo preso além de `cycle_timeout_seconds + 2 min` vira parcial ("interrompida") | periódicos `schedule_cycles` (`* * * * * */30`, fila `default`), `run_cycles` (`* * * * * */10`, fila `analysis`, `lock`) e `reap_stuck_cycles` (todo minuto, fila `analysis`, `lock`); só registrados com `follow_up` |
 | **Post mortem** | O rascunho de cada incidente resolvido e as regenerações de seção pedidas na página, um pedido por vez até a fila esvaziar; o pedido preso além de `post_mortem.timeout_seconds + 2 min` termina "interrompida" (o rascunho sai com as seções do modelo "não gerada: interrompida") | periódicos `run_post_mortems` (`* * * * * */10`, fila `analysis`, `lock`) e `reap_stuck_post_mortems` (todo minuto, fila `analysis`, `lock`); só registrados com `post_mortems` no container |
 | **Triagem do incidente novo** | Sugestão de junção com outro incidente aberto e severidade sugerida quando nenhuma regra casou, uma triagem por vez até a fila esvaziar; a presa além do timeout + 2 min termina "interrompida" | periódicos `run_triages` (`* * * * * */5`, fila `analysis`, `lock`) e `reap_stuck_triages` (todo minuto, fila `analysis`, `lock`); só registrados com `triage_queue` no container (seção `noise`) |
+| **Respostas do console** | As perguntas do console de operação, uma por vez, numa fila de prioridade menor (`console`, com laço próprio e concorrência 1), que não atrasa as análises nem o chat dos incidentes; a presa além do timeout + 2 min termina "interrompida" | periódicos `run_console_replies` (`* * * * * */3`, fila `console`, `lock`) e `reap_stuck_console_replies` (todo minuto, fila `console`, `lock`); só registrados com `console` no container (seção `console`) |
 | **Aprender ao encerrar** | Para cada incidente resolvido ou descartado, uma chamada ao modelo, sem ferramentas, escreve o episódio de cada serviço (ruído no descarte) e reescreve os dossiês, com versão; aprovar o post mortem pede o aprendizado de novo, com o post mortem como fonte e o episódio confirmado por quem aprovou; falha é tentada de novo uma vez e fica na página da memória | periódico `run_learnings` (`* * * * * */10`, fila `analysis`) e `reap_stuck_learnings` (todo minuto) |
 | **Estudo do ambiente** | Regras de alerta do domínio → serviços (das regras e os ativos com repositório) → estudo de cada serviço com ferramentas e teto próprio, parando no teto da rodada → síntese do ambiente e das integrações | periódico `run_studies` (todo minuto, fila `analysis`, `lock`) e `reap_stuck_studies` (todo minuto) |
 | **Indexar a memória (RAG)** | Com `memory.rag`, recorta em trechos por seção os dossiês, episódios e notas novos ou mudados (inclusive o que foi gravado direto no banco), gera os embeddings localmente em lote e grava no índice; apaga os trechos de registros esquecidos e de outro modelo, então trocar o modelo reindexa tudo. Repete enquanto houver lote cheio | periódico `index_memory` (`* * * * * */30`, fila `analysis`, `lock`; só registrado com `memory.rag`) |
@@ -43,19 +44,21 @@ do procrastinate.
 
 ## 🏗 Arquitetura
 
-O processo roda **dois laços do procrastinate**:
+O processo roda **três laços do procrastinate**:
 
 | Fila | Concorrência | Jobs |
 |---|---|---|
 | `default` | 1 | `heartbeat`, `deliver_notifications`, `schedule_daily_study` |
 | `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies`, `run_learnings`, `reap_stuck_learnings`, `run_studies`, `reap_stuck_studies`, `index_memory` (com `memory.rag`) |
+| `console` | 1 | `run_console_replies`, `reap_stuck_console_replies` (com a seção `console`) |
 
-Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises,
+Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards, e o console, de
+prioridade menor, nunca atrasa os incidentes. Análises,
 validações, respostas do chat e o estudo recebem a memória (`container.memory`), o modelo de embeddings
 (`container.embedder`, só com `memory.rag`: busca híbrida, trechos de documentação e o estudo indexando os
 `.md` de cada serviço estudado) e os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
 seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. O `main.py`
-trata SIGINT/SIGTERM e encerra os dois laços com graça, porque com dois laços os handlers de
+trata SIGINT/SIGTERM e encerra os três laços com graça, porque com vários laços os handlers de
 sinal do procrastinate brigariam.
 
 ## ⚡ Como rodar
@@ -94,7 +97,7 @@ uv run pytest packages/grolla-worker
 ```
 
 - `tests/unit/` — a lógica do job (`beat`) com `FakeClock`, sem banco; os jobs de entrega, de
-  análise e de validação com os fakes dos ports; as filas e os crons de cada job; os dois laços parando no
+  análise e de validação com os fakes dos ports; as filas e os crons de cada job; os três laços parando no
   SIGINT/SIGTERM; e a recusa em subir sem `GROLLA_DATABASE_URL`.
 - `tests/integration/` — um heartbeat enfileirado é processado pelo worker contra Postgres real.
 
@@ -104,7 +107,7 @@ uv run pytest packages/grolla-worker
 src/grolla_worker/
   heartbeat.py  lógica do job, independente da fila
   app.py        build_app(): registra os jobs no procrastinate, nas filas default e analysis
-  main.py       entrypoint `grolla-worker`: settings → migrações → os dois laços do worker
+  main.py       entrypoint `grolla-worker`: settings → migrações → os três laços do worker
 tests/          unit/ · integration/
 Dockerfile
 ```

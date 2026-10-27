@@ -440,13 +440,22 @@ RESULTS = {
 
 def test_analysis_with_an_episode_in_the_memory_says_seen_before() -> None:
     client = TestClient(create_app())
-    brief = f"{BRIEF}\n\n{MEMORY}"
+    brief = f"Incidente: Taxa de erro alta\nServiços: estudo-api\n\n{MEMORY}"
 
     final = answer_after_tools(client, request([{"role": "user", "content": brief}]))
 
     draft = json.loads(final["content"][0]["text"])
     assert draft["seen_before"]["incident_id"] == PAST
     assert "estudo-api com 5xx" in draft["seen_before"]["reason"]
+
+
+def test_an_episode_of_another_service_is_not_seen_before() -> None:
+    client = TestClient(create_app())
+    brief = f"{BRIEF}\n\n{MEMORY}"
+
+    final = answer_after_tools(client, request([{"role": "user", "content": brief}]))
+
+    assert json.loads(final["content"][0]["text"])["seen_before"] is None
 
 
 def memory_request(prop: str, content: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
@@ -778,3 +787,93 @@ def test_triage_ignores_the_analysis_mode_and_reset_goes_back_to_the_default() -
     client.post("/_control/reset")
     assert triage_of(client)["same_as"] is None
     assert triage_of(client)["severity"] is None
+
+
+# ---- Console de operação: reconhecido pelo schema com `charts`
+
+CONSOLE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"text": {"type": "string"}, "charts": {"type": "array"}},
+}
+REMEMBER = {
+    "name": "remember",
+    "description": "remember",
+    "input_schema": {
+        "type": "object",
+        "properties": {"subject": {"type": "string"}, "text": {"type": "string"}},
+        "required": ["subject", "text"],
+    },
+}
+CONSOLE_HISTORY = "Conversa:\n- Ana: Pergunta: e o liquidacao-api?\n\n"
+
+
+def console_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        **request(messages),
+        "tools": [*TOOLS, REMEMBER],
+        "output_config": {"format": {"type": "json_schema", "schema": CONSOLE_SCHEMA}},
+    }
+
+
+def console_turns(question: str, context: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
+    """A primeira resposta (ferramentas) e o resultado final do console."""
+    client = TestClient(create_app())
+    first = {"role": "user", "content": f"{context}Pergunta: {question}"}
+    calls = client.post(PATH, json=console_request([first])).json()
+    results = [
+        {"type": "tool_result", "tool_use_id": block["id"], "content": f"achado de {block['name']}"}
+        for block in calls["content"]
+    ]
+    messages = [
+        first,
+        {"role": "assistant", "content": calls["content"]},
+        {"role": "user", "content": results},
+    ]
+    final = client.post(PATH, json=console_request(messages)).json()
+    return calls, json.loads(final["content"][0]["text"])
+
+
+def test_console_queries_the_service_of_the_question_and_draws_the_error_rate() -> None:
+    calls, answer = console_turns("mostra o gráfico do captura-api", CONSOLE_HISTORY)
+
+    assert [(block["name"], block["input"]) for block in calls["content"]] == [
+        ("query_metric", {"service": "captura-api", "signal": "taxa_de_erro"})
+    ]
+    assert answer == {
+        "text": "Consultei o captura-api: achado de query_metric",
+        "charts": [{"service": "captura-api", "signal": "taxa_de_erro", "minutes": 60}],
+    }
+
+
+def test_console_without_chart_words_has_no_chart_and_falls_back_to_the_history() -> None:
+    _, answer = console_turns("e a vazão?", CONSOLE_HISTORY)
+
+    assert answer == {"text": "Consultei o liquidacao-api: achado de query_metric", "charts": []}
+
+
+def test_console_without_any_service_uses_the_unknown_one() -> None:
+    _, answer = console_turns("tudo bem?")
+
+    assert answer["text"].startswith("Consultei o servico-desconhecido")
+
+
+def test_console_remembers_what_the_question_asks_to_register() -> None:
+    fact = "o lote-api tem erro esperado às 2h, no fechamento"
+    calls, answer = console_turns(f"Para registrar: {fact}")
+
+    assert [(block["name"], block["input"]) for block in calls["content"]] == [
+        ("query_metric", {"service": "lote-api", "signal": "taxa_de_erro"}),
+        ("remember", {"subject": "lote-api", "text": fact}),
+    ]
+    assert answer == {
+        "text": f"Guardei: {fact}. Consultei o lote-api: achado de query_metric",
+        "charts": [],
+    }
+
+
+def test_console_answers_even_with_the_chat_down() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"chat_mode": "fora_do_ar"})
+    body = console_request([{"role": "user", "content": "Pergunta: oi"}])
+
+    assert client.post(PATH, json=body).status_code == 200

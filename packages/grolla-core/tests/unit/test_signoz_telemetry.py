@@ -12,7 +12,11 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
+from contracts.telemetry_contract import (
+    EnvironmentTelemetryContract,
+    TelemetryContract,
+    TelemetrySeriesContract,
+)
 from grolla.adapters.signoz.telemetry import READ_TOOLS, SignozTelemetry
 from grolla.application.investigation import NO_DEPENDENCIES, Telemetry, ToolUnavailableError
 from grolla.domain.incidents import UNKNOWN_SERVICE
@@ -125,6 +129,30 @@ def mcp() -> FakeSignozMcp:
 class TestSignozTelemetryContract(TelemetryContract):
     @pytest.fixture
     def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.failing = True
+        return mcp.telemetry()
+
+
+def points_in_the_window(arguments: dict[str, Any]) -> Any:
+    """A fixture de contagem, com um ponto por minuto da janela pedida."""
+    answer = fixture("aggregate_traces_count")
+    start, end = int(arguments["start"]), int(arguments["end"])
+    values = [{"timestamp": ts, "value": 120} for ts in range(start, end, STEP_MS)]
+    answer["data"]["data"]["results"][0]["aggregations"][0]["series"][0]["values"] = values
+    return answer
+
+
+STEP_MS = 60_000
+
+
+class TestSignozTelemetrySeriesContract(TelemetrySeriesContract):
+    @pytest.fixture
+    def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.answers["signoz_aggregate_traces"] = points_in_the_window
         return mcp.telemetry()
 
     @pytest.fixture
@@ -246,6 +274,50 @@ async def test_metric_without_data_says_so(mcp: FakeSignozMcp) -> None:
     result = await mcp.telemetry().query_metric("authorizer-api", "vazao", START, END)
 
     assert result.summary == "sem dados de vazão de authorizer-api entre 10:00 UTC e 11:00 UTC"
+
+
+FIRST_POINT = START + timedelta(minutes=40)  # as fixtures trazem os últimos 20 min da janela
+LAST_POINT = START + timedelta(minutes=59)
+
+
+async def test_series_are_the_error_rate_points_in_percent_and_utc(mcp: FakeSignozMcp) -> None:
+    points = await mcp.telemetry().series("authorizer-api", "taxa_de_erro", START, END)
+
+    assert [arguments.get("error") for _, arguments in mcp.calls] == [None, True]
+    assert points[0] == (FIRST_POINT, 0.0)
+    assert points[-1] == (LAST_POINT, 70.0)
+    assert all(moment.tzinfo is UTC for moment, _ in points)
+
+
+async def test_series_of_latency_are_in_milliseconds(mcp: FakeSignozMcp) -> None:
+    mcp.answers["signoz_aggregate_traces"] = fixture("aggregate_traces_p99")
+
+    points = await mcp.telemetry().series("authorizer-api", "latencia_p99", START, END)
+
+    assert points[0] == (FIRST_POINT, 182.0)
+    assert points[-1] == (LAST_POINT, 2417.0)
+
+
+async def test_series_of_throughput_are_calls_per_second(mcp: FakeSignozMcp) -> None:
+    mcp.answers["signoz_aggregate_traces"] = fixture("aggregate_traces_rate")
+
+    points = await mcp.telemetry().series("authorizer-api", "vazao", START, END)
+
+    assert mcp.calls[0][1]["aggregation"] == "rate"
+    assert points[:2] == [(FIRST_POINT, 20.0), (FIRST_POINT + timedelta(minutes=1), 20.1)]
+
+
+async def test_series_without_data_is_empty(mcp: FakeSignozMcp) -> None:
+    mcp.answers["signoz_aggregate_traces"] = {"status": "success", "data": {"data": {}}}
+
+    assert await mcp.telemetry().series("authorizer-api", "vazao", START, END) == []
+
+
+async def test_series_with_the_source_down_is_unavailable(mcp: FakeSignozMcp) -> None:
+    mcp.failing = True
+
+    with pytest.raises(ToolUnavailableError):
+        await mcp.telemetry().series("authorizer-api", "taxa_de_erro", START, END)
 
 
 async def test_logs_include_warn_grouped_by_message_with_the_level(mcp: FakeSignozMcp) -> None:

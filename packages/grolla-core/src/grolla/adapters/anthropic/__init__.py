@@ -26,6 +26,10 @@ chamada só, sem ferramentas, com saída estruturada.
 A triagem do incidente novo (`triage`, etapa `triage`) também é uma chamada só, sem ferramentas:
 o outro incidente aberto que é o mesmo problema (ou null) e a severidade sugerida (ou null), cada
 um com o motivo. Id que não é UUID vira "sem junção", sem invalidar a triagem.
+
+O console de operação (`consult`, etapa `console`, herdando o modelo do chat) roda o mesmo laço,
+fechando no orçamento como o chat, e devolve o texto e os gráficos pedidos (`{text, charts}`, cada
+gráfico com serviço, sinal e janela em minutos); quem filtra os gráficos é o domínio.
 """
 
 import asyncio
@@ -49,9 +53,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    CONSOLE_PROMPT,
     FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
     POST_MORTEM_PROMPT,
+    STAGE_CONSOLE,
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
@@ -77,6 +83,7 @@ from grolla.application.investigation import (
     Toolbox,
     TriageBrief,
     brief_text,
+    console_text,
     follow_up_text,
     learning_text,
     post_mortem_text,
@@ -100,6 +107,7 @@ from grolla.domain.analysis import (
     check_plan,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.console import CHART_SIGNALS, ChartRequest, ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, Trend
 from grolla.domain.incidents import Severity
 from grolla.domain.memory import (
@@ -267,6 +275,20 @@ SYNTHESIS_SCHEMA = _object(
     integrations={"type": "array", "items": _object(subject=_TEXT, body=_TEXT)},
 )
 
+# Console de operação: a resposta e os gráficos pedidos. O modelo só diz o que mostrar; os pontos
+# vêm da telemetria. A janela e o número de gráficos são limitados pelo domínio.
+CONSOLE_SCHEMA = _object(
+    text=_TEXT,
+    charts={
+        "type": "array",
+        "items": _object(
+            service=_TEXT,
+            signal={"type": "string", "enum": list(CHART_SIGNALS)},
+            minutes={"type": "integer"},
+        ),
+    },
+)
+
 # Ciclo de acompanhamento. Sem limites numéricos no structured outputs: a taxa de erro entre 0 e
 # 100 é conferida na validação, e só as três primeiras evidências ficam.
 FOLLOW_UP_SCHEMA = _object(
@@ -423,6 +445,17 @@ class _Reply(_Strict):
     reply: str
 
 
+class _Chart(_Strict):
+    service: str
+    signal: str
+    minutes: int
+
+
+class _Console(_Strict):
+    text: str
+    charts: list[_Chart]
+
+
 class _Cycle(_Strict):
     trend: Trend
     error_rate: float | None = Field(ge=0, le=100)
@@ -489,6 +522,7 @@ class ClaudeLanguageModel:
         follow_up: ModelSettings | None = None,
         post_mortem: ModelSettings | None = None,
         triage: ModelSettings | None = None,
+        console: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -499,6 +533,7 @@ class ClaudeLanguageModel:
         self._follow_up = follow_up or settings
         self._post_mortem = post_mortem or settings
         self._triage = triage or settings
+        self._console = console or chat or settings  # o console herda do chat
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -628,6 +663,25 @@ class ClaudeLanguageModel:
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
         return _parsed(_Triage, response, "da triagem").draft()
+
+    async def consult(
+        self, context: str, question: str, toolbox: Toolbox, budget: TokenBudget
+    ) -> ConsoleDraft:
+        phase = _Phase(CONSOLE_PROMPT, CONSOLE_SCHEMA, self._console, STAGE_CONSOLE, wrap_up=True)
+        text = console_text(context, question)
+        messages: list[MessageParam] = [{"role": "user", "content": text}]
+        async with self._client() as client:
+            try:
+                response = await _loop(client, phase, messages, toolbox, budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        answer = _parsed(_Console, response, "da resposta do console")
+        if not answer.text.strip():
+            raise InvalidAnalysisError("resposta do console vazia")
+        return ConsoleDraft(
+            text=answer.text.strip(),
+            charts=tuple(ChartRequest(c.service, c.signal, c.minutes) for c in answer.charts),
+        )
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

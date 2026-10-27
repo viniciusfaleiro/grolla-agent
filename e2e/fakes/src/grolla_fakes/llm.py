@@ -60,6 +60,15 @@ null; um UUID, devolvido como está; o nome de um serviço, que vira o id do out
 da mensagem com esse serviço (null se nenhum tiver); ou `auto`, o primeiro outro incidente da
 mensagem. O roteiro troca inteiro a cada controle e o `/_control/reset` volta ao padrão.
 
+O console de operação (schema com `charts`) também responde sempre como `completa`. Lê a pergunta
+(o texto depois do último "Pergunta:" da mensagem, ou a mensagem inteira) e o serviço dela (o
+primeiro nome terminado em `-api` na pergunta; senão, o último da mensagem). Sem resultados de
+ferramenta, pede `query_metric` do serviço e, se a pergunta começa com "Para registrar:", também
+`remember` (assunto o serviço, texto o resto da pergunta). Com os resultados, responde "Consultei
+o <serviço>: <trecho da métrica>", ou "Guardei: <fato>. Consultei o <serviço>: ..." quando chamou
+`remember`, e pede um gráfico de `taxa_de_erro` do serviço por 60 min quando a pergunta cita
+"gráfico" ou "erro" e não é "Para registrar:" (sem gráfico, senão).
+
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
 """
@@ -81,6 +90,11 @@ FIRST_TOOLS = ("query_metric", "recent_deploys", "search_logs")
 VERIFICATION_TOOLS = ("query_metric", "recent_deploys")
 CHAT_TOOLS = ("search_logs",)
 FOLLOW_UP_TOOLS = ("query_metric",)
+CONSOLE_TOOLS = ("query_metric",)
+REGISTER = "Para registrar:"  # no console, a pergunta que ensina um fato ao agente
+CHART_WORDS = ("gráfico", "erro")
+CHART_MINUTES = 60
+_API_SERVICE = re.compile(r"\b[a-z0-9][a-z0-9-]*-api\b")
 SLOW_SECONDS = 60.0  # bem acima dos timeouts de análise e de validação do e2e
 UNKNOWN_SERVICE = "servico-desconhecido"
 FALLBACK_HYPOTHESIS = "Hipótese da análise inicial"
@@ -93,7 +107,7 @@ _ARGUMENTS = {"path": "README.md"}  # argumentos de texto obrigatórios que não
 _INCIDENT_LINE = re.compile(r"Incidente:\s*([^\n]+)")
 # Cabeçalho de episódio do bloco <memoria>: "### [episodio] svc: título (..., incidente <id>)".
 _EPISODE = re.compile(
-    r"### \[episodio\] [^:\n]+: (?P<title>[^\n]*?) \([^\n]*?incidente "
+    r"### \[episodio\] (?P<subject>[^:\n]+): (?P<title>[^\n]*?) \([^\n]*?incidente "
     r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
 )
 # Nome de cada dependência no resumo de `service_dependencies`: "banco x (nome): N chamadas".
@@ -123,6 +137,7 @@ class Phase(StrEnum):
     POST_MORTEM = "post_mortem"
     REGENERATION = "regeneracao"
     TRIAGE = "triagem"
+    CONSOLE = "console"
 
 
 class FollowUpScript(BaseModel):
@@ -152,7 +167,12 @@ _MEMORY_PHASES = {
 # Fases do post mortem, idem: sem ferramentas e sempre no modo `completa`.
 _POST_MORTEM_PHASES = {"avaliacao_agente": Phase.POST_MORTEM, "body": Phase.REGENERATION}
 # Fases sem modo: sempre `completa`, sem ferramentas ou com as próprias.
-_FIXED_PHASES = {**_MEMORY_PHASES, **_POST_MORTEM_PHASES, "same_as": Phase.TRIAGE}
+_FIXED_PHASES = {
+    **_MEMORY_PHASES,
+    **_POST_MORTEM_PHASES,
+    "same_as": Phase.TRIAGE,
+    "charts": Phase.CONSOLE,
+}
 
 
 class LlmControl(BaseModel):
@@ -190,11 +210,7 @@ def llm_router(state: FakesState) -> APIRouter:
             state.requests.append(
                 RecordedRequest(method="POST", path=MESSAGES_PATH, body=body, status=200)
             )
-            if current is Phase.TRIAGE:
-                return JSONResponse(triage_reply(body, TriageScript(**state.llm_triage)))
-            if current in _POST_MORTEM_PHASES.values():
-                return JSONResponse(post_mortem_reply(body, current))
-            return JSONResponse(memory_reply(body, current))
+            return JSONResponse(fixed_reply(body, current, state))
         modes = {
             Phase.ANALYSIS: state.llm_mode,
             Phase.VERIFICATION: state.llm_verification_mode,
@@ -220,6 +236,17 @@ def llm_router(state: FakesState) -> APIRouter:
         return JSONResponse(phase_reply(body, current, mode, state))
 
     return router
+
+
+def fixed_reply(body: dict[str, Any], current: Phase, state: FakesState) -> dict[str, Any]:
+    """A resposta das fases sem modo, sempre `completa`."""
+    if current is Phase.TRIAGE:
+        return triage_reply(body, TriageScript(**state.llm_triage))
+    if current is Phase.CONSOLE:
+        return console_reply(body)
+    if current in _POST_MORTEM_PHASES.values():
+        return post_mortem_reply(body, current)
+    return memory_reply(body, current)
 
 
 def phase_reply(
@@ -270,6 +297,39 @@ def chat_reply(body: dict[str, Any]) -> dict[str, Any]:
     return _final(body, {"reply": text})
 
 
+def console_reply(body: dict[str, Any]) -> dict[str, Any]:
+    """Console: consulta a métrica do serviço da pergunta (e guarda o fato, se pedido) e
+    responde citando-a, com o gráfico da taxa de erro quando a pergunta fala de gráfico ou erro.
+    """
+    first = _first_text(body["messages"][0])
+    _, _, question = first.rpartition(_QUESTION)
+    question = question.strip()
+    found = _API_SERVICE.findall(question) or _API_SERVICE.findall(first)[-1:]
+    service = found[0] if found else UNKNOWN_SERVICE
+    fact = question.removeprefix(REGISTER).strip() if question.startswith(REGISTER) else None
+    results = _tool_results(body["messages"])
+    if not results:
+        calls = _tool_calls(body, CONSOLE_TOOLS, service)
+        tools = {tool["name"] for tool in body.get("tools", [])}
+        if fact and "remember" in tools:
+            remember = {"subject": service, "text": fact}
+            calls.append(
+                {"type": "tool_use", "id": "toolu_remember", "name": "remember", "input": remember}
+            )
+        return _message(body, calls, "tool_use")
+    metric = _excerpt(results.get("query_metric", "sem dados de métrica"))
+    text = f"Consultei o {service}: {metric}"
+    if "remember" in results:
+        text = f"Guardei: {fact}. {text}"
+    wants_chart = fact is None and any(word in question.lower() for word in CHART_WORDS)
+    charts = (
+        [{"service": service, "signal": "taxa_de_erro", "minutes": CHART_MINUTES}]
+        if wants_chart
+        else []
+    )
+    return _final(body, {"text": text, "charts": charts})
+
+
 def follow_up_reply(body: dict[str, Any], script: FollowUpScript) -> dict[str, Any]:
     """Ciclo de acompanhamento: consulta a métrica do serviço e devolve o roteiro."""
     results = _tool_results(body["messages"])
@@ -303,10 +363,15 @@ def reply(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def seen_before(text: str) -> dict[str, str] | None:
-    """ "Já vi isso": o primeiro episódio do bloco <memoria> da mensagem, se houver."""
-    _, _, memory = text.partition("<memoria>")
+    """ "Já vi isso": o primeiro episódio do bloco <memoria> de um dos serviços da linha
+    "Serviços:" da mensagem, se houver (como o prompt pede: mesmo serviço)."""
+    before, _, memory = text.partition("<memoria>")
     memory, _, _ = memory.partition("</memoria>")
-    match = _EPISODE.search(memory)
+    line = re.search(r"Serviços?:\s*([^\n]+)", before)
+    services: set[str] = {name.strip() for name in line.group(1).split(",")} if line else set()
+    match = next(
+        (m for m in _EPISODE.finditer(memory) if m.group("subject").strip() in services), None
+    )
     if match is None:
         return None
     reason = f"mesmo serviço e mesmo sintoma do episódio {match.group('title').strip()}"
@@ -473,8 +538,10 @@ def _message(body: dict[str, Any], content: list[dict[str, Any]], stop: str) -> 
     }
 
 
-def _tool_calls(body: dict[str, Any], names: tuple[str, ...]) -> list[dict[str, Any]]:
-    service = _service(_first_text(body["messages"][0]))
+def _tool_calls(
+    body: dict[str, Any], names: tuple[str, ...], service: str | None = None
+) -> list[dict[str, Any]]:
+    service = service or _service(_first_text(body["messages"][0]))
     tools = {tool["name"]: tool for tool in body.get("tools", [])}
     return [
         {

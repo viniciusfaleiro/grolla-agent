@@ -1,0 +1,76 @@
+# Numa conversa do console, Ana percebe um problema e abre o incidente por ali: o incidente nasce
+# P2 no manual-api sem alerta, com o evento de abertura manual de Ana, segue o caminho normal (a
+# análise inicial é pedida e concluída) e a sessão guarda e mostra o link para ele.
+name: abrir incidente a partir da conversa do console
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  # As escritas do console redirecionam; o runner não segue o redirect nem confere o status.
+  - http:
+      service: api
+      method: POST
+      path: /console
+      cookies: { grolla_author: Ana }
+      form: { texto: "o manual-api está lento para fechar pedidos?" }
+  - capture:
+      name: sessao
+      sql: >-
+        SELECT id FROM console_sessions WHERE author = 'Ana'
+        AND title = 'o manual-api está lento para fechar pedidos?'
+  - http:
+      service: api
+      method: POST
+      path: /console/{sessao}/incidente
+      cookies: { grolla_author: Ana }
+      form: { titulo: manual-api lento, servico: manual-api, severidade: P2 }
+  - capture:
+      name: incidente
+      sql: >-
+        SELECT id FROM incidents WHERE 'manual-api' = ANY(services) AND severity = 'P2'
+        AND title = 'manual-api lento'
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'incident_opened_manually' AND author = 'Ana'
+      count: 1
+  # Sem alerta: nenhum alerta aponta o incidente.
+  - expect_db_count:
+      sql: SELECT count(*) FROM alerts WHERE incident_id = '{incidente}'
+      count: 0
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM console_sessions WHERE id = '{sessao}'
+        AND incident_id = '{incidente}'
+      count: 1
+  # Caminho normal: análise inicial pedida, concluída pelo LLM fake e publicada no canal.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM analyses WHERE incident_id = '{incidente}'
+        AND status = 'concluida'
+      at_least: 1
+      timeout_seconds: 60
+  - wait_for_fake_request:
+      path: /teams/webhook
+      contains: [manual-api, Análise pronta]
+      timeout_seconds: 60
+  - expect_page:
+      service: api
+      path: /console/{sessao}
+      contains: ["/incidents/{incidente}"]
+  # Ana encerra o incidente, para não sobrar aberto no manual-api.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: aberto pelo console no e2e }
+      status: 200

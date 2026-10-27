@@ -50,8 +50,9 @@ quando muda, propostas de mitigar e encerrar, volta de mitigado com o alerta e i
 vida e PDF. `post-mortem-alimenta-a-memoria` (S7): post mortem aprovado confirma o episódio na
 memória, "era o mesmo problema?", avaliação do agente e `/metricas`. S4 (on-call) adiado até
 haver conta no Spike.sh. `menos-ruido` (S8): triagem do incidente novo, sugestão de junção e
-"Juntar com…", severidade sugerida quando nenhuma regra casa. Próximo: S9
-(on-call acionado sozinho) — ver
+"Juntar com…", severidade sugerida quando nenhuma regra casa. `console-de-operacao` (S9): conversa
+com o agente fora de incidente em `/console`, gráficos desenhados no servidor e "Abrir incidente"
+pela conversa. Próximo: S10 (transcrição de call) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)

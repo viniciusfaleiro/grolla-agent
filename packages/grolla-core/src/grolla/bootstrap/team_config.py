@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.analysis import AnalysisPolicy
+from grolla.application.console import ConsolePolicy
 from grolla.application.follow_up import FollowUpLimits, ImpactPolicy
 from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
@@ -62,6 +63,7 @@ class LlmConfig(_Section):
             "follow_up",
             "post_mortem",
             "triage",
+            "console",
         ],
         StageConfig,
     ]
@@ -148,6 +150,14 @@ class NoiseConfig(_Section):
     window_minutes: int = Field(default=30, gt=0)
 
 
+class ConsoleConfig(_Section):
+    """Console de operação: conversas fora de incidente, com teto por resposta e por dia."""
+
+    max_tokens: int = Field(default=60_000, gt=0)
+    daily_max_tokens: int = Field(default=500_000, gt=0)
+    timeout_seconds: int = Field(default=120, gt=0)
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -173,6 +183,7 @@ class TeamConfig(BaseModel):
     impact: ImpactConfig = Field(default_factory=ImpactConfig)
     post_mortem: PostMortemConfig = Field(default_factory=PostMortemConfig)
     noise: NoiseConfig | None = None  # sem a seção, nenhuma triagem
+    console: ConsoleConfig | None = None  # sem a seção, o console fica desligado
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -229,6 +240,16 @@ class TeamConfig(BaseModel):
             timeout=timedelta(seconds=section.cycle_timeout_seconds),
             max_tokens=section.cycle_max_tokens,
             max_tokens_per_incident=section.max_tokens_per_incident,
+        )
+
+    def console_policy(self) -> ConsolePolicy | None:
+        if self.console is None:
+            return None
+        return ConsolePolicy(
+            max_tokens=self.console.max_tokens,
+            daily_max_tokens=self.console.daily_max_tokens,
+            timeout=timedelta(seconds=self.console.timeout_seconds),
+            lookback=timedelta(minutes=self.investigation.lookback_minutes),
         )
 
     def triage_policy(self) -> TriagePolicy | None:

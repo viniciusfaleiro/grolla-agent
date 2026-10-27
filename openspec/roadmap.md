@@ -186,7 +186,7 @@ agente quando nenhuma regra casa (só sobe).
   severidade quando nenhuma regra casa (na dúvida, o nível mais alto); motivo registrado na
   timeline.
 
-## S9 · Console de operação
+## S9 · Console de operação ✅
 
 - **Valor:** respostas sobre a saúde do ambiente sem incidente aberto.
 - **Escopo:** chat geral com sessões salvas; respostas com evidência e gráficos; "abrir incidente

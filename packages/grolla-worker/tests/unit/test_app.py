@@ -7,6 +7,7 @@ import grolla_worker.app
 import pytest
 from grolla.adapters.postgres import PostgresDatabase
 from grolla.application.clock import Clock
+from grolla.application.console import ConsolePolicy
 from grolla.application.follow_up import ImpactPolicy
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
 from grolla.application.investigation import NoCloudInventory
@@ -17,6 +18,7 @@ from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.bootstrap.team_config import MemoryConfig, StudyConfig
 from grolla.domain.follow_up import FollowUpPolicy
 from grolla.testing.clock import FakeClock
+from grolla.testing.console import InMemoryConsoleStore
 from grolla.testing.follow_up import InMemoryCycleQueue
 from grolla.testing.incidents import (
     FakeChatNotifier,
@@ -37,6 +39,8 @@ from grolla.testing.triage import InMemoryTriageQueue
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
+    CONSOLE_QUEUE,
+    CONSOLE_REPLIES_CRON,
     CYCLES_CRON,
     DEFAULT_QUEUE,
     DELIVERY_CRON,
@@ -794,3 +798,77 @@ async def test_stuck_triages_are_reaped_once_a_minute(
     await task.func(timestamp=0)
 
     assert calls == [(container.triage_queue, container.clock, container.triage_policy)]
+
+
+def test_console_replies_are_not_scheduled_without_the_console(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    assert {"run_console_replies", "reap_stuck_console_replies"}.isdisjoint(app.tasks)
+
+
+def with_console(container: WorkerContainer) -> WorkerContainer:
+    return replace(container, console=InMemoryConsoleStore(), console_policy=ConsolePolicy())
+
+
+async def test_console_replies_run_every_three_seconds_in_their_own_queue(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = with_console(container)
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_console_reply", run_next)
+    app = registered(container)
+
+    task = app.tasks["run_console_replies"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        CONSOLE_QUEUE,
+        "run_console_replies",
+        "run_console_replies",
+    )
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_console_replies", "")].cron == CONSOLE_REPLIES_CRON == "* * * * * */3"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "store": container.console,
+        "model": container.model,
+        "telemetry": container.telemetry,
+        "changes": container.changes,
+        "cloud": container.cloud,
+        "clock": container.clock,
+        "policy": container.console_policy,
+        "memory": container.memory,
+        "embedder": container.embedder,
+    }
+
+
+async def test_stuck_console_replies_are_reaped_once_a_minute(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = with_console(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_console_replies", reap)
+    app = registered(container)
+
+    task = app.tasks["reap_stuck_console_replies"]
+    assert (task.queue, task.lock) == (CONSOLE_QUEUE, "reap_stuck_console_replies")
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("reap_stuck_console_replies", "")].cron == REAPER_CRON
+
+    await task.func(timestamp=0)
+
+    assert calls == [(container.console, container.clock, container.console_policy)]

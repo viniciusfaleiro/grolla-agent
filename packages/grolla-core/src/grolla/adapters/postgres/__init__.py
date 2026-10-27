@@ -2,6 +2,7 @@
 
 from grolla.adapters.postgres.analysis import PostgresAnalysisQueue
 from grolla.adapters.postgres.chat import PostgresChatQueue
+from grolla.adapters.postgres.console import PostgresConsoleStore
 from grolla.adapters.postgres.database import PostgresDatabase
 from grolla.adapters.postgres.follow_up import PostgresCycleQueue
 from grolla.adapters.postgres.incidents import (
@@ -21,6 +22,7 @@ from grolla.adapters.postgres.triage import PostgresTriageQueue
 __all__ = [
     "PostgresAnalysisQueue",
     "PostgresChatQueue",
+    "PostgresConsoleStore",
     "PostgresCycleQueue",
     "PostgresDatabase",
     "PostgresIncidentRepository",

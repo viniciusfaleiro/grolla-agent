@@ -11,6 +11,7 @@ import httpx2
 import pytest
 from contracts.language_model_contract import (
     ChatReplyContract,
+    ConsoleModelContract,
     FollowUpModelContract,
     LanguageModelContract,
     MemoryModelContract,
@@ -20,6 +21,7 @@ from contracts.language_model_contract import (
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    CONSOLE_PROMPT,
     FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
     POST_MORTEM_PROMPT,
@@ -59,6 +61,7 @@ from grolla.domain.analysis import (
     VerificationDraft,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.console import ChartRequest, ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
 from grolla.domain.incidents import Severity
 from grolla.domain.memory import (
@@ -1535,3 +1538,162 @@ class TestClaudeTriageModelContract(TriageModelContract):
         return memory_model(
             lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
         )
+
+
+# ---- Console de operação
+
+CONSOLE_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=4000, effort="low")
+CONSOLE_QUESTION = "como está a taxa de erro do captura-api?"
+CONSOLE_ANSWER = {
+    "text": "  Erro em 0,4% no captura-api, estável.  ",
+    "charts": [{"service": "captura-api", "signal": "taxa_de_erro", "minutes": 60}],
+}
+
+
+@pytest.fixture(autouse=True)
+def console_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mensagem é do grolla-dominio: aqui o adapter só precisa entregá-la."""
+
+    def text(context: str, question: str) -> str:
+        return f"{context}\n\nPergunta: {question}"
+
+    monkeypatch.setattr("grolla.adapters.anthropic.console_text", text)
+
+
+def consultant(handler: Handler, **stages: ModelSettings) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(
+        "chave",
+        SETTINGS,
+        base_url="http://fake/anthropic",
+        transport=httpx2.MockTransport(handler),
+        **stages,
+    )
+
+
+async def consult(
+    handler: Handler, toolbox: Toolbox | None = None, budget: TokenBudget | None = None
+) -> ConsoleDraft:
+    model = consultant(handler, console=CONSOLE_SETTINGS)
+    return await model.consult(
+        "sem mensagens anteriores",
+        CONSOLE_QUESTION,
+        toolbox or RecordingToolbox(),
+        budget or RecordingBudget(),
+    )
+
+
+class TestClaudeConsoleModelContract(ConsoleModelContract):
+    @pytest.fixture
+    def consulting_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return consultant(ScriptedApi(tool_use, ok(final(CONSOLE_ANSWER))))
+
+    @pytest.fixture
+    def failing_consultant(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return consultant(ScriptedApi(response, response, response))
+
+
+async def test_consult_runs_the_tools_and_returns_the_text_and_the_charts() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(CONSOLE_ANSWER)))
+    toolbox = RecordingToolbox()
+
+    draft = await consult(api, toolbox)
+
+    assert draft == ConsoleDraft(
+        text="Erro em 0,4% no captura-api, estável.",
+        charts=(ChartRequest("captura-api", "taxa_de_erro", 60),),
+    )
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+
+
+async def test_consult_request_uses_the_console_prompt_schema_and_stage_settings() -> None:
+    api = ScriptedApi(ok(final({"text": "ok", "charts": []})))
+    budget = RecordingBudget()
+
+    draft = await consult(api, budget=budget)
+
+    assert draft == ConsoleDraft(text="ok")
+    [body] = api.bodies
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["output_config"]["effort"] == "low"
+    chart = {
+        "type": "object",
+        "properties": {
+            "service": {"type": "string"},
+            "signal": {"type": "string", "enum": ["taxa_de_erro", "latencia_p99", "vazao"]},
+            "minutes": {"type": "integer"},
+        },
+        "required": ["service", "signal", "minutes"],
+        "additionalProperties": False,
+    }
+    assert body["output_config"]["format"]["schema"] == {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "charts": {"type": "array", "items": chart}},
+        "required": ["text", "charts"],
+        "additionalProperties": False,
+    }
+    assert body["system"][0]["text"] == CONSOLE_PROMPT
+    content = f"sem mensagens anteriores\n\nPergunta: {CONSOLE_QUESTION}"
+    assert body["messages"] == [{"role": "user", "content": content}]
+    assert [usage.stage for usage in budget.spent] == ["console"]
+
+
+@pytest.mark.parametrize(
+    ("stages", "model"),
+    [({"chat": CHAT_SETTINGS}, "claude-haiku-5-5"), ({}, "claude-sonnet-5-5")],
+)
+async def test_consult_without_its_own_stage_inherits_the_chat_settings(
+    stages: dict[str, ModelSettings], model: str
+) -> None:
+    api = ScriptedApi(ok(final({"text": "ok", "charts": []})))
+
+    await consultant(api, **stages).consult("", "oi", RecordingToolbox(), RecordingBudget())
+
+    assert api.bodies[0]["model"] == model
+
+
+async def test_consult_with_the_budget_ending_answers_with_what_it_already_consulted() -> None:
+    tool_use, answer = fixture("anthropic_tool_use.json"), final(CONSOLE_ANSWER)
+    budget = TokenBudget(limit=tokens_of(tool_use) + tokens_of(answer) + 10)
+    api = ScriptedApi(ok(tool_use), ok(answer))
+
+    await consult(api, budget=budget)
+
+    assert api.bodies[-1]["tool_choice"] == {"type": "none"}
+
+
+async def test_consult_budget_exceeded_stops_the_loop() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(CONSOLE_ANSWER)))
+    toolbox = RecordingToolbox()
+
+    with pytest.raises(BudgetExceededError):
+        await consult(api, toolbox, RecordingBudget(fail_at=1))
+
+    assert toolbox.calls == []
+
+
+async def test_consult_api_error_and_refusal_become_language_model_error() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await consult(ScriptedApi(response, response, response))
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await consult(ScriptedApi(ok(final("", stop_reason="refusal"))))
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "não é json",
+        {"text": "ok"},
+        {"text": "ok", "charts": [{"service": "x", "signal": "vazao"}]},
+        {"text": "ok", "charts": [], "extra": 1},
+        {"text": "  ", "charts": []},
+    ],
+)
+async def test_consult_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError, match="resposta do console"):
+        await consult(ScriptedApi(ok(final(answer))))
