@@ -29,7 +29,6 @@ from grolla.domain.post_mortem import (
     ActionItem,
     ActionKind,
     ActionStatus,
-    AgentEvaluation,
     PostMortem,
     PostMortemStatus,
     Section,
@@ -181,7 +180,7 @@ async def test_get_without_post_mortem_is_none(store: PostgresPostMortemStore) -
     assert await store.get(uuid4()) is None
 
 
-async def test_save_round_trips_sections_actions_status_and_evaluation(
+async def test_save_round_trips_sections_actions_and_status(
     repository: PostgresIncidentRepository, store: PostgresPostMortemStore
 ) -> None:
     incident = await saved(repository)
@@ -193,13 +192,6 @@ async def test_save_round_trips_sections_actions_status_and_evaluation(
         ),
         status_by="ana",
         status_at=STARTED,
-        evaluation=AgentEvaluation(
-            main_hypothesis_correct=False,
-            minutes_to_right=0,
-            memory_helped=True,
-            author="ana",
-            at=T0,
-        ),
     )
 
     await store.save(pm, [])
