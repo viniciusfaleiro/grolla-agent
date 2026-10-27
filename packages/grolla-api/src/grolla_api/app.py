@@ -136,17 +136,21 @@ from grolla_api.post_mortem_pages import (
 from grolla_api.war_room import (
     AUTHOR_COOKIE,
     AUTHOR_COOKIE_MAX_AGE,
+    CLOSED_SHOWN,
     SEVERITIES,
     STATE_LABELS,
     SUGGESTIONS,
     SYSTEM_AUTHORS,
     TOOL_LABELS,
     UTF8_MAX_BYTES,
+    ClosedRow,
+    IncidentFilter,
     action_from,
     ago,
     alarm_normalized,
     alarm_of,
     chat_version,
+    closed_row,
     current_proposal,
     decode_author,
     discarded_hypotheses,
@@ -156,6 +160,7 @@ from grolla_api.war_room import (
     event_kind,
     event_label,
     failed_transcript,
+    firing_count,
     from_transcript,
     header_of,
     hypothesis_rows,
@@ -170,6 +175,7 @@ from grolla_api.war_room import (
     merge_suggestion,
     merge_target,
     merged_into,
+    open_card,
     parse_form,
     partial_text,
     percent,
@@ -407,6 +413,7 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         war room e no polling da timeline.
         """
         events = await repository.events_of(incident.id)
+        recent = await repository.list_incidents(INCIDENT_LIST_LIMIT)
         return {
             "incident": incident,
             "header": header_of(incident, services.clock.now(), author),
@@ -417,9 +424,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "cycles": recent_cycles(await repository.cycles_of(incident.id)),
             "impact": await follow_up.impact_of(repository, incident, services.impact),
             "proposal": current_proposal(incident, events),
-            "merge_candidates": merge_candidates(
-                incident, await repository.list_incidents(INCIDENT_LIST_LIMIT)
-            ),
+            "merge_candidates": merge_candidates(incident, recent),
+            "firing_count": firing_count(recent),
         }
 
     async def linked_of(events: list[IncidentEvent]) -> dict[UUID, Incident]:
@@ -492,12 +498,49 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         return {"status": "accepted"}
 
     @app.get("/incidents", response_class=HTMLResponse)
-    async def incidents(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    async def incidents(request: Request, mais: str = "") -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         found = await repository.list_incidents(INCIDENT_LIST_LIMIT)
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        now = services.clock.now()
+        params: dict[str, list[str]] = {}
+        for key, value in request.query_params.multi_items():
+            params.setdefault(key, []).append(value)
+        chosen = IncidentFilter.from_query(params)
+        shown = [i for i in found if chosen.matches(i, author, now)]
+        opened = [i for i in shown if i.state in OPEN_STATES and chosen.scope != "encerrados"]
+        closed = [i for i in shown if i.state not in OPEN_STATES and chosen.scope != "abertos"]
+        visible_closed = closed if mais else closed[:CLOSED_SHOWN]
+        cards = [
+            open_card(
+                i,
+                await repository.analysis_of(i.id),
+                await repository.verification_of(i.id),
+                now,
+            )
+            for i in opened
+        ]
+        rows: list[ClosedRow] = []
+        for i in visible_closed:
+            pm = await services.post_mortems.get(i.id)
+            rows.append(
+                closed_row(
+                    i,
+                    await repository.verification_of(i.id),
+                    PM_STATUS_LABELS[pm.status] if pm else "",
+                )
+            )
         context = {
             "incidents": found,
-            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
-            "now": services.clock.now(),
+            "cards": cards,
+            "rows": rows,
+            "hidden_closed": len(closed) - len(visible_closed),
+            "filters": chosen,
+            "query": params,
+            "services_seen": sorted({s for i in found for s in i.services}),
+            "shown_count": len(opened) + len(closed),
+            "firing_count": firing_count(found),
+            "author": author,
+            "now": now,
             "nav": "incidents",
         }
         return templates.TemplateResponse(request, "incidents.html", context)

@@ -18,7 +18,7 @@
 <header class="topbar">
   <a class="brand" href="/incidents"><img src="/static/grolla-avatar.svg" alt=""><strong>Grolla</strong></a>
   <nav>
-    <a href="/incidents"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidentes</a>
+    <a href="/incidents"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidentes{% if firing_count %} <span class="nav-count" title="Incidentes com alarme disparando">{{ firing_count }}</span>{% endif %}</a>
     <a href="/console"{% if nav == "console" %} aria-current="page"{% endif %}>Console</a>
     <a href="/postmortems"{% if nav == "postmortems" %} aria-current="page"{% endif %}>Post mortems</a>
     <a href="/memoria"{% if nav == "memory" %} aria-current="page"{% endif %}>Memória</a>

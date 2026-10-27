@@ -1,0 +1,58 @@
+# Dois incidentes de serviços e severidades diferentes: a lista filtra por serviço, severidade e
+# texto, com o filtro escolhido marcado e a lista vazia quando nada casa.
+name: lista de incidentes filtra por serviço, severidade e texto
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Erros no filtra-a-api
+              service_name: filtra-a-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: erros acima de 20 em 5 min no filtra-a-api
+              description: 31 requisições com erro no filtra-a-api.
+            startsAt: "2026-01-01T12:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=130
+            fingerprint: e2e-filtra-a
+          - status: firing
+            labels:
+              alertname: Erros no filtra-b-api
+              service_name: filtra-b-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: erros acima de 20 em 5 min no filtra-b-api
+              description: 22 requisições com erro no filtra-b-api.
+            startsAt: "2026-01-01T12:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=131
+            fingerprint: e2e-filtra-b
+then:
+  - expect_page:
+      service: api
+      path: /incidents?servico=filtra-a-api
+      contains: [Erros no filtra-a-api, '<option value="filtra-a-api" selected>', Limpar filtros]
+  - expect_page:
+      service: api
+      path: /incidents?servico=filtra-a-api&sev=P3
+      contains: [Nenhum incidente aberto com esses filtros]
+  - expect_page:
+      service: api
+      path: /incidents?q=filtra-b
+      contains: [Erros no filtra-b-api, Disparando]
