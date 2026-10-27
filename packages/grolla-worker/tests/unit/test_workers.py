@@ -16,7 +16,7 @@ class FakeApp:
 
     async def run_worker_async(self, **options: Any) -> None:
         self.started.append(options)
-        if len(self.started) == 2:
+        if len(self.started) == 3:
             self.both_started.set()
         try:
             await asyncio.Event().wait()
@@ -50,5 +50,11 @@ async def test_runs_one_loop_per_queue_until_a_stop_signal(received: signal.Sign
             "concurrency": 3,
             "install_signal_handlers": False,
         },
+        {
+            "name": "console",
+            "queues": ["console"],
+            "concurrency": 1,
+            "install_signal_handlers": False,
+        },
     ]
-    assert app.cancelled == 2
+    assert app.cancelled == 3

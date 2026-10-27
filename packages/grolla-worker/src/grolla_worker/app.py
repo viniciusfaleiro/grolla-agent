@@ -6,6 +6,12 @@ from grolla.application.analysis import (
     run_next_verification,
 )
 from grolla.application.chat import reap_stuck_replies, run_next_reply
+from grolla.application.console import (
+    ConsolePolicy,
+    ConsoleStore,
+    reap_stuck_console_replies,
+    run_next_console_reply,
+)
 from grolla.application.follow_up import (
     CycleQueue,
     reap_stuck_cycles,
@@ -39,10 +45,12 @@ from grolla.domain.follow_up import FollowUpPolicy
 
 from grolla_worker.heartbeat import HEARTBEAT_CRON, beat
 
-# Duas filas, cada uma com o próprio laço de worker (main.py): uma análise de minutos na fila
-# `analysis` nunca atrasa o heartbeat nem a entrega dos cards na `default`.
+# Três filas, cada uma com o próprio laço de worker (main.py): uma análise de minutos na fila
+# `analysis` nunca atrasa o heartbeat nem a entrega dos cards na `default`, e as respostas do
+# console, de prioridade menor, ficam na `console`, com concorrência 1, sem atrasar os incidentes.
 DEFAULT_QUEUE = "default"
 ANALYSIS_QUEUE = "analysis"
+CONSOLE_QUEUE = "console"
 
 # Crons com campo de segundos.
 DELIVERY_CRON = "* * * * * */5"
@@ -57,6 +65,7 @@ SCHEDULE_CYCLES_CRON = "* * * * * */30"
 CYCLES_CRON = "* * * * * */10"
 POST_MORTEMS_CRON = "* * * * * */10"
 TRIAGES_CRON = "* * * * * */5"
+CONSOLE_REPLIES_CRON = "* * * * * */3"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -259,6 +268,9 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     if triages is not None and triage is not None:
         _triage_jobs(app, container, triages, triage)
 
+    if container.console is not None and container.console_policy is not None:
+        _console_jobs(app, container, container.console, container.console_policy)
+
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:
         # O estudo diário só pede a rodada; quem estuda é o `run_studies`.
@@ -395,3 +407,41 @@ def _triage_jobs(
     )
     async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await reap_stuck_triages(queue, container.clock, policy)
+
+
+def _console_jobs(
+    app: procrastinate.App, container: WorkerContainer, store: ConsoleStore, policy: ConsolePolicy
+) -> None:
+    """As respostas do console de operação, só com a seção `console` no YAML."""
+
+    # Uma rodada por vez (lock), na fila de prioridade menor: as perguntas até ela esvaziar.
+    @app.periodic(cron=CONSOLE_REPLIES_CRON)
+    @app.task(
+        name="run_console_replies",
+        queue=CONSOLE_QUEUE,
+        queueing_lock="run_console_replies",
+        lock="run_console_replies",
+    )
+    async def run(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_console_reply(
+            store=store,
+            model=container.model,
+            telemetry=container.telemetry,
+            changes=container.changes,
+            cloud=container.cloud,
+            clock=container.clock,
+            policy=policy,
+            memory=container.memory,
+            embedder=container.embedder,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_console_replies",
+        queue=CONSOLE_QUEUE,
+        queueing_lock="reap_stuck_console_replies",
+        lock="reap_stuck_console_replies",
+    )
+    async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_console_replies(store, container.clock, policy)

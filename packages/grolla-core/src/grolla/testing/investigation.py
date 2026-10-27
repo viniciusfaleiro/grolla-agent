@@ -133,8 +133,8 @@ class FakeTelemetry:
         scripted = self.points.get((service, signal))
         if scripted is not None:
             return sorted(p for p in scripted if start <= p[0] <= end)
-        step = (end - start) / (SERIES_POINTS - 1)
-        return [(start + step * n, SERIES_VALUES[signal]) for n in range(SERIES_POINTS)]
+        window, last = end - start, SERIES_POINTS - 1
+        return [(start + window * n / last, SERIES_VALUES[signal]) for n in range(SERIES_POINTS)]
 
     async def dependencies(self, service: str, start: datetime, end: datetime) -> ToolResult:
         self._called("dependencies", {"service": service, "start": start, "end": end})
