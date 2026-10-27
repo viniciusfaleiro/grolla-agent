@@ -34,6 +34,7 @@ do procrastinate.
 | **Respostas presas** | Responde "não consegui responder: interrompida" à pergunta que ficou em andamento além do limite, quando o worker caiu no meio | periódico `reap_stuck_replies` (todo minuto, fila `analysis`, `lock`) |
 | **Aprender ao encerrar** | Para cada incidente resolvido ou descartado, uma chamada ao modelo, sem ferramentas, escreve o episódio de cada serviço (ruído no descarte) e reescreve os dossiês, com versão; falha é tentada de novo uma vez e fica na página da memória | periódico `run_learnings` (`* * * * * */10`, fila `analysis`) e `reap_stuck_learnings` (todo minuto) |
 | **Estudo do ambiente** | Regras de alerta do domínio → serviços (das regras e os ativos com repositório) → estudo de cada serviço com ferramentas e teto próprio, parando no teto da rodada → síntese do ambiente e das integrações | periódico `run_studies` (todo minuto, fila `analysis`, `lock`) e `reap_stuck_studies` (todo minuto) |
+| **Indexar a memória (RAG)** | Com `memory.rag`, recorta em trechos por seção os dossiês, episódios e notas novos ou mudados (inclusive o que foi gravado direto no banco), gera os embeddings localmente em lote e grava no índice; apaga os trechos de registros esquecidos e de outro modelo, então trocar o modelo reindexa tudo. Repete enquanto houver lote cheio | periódico `index_memory` (`* * * * * */30`, fila `analysis`, `lock`; só registrado com `memory.rag`) |
 | **Estudo inicial e diário** | Na subida, com `memory.study` e nenhum dossiê, pede o estudo inicial; o estudo diário pede uma rodada no `memory.study.cron` (só registrado com `memory.study`) | `ensure_initial_study` no `main.py`; periódico `schedule_daily_study` (fila `default`) |
 | **Entrega de cards** | Entrega a outbox de notificações no canal do time (Adaptive Card via Workflow do Teams), em ordem por incidente, com retentativa e espera crescente; registra no incidente a entrega ou a desistência | periódico `deliver_notifications` (`* * * * * */5`, uma rodada por vez com `queueing_lock` e `lock`) |
 
@@ -44,10 +45,12 @@ O processo roda **dois laços do procrastinate**:
 | Fila | Concorrência | Jobs |
 |---|---|---|
 | `default` | 1 | `heartbeat`, `deliver_notifications`, `schedule_daily_study` |
-| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies`, `run_learnings`, `reap_stuck_learnings`, `run_studies`, `reap_stuck_studies` |
+| `analysis` | `investigation.max_parallel` | `run_analyses`, `reap_stuck_analyses`, `run_verifications`, `reap_stuck_verifications`, `run_replies`, `reap_stuck_replies`, `run_learnings`, `reap_stuck_learnings`, `run_studies`, `reap_stuck_studies`, `index_memory` (com `memory.rag`) |
 
 Assim uma análise de minutos nunca atrasa o heartbeat nem a entrega dos cards. Análises,
-validações e respostas do chat recebem a memória (`container.memory`) e os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
+validações, respostas do chat e o estudo recebem a memória (`container.memory`), o modelo de embeddings
+(`container.embedder`, só com `memory.rag`: busca híbrida, trechos de documentação e o estudo indexando os
+`.md` de cada serviço estudado) e os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
 seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. O `main.py`
 trata SIGINT/SIGTERM e encerra os dois laços com graça, porque com dois laços os handlers de
 sinal do procrastinate brigariam.
