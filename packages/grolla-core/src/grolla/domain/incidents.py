@@ -4,10 +4,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from grolla.domain.analysis import Analysis, Verification
+
+if TYPE_CHECKING:  # o acompanhamento importa este módulo
+    from grolla.domain.follow_up import Cycle
 
 UNKNOWN_SERVICE = "desconhecido"
 
@@ -111,6 +114,10 @@ class EventType(StrEnum):
     INCIDENT_DISCARDED = "incident_discarded"
     HUMAN_MESSAGE = "human_message"
     AGENT_MESSAGE = "agent_message"
+    CYCLE_COMPLETED = "cycle_completed"
+    CYCLE_PARTIAL = "cycle_partial"
+    FOLLOW_UP_STOPPED = "follow_up_stopped"
+    AGENT_PROPOSAL = "agent_proposal"
 
 
 @dataclass(frozen=True)
@@ -133,6 +140,9 @@ class NotificationKind(StrEnum):
     INCIDENT_MITIGATED = "incident_mitigated"
     INCIDENT_RESOLVED = "incident_resolved"
     INCIDENT_DISCARDED = "incident_discarded"
+    FOLLOW_UP_UPDATE = "follow_up_update"  # "Atualização" ou "Sem mudança"
+    AGENT_PROPOSAL = "agent_proposal"  # "Grolla sugere marcar como mitigado/encerrar"
+    ALERT_REOPENED = "alert_reopened"  # mitigado voltou para em tratamento
 
 
 @dataclass(frozen=True)
@@ -148,6 +158,8 @@ class Notification:
     page_url: str
     analysis: Analysis | None = None  # só em ANALYSIS_READY
     verification: Verification | None = None  # só em ROOT_CAUSE
+    cycle: "Cycle | None" = None  # só em FOLLOW_UP_UPDATE
+    impact: str | None = None  # impacto estimado já formatado ("R$ 3.000,00 estimado")
 
 
 @dataclass(frozen=True)

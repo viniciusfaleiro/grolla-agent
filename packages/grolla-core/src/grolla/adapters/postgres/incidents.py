@@ -27,6 +27,7 @@ from grolla.domain.analysis import (
     Verification,
 )
 from grolla.domain.chat import ChatMessage, ReplyStatus
+from grolla.domain.follow_up import Cycle
 from grolla.domain.incidents import (
     OPEN_STATES,
     Alert,
@@ -512,6 +513,9 @@ class PostgresUnitOfWork:
             {"incident_id": incident_id, "status": AnalysisStatus.PENDING.value, "at": at},
         )
 
+    async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
+        raise NotImplementedError  # contrato do acompanhamento: do grolla-persistencia
+
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
         await self._connection.execute(
             sa.text(
@@ -620,6 +624,9 @@ class PostgresIncidentRepository:
             )
             data = result.scalar_one_or_none()
             return None if data is None else _analysis(data)
+
+    async def cycles_of(self, incident_id: UUID) -> list[Cycle]:
+        raise NotImplementedError  # contrato do acompanhamento: do grolla-persistencia
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         async with self._engine.connect() as connection:

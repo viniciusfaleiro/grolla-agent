@@ -2,11 +2,11 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `domain.follow_up` (Trend, Proposal, CycleDraft, Cycle, CycleStatus, FollowUpPolicy, CycleDecision, funções com `NotImplementedError`); eventos e kinds novos; `Notification.cycle`/`impact`.
-- [ ] 0.2 `application.follow_up` (CycleCandidate, CycleQueue, ImpactPolicy, casos de uso com `NotImplementedError`); `request_cycle`; `cycles_of`; `LanguageModel.follow_up`, `STAGE_FOLLOW_UP`, `FOLLOW_UP_PROMPT`/`follow_up_text`.
-- [ ] 0.3 Stubs no Postgres, no Anthropic e nos fakes; migração 0008.
-- [ ] 0.4 Config `follow_up`, `impact` e etapa `follow_up`; bootstrap (containers com `cycle_queue`, `follow_up_policy` e `impact_policy`); `e2e/config.yaml` e `deploy/credenciadora.yaml`.
-- [ ] 0.5 `make check` verde e commit de contrato.
+- [x] 0.1 `domain.follow_up` (Trend, Proposal, CycleDraft, Cycle, CycleStatus, FollowUpPolicy, CycleDecision, funções com `NotImplementedError`); eventos e kinds novos; `Notification.cycle`/`impact`.
+- [x] 0.2 `application.follow_up` (CycleCandidate, CycleQueue, ImpactPolicy, casos de uso com `NotImplementedError`); `request_cycle`; `cycles_of`; `LanguageModel.follow_up`, `STAGE_FOLLOW_UP`, `FOLLOW_UP_PROMPT`/`follow_up_text`.
+- [x] 0.3 Stubs no Postgres, no Anthropic e nos fakes; migração 0008.
+- [x] 0.4 Config `follow_up`, `impact` e etapa `follow_up`; bootstrap (containers com `cycle_queue`, `follow_up_policy` e `impact_policy`); `e2e/config.yaml` e `deploy/credenciadora.yaml`.
+- [x] 0.5 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
 

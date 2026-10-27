@@ -45,3 +45,13 @@ memory:
   # RAG: embeddings locais (modelo small embutido na imagem do worker) e busca híbrida.
   rag:
     size: small
+
+# Acompanhamento da crise: ciclos curtos para o e2e caber em poucos minutos.
+follow_up:
+  cycle_minutes: 1
+  quiet_minutes: 2
+  stable_minutes: 2
+  max_cycles: 10
+impact:
+  services:
+    lembra-api: { per_minute: 1000 }

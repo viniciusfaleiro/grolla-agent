@@ -183,6 +183,18 @@ async def follow_up(
 - `run_cycles`, a cada 10 s, na fila `analysis`;
 - `reap_stuck_cycles`, junto com os outros reapers.
 
+### Ajustes do commit de contrato
+
+- `cycle_due` e `decide_cycle` recebem os argumentos por nome; `decide_cycle` recebe
+  `proposals: Collection[MadeProposal]` (proposta + estado em que foi feita, tirados dos
+  eventos `AGENT_PROPOSAL`).
+- `FollowUpLimits` (timeout, tokens por ciclo e por incidente) e `impact_text` em
+  `application.follow_up`; `run_next_cycle` recebe `limits`, `impact` e `page_url`.
+- `Notification.cycle` usa import só para tipo (o módulo `follow_up` importa `incidents`).
+- `WorkerContainer` ganha `cycle_queue` (None sem `follow_up`), `follow_up_policy`,
+  `follow_up_limits` e `impact_policy`; `ApiContainer` ganha `impact_policy`.
+- O Teams já tem títulos provisórios para os três cards novos, para a suíte de contrato passar.
+
 ## Decisions
 
 **1. Agendamento por varredura, não por timer por incidente.** A cada 30 s, `schedule_cycles` lê

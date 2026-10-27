@@ -76,6 +76,7 @@ from grolla.domain.analysis import (
     check_plan,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft
 from grolla.domain.memory import (
     ENVIRONMENT,
     DossierDraft,
@@ -370,6 +371,7 @@ class ClaudeLanguageModel:
         chat: ModelSettings | None = None,
         learning: ModelSettings | None = None,
         study: ModelSettings | None = None,
+        follow_up: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -377,6 +379,7 @@ class ClaudeLanguageModel:
         self._chat = chat or settings  # etapa `warroom_chat` também herda
         self._learning = learning or settings  # etapas da memória também herdam
         self._study = study or settings
+        self._follow_up = follow_up or settings
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -425,6 +428,16 @@ class ClaudeLanguageModel:
                 return await _concrete(client, phase, messages, toolbox, budget)
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def follow_up(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        previous: Cycle | None,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> CycleDraft:
+        raise NotImplementedError  # contrato do acompanhamento: do grolla-integracoes
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

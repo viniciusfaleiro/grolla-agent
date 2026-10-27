@@ -19,6 +19,7 @@ from grolla.application.incidents import (
 from grolla.application.investigation import STAGE_WARROOM_CHAT, LlmUsage
 from grolla.domain.analysis import Analysis, AnalysisStatus, Verification
 from grolla.domain.chat import ChatMessage, ReplyStatus
+from grolla.domain.follow_up import Cycle
 from grolla.domain.incidents import (
     OPEN_STATES,
     Alert,
@@ -62,6 +63,8 @@ class InMemoryIncidentRepository:
         self.messages: list[ChatMessage] = []
         self.reply_started: dict[int, datetime] = {}  # pergunta em andamento → início
         self.learning_requests: dict[UUID, datetime] = {}  # incidente → pedido do aprendizado
+        self.cycle_requests: dict[UUID, datetime] = {}  # incidente → ciclo antecipado
+        self.cycles: dict[tuple[UUID, int], Cycle] = {}  # (incidente, número) → ciclo
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator["InMemoryUnitOfWork"]:
@@ -77,6 +80,7 @@ class InMemoryIncidentRepository:
             list(self.messages),
             dict(self.reply_started),
             dict(self.learning_requests),
+            dict(self.cycle_requests),
         )
         try:
             yield InMemoryUnitOfWork(self)
@@ -93,6 +97,7 @@ class InMemoryIncidentRepository:
                 self.messages,
                 self.reply_started,
                 self.learning_requests,
+                self.cycle_requests,
             ) = snapshot
             raise
 
@@ -123,6 +128,11 @@ class InMemoryIncidentRepository:
 
     async def analysis_of(self, incident_id: UUID) -> Analysis | None:
         return self.analyses.get(incident_id)
+
+    async def cycles_of(self, incident_id: UUID) -> list[Cycle]:
+        return sorted(
+            (c for (i, _), c in self.cycles.items() if i == incident_id), key=lambda c: c.number
+        )
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         return [event for event in self.events if event.incident_id == incident_id]
@@ -196,6 +206,9 @@ class InMemoryUnitOfWork:
 
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
         self._repository.learning_requests[incident_id] = at
+
+    async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
+        self._repository.cycle_requests[incident_id] = at
 
 
 class InMemoryAnalysisQueue:

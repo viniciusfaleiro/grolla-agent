@@ -15,6 +15,7 @@ from grolla.application.clock import Clock
 from grolla.application.memory_store import MemoryStore, TextEmbedder, query_for
 from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft
 from grolla.domain.incidents import Alert, Incident, IncidentEvent
 from grolla.domain.memory import (
     ENVIRONMENT,
@@ -37,6 +38,7 @@ STAGE_VERIFICATION = "verification"
 STAGE_WARROOM_CHAT = "warroom_chat"
 STAGE_LEARNING = "learning"
 STAGE_STUDY = "study"
+STAGE_FOLLOW_UP = "follow_up"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -715,6 +717,19 @@ class LanguageModel(Protocol):
         """
         ...
 
+    async def follow_up(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        previous: Cycle | None,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> CycleDraft:
+        """Um ciclo de acompanhamento: tendência, taxa de erro e o que mudou, com as
+        ferramentas; levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         """Escreve o episódio e reescreve os dossiês do incidente encerrado, sem ferramentas;
         levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
@@ -1125,3 +1140,14 @@ def synthesis_text(brief: SynthesisBrief) -> str:
     lines += _memory_lines(brief.memory)
     lines += ["", "Escreva o dossiê do ambiente e os das integrações."]
     return "\n".join(lines)
+
+
+# ---- Acompanhamento da crise: prompt e mensagem da etapa `follow_up` ----
+# Contrato do agente que acompanha a crise: o texto e o corpo são do grolla-dominio.
+
+FOLLOW_UP_PROMPT = ""
+
+
+def follow_up_text(context: str, previous: Cycle | None) -> str:
+    """Mensagem do ciclo: o contexto do incidente (como no chat) e o ciclo anterior."""
+    raise NotImplementedError

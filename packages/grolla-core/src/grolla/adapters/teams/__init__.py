@@ -31,6 +31,10 @@ _HEADLINES = {
     NotificationKind.INCIDENT_MITIGATED: "Incidente mitigado",
     NotificationKind.INCIDENT_RESOLVED: "Incidente encerrado",
     NotificationKind.INCIDENT_DISCARDED: "Incidente descartado",
+    # Contrato do acompanhamento: o grolla-integracoes desenha os cards.
+    NotificationKind.FOLLOW_UP_UPDATE: "Atualização",
+    NotificationKind.AGENT_PROPOSAL: "Grolla sugere",
+    NotificationKind.ALERT_REOPENED: "Alerta voltou a disparar",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -44,6 +48,9 @@ _COLORS = {
     NotificationKind.INCIDENT_MITIGATED: "Good",
     NotificationKind.INCIDENT_RESOLVED: "Good",
     NotificationKind.INCIDENT_DISCARDED: "Default",
+    NotificationKind.FOLLOW_UP_UPDATE: "Default",
+    NotificationKind.AGENT_PROPOSAL: "Accent",
+    NotificationKind.ALERT_REOPENED: "Attention",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }

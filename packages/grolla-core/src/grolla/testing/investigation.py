@@ -35,6 +35,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft
 from grolla.domain.incidents import IncidentState
 from grolla.domain.memory import (
     ENVIRONMENT,
@@ -377,6 +378,16 @@ class ScriptedLanguageModel:
         if self.verification_error is not None:
             raise self.verification_error
         return self.verification
+
+    async def follow_up(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        previous: Cycle | None,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> CycleDraft:
+        raise NotImplementedError  # contrato do acompanhamento: implementado pelo grolla-dominio
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)
