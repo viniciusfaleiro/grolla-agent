@@ -218,6 +218,8 @@ async def _receive(
     await uow.link_alert(alert, decision.incident.id)
     if decision.request_analysis:
         await uow.request_analysis(decision.incident.id, now)
+    elif alert.status is AlertStatus.FIRING:  # alerta agrupado antecipa o próximo ciclo
+        await uow.request_cycle(decision.incident.id, now)
     for notification in decision.notifications:
         if notification.kind is NotificationKind.INCIDENT_NORMALIZED:
             # A normalização fecha a história: leva o desfecho da validação, se houver.

@@ -1,8 +1,10 @@
+from dataclasses import replace
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from grolla.domain.incidents import (
+    ALERT_REOPENED_REASON,
     AlertStatus,
     Decision,
     EventType,
@@ -268,16 +270,65 @@ def test_closed_incident_does_not_receive_new_alerts(state: IncidentState) -> No
     assert decision.request_analysis
 
 
-@pytest.mark.parametrize("state", [IncidentState.HANDLING, IncidentState.MITIGATED])
-def test_grouped_alert_keeps_the_state_chosen_by_a_human(state: IncidentState) -> None:
-    handled = make_incident(services=("authorizer-api",), state=state, severity=Severity.P3)
+def test_grouped_alert_keeps_the_state_chosen_by_a_human() -> None:
+    handled = make_incident(
+        services=("authorizer-api",), state=IncidentState.HANDLING, severity=Severity.P3
+    )
 
     decision = firing({"severity": "critical"}, candidates=(handled,))
 
     assert decision.incident is not None
-    assert decision.incident.state is state
+    assert decision.incident.state is IncidentState.HANDLING
     assert decision.incident.severity is Severity.P1
     assert EventType.STATE_CHANGED not in types(decision)
+
+
+def test_alert_firing_again_brings_a_mitigated_incident_back_to_handling() -> None:
+    mitigated = replace(
+        make_incident(
+            services=("authorizer-api",), state=IncidentState.MITIGATED, severity=Severity.P1
+        ),
+        commander="Ana",
+        handling_at=T0 + timedelta(minutes=2),
+        mitigated_at=T0 + timedelta(minutes=10),
+        last_alert_at=T0 + timedelta(minutes=10),  # o alerta resolveu e volta 8 min depois
+    )
+
+    decision = firing({"severity": "critical"}, candidates=(mitigated,), minutes=18)
+
+    incident = decision.incident
+    assert incident is not None
+    assert incident.state is IncidentState.HANDLING
+    assert (incident.commander, incident.handling_at, incident.mitigated_at) == (
+        "Ana",
+        mitigated.handling_at,
+        mitigated.mitigated_at,
+    )
+    changed = [e for e in decision.events if e.type is EventType.STATE_CHANGED]
+    assert [e.data for e in changed] == [
+        {"from": "mitigado", "to": "em_tratamento", "reason": ALERT_REOPENED_REASON}
+    ]
+    assert [n.kind for n in decision.notifications] == [NotificationKind.ALERT_REOPENED]
+    card = decision.notifications[0]
+    assert card.summary.startswith(ALERT_REOPENED_REASON)
+    assert card.page_url == page_url(mitigated.id)
+    assert types(decision)[-1] is EventType.NOTIFICATION_QUEUED
+    assert not decision.request_analysis
+
+
+def test_alert_reopening_with_a_worse_severity_sends_both_cards() -> None:
+    mitigated = make_incident(
+        services=("authorizer-api",), state=IncidentState.MITIGATED, severity=Severity.P2
+    )
+
+    decision = firing({"alertname": "Queda de aprovação"}, candidates=(mitigated,))
+
+    assert decision.incident is not None
+    assert decision.incident.state is IncidentState.HANDLING
+    assert [n.kind for n in decision.notifications] == [
+        NotificationKind.SEVERITY_RAISED,
+        NotificationKind.ALERT_REOPENED,
+    ]
 
 
 def test_resolving_an_alert_of_a_closed_incident_does_not_normalize_it() -> None:
