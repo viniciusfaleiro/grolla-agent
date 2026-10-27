@@ -5,15 +5,15 @@ import pytest
 from fastapi.testclient import TestClient
 from grolla.application.follow_up import ImpactPolicy
 from grolla.domain.analysis import PartialReason
-from grolla.domain.follow_up import (
+from grolla.domain.follow_up import LIMIT_REACHED, Cycle, CycleStatus, Proposal, Trend
+from grolla.domain.incidents import (
     ALERT_REOPENED_REASON,
-    LIMIT_REACHED,
-    Cycle,
-    CycleStatus,
-    Proposal,
-    Trend,
+    EventType,
+    Incident,
+    IncidentEvent,
+    IncidentState,
+    Severity,
 )
-from grolla.domain.incidents import EventType, Incident, IncidentEvent, IncidentState, Severity
 from grolla.testing.builders import T0, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
@@ -238,6 +238,7 @@ def test_timeline_labels_the_follow_up_events(
     repository.events = [
         IncidentEvent(incident.id, T0, EventType.CYCLE_COMPLETED, cycle_data, "agente"),
         IncidentEvent(incident.id, T0, EventType.CYCLE_PARTIAL, {"reason": "tempo_esgotado"}),
+        IncidentEvent(incident.id, T0, EventType.CYCLE_PARTIAL, {"reason": None}),
         proposal_event(incident, Proposal.MITIGATE, IncidentState.HANDLING),
         IncidentEvent(incident.id, T0, EventType.FOLLOW_UP_STOPPED, {"reason": LIMIT_REACHED}),
         IncidentEvent(
@@ -252,6 +253,8 @@ def test_timeline_labels_the_follow_up_events(
 
     assert "Acompanhamento: piorando — erros subindo" in fragment
     assert "Acompanhamento parcial" in fragment
+    assert "tempo esgotado" in fragment
+    assert "None" not in fragment
     assert "Grolla sugere marcar como mitigado" in fragment
     assert "Acompanhamento parado" in fragment
     assert LIMIT_REACHED in fragment

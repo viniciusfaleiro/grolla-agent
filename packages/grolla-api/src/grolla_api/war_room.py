@@ -326,7 +326,8 @@ def event_detail(event: IncidentEvent) -> str:
     if event.type is EventType.CYCLE_COMPLETED:
         return ""  # o rótulo já diz tudo
     if event.type is EventType.CYCLE_PARTIAL:
-        return partial_text(data.get("reason", ""))
+        reason = data.get("reason")
+        return partial_text(reason) if reason else ""
     if "from" in data and "to" in data:
         change = f"{_label(data['from'])} → {_label(data['to'])}"
         reason = data.get("reason")
