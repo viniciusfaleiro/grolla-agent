@@ -28,6 +28,12 @@ from grolla.application.post_mortem import (
     reap_stuck_post_mortems,
     run_next_post_mortem,
 )
+from grolla.application.triage import (
+    TriagePolicy,
+    TriageQueue,
+    reap_stuck_triages,
+    run_next_triage,
+)
 from grolla.bootstrap import WorkerContainer
 from grolla.domain.follow_up import FollowUpPolicy
 
@@ -50,6 +56,7 @@ INDEX_CRON = "* * * * * */30"
 SCHEDULE_CYCLES_CRON = "* * * * * */30"
 CYCLES_CRON = "* * * * * */10"
 POST_MORTEMS_CRON = "* * * * * */10"
+TRIAGES_CRON = "* * * * * */5"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -248,6 +255,10 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     if container.post_mortems is not None:
         _post_mortem_jobs(app, container, container.post_mortems)
 
+    triages, triage = container.triage_queue, container.triage_policy
+    if triages is not None and triage is not None:
+        _triage_jobs(app, container, triages, triage)
+
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:
         # O estudo diário só pede a rodada; quem estuda é o `run_studies`.
@@ -351,3 +362,36 @@ def _post_mortem_jobs(
         await reap_stuck_post_mortems(
             store, container.repository, container.clock, container.post_mortem_policy
         )
+
+
+def _triage_jobs(
+    app: procrastinate.App, container: WorkerContainer, queue: TriageQueue, policy: TriagePolicy
+) -> None:
+    """A triagem de cada incidente novo, só com a seção `noise` no YAML."""
+
+    # Uma rodada por vez (lock): as triagens pedidas até a fila esvaziar.
+    @app.periodic(cron=TRIAGES_CRON)
+    @app.task(
+        name="run_triages", queue=ANALYSIS_QUEUE, queueing_lock="run_triages", lock="run_triages"
+    )
+    async def run(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_triage(
+            queue=queue,
+            repository=container.repository,
+            model=container.model,
+            clock=container.clock,
+            policy=policy,
+            page_url=container.analysis.page_url,
+            memory=container.memory,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_triages",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_triages",
+        lock="reap_stuck_triages",
+    )
+    async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_triages(queue, container.clock, policy)

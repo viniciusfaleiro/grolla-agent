@@ -12,6 +12,7 @@ from grolla.application.incidents import ChatNotifier, NotificationOutbox
 from grolla.application.investigation import NoCloudInventory
 from grolla.application.memory import STUDY_AUTHOR_SYSTEM, StudyMode
 from grolla.application.memory_retrieval import RagPolicy
+from grolla.application.triage import TriagePolicy
 from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.bootstrap.team_config import MemoryConfig, StudyConfig
 from grolla.domain.follow_up import FollowUpPolicy
@@ -32,6 +33,7 @@ from grolla.testing.memory import (
     InMemoryStudyQueue,
 )
 from grolla.testing.post_mortem import InMemoryPostMortemStore
+from grolla.testing.triage import InMemoryTriageQueue
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
@@ -45,6 +47,7 @@ from grolla_worker.app import (
     REPLIES_CRON,
     SCHEDULE_CYCLES_CRON,
     STUDIES_CRON,
+    TRIAGES_CRON,
     VERIFICATIONS_CRON,
     build_app,
 )
@@ -718,3 +721,76 @@ async def test_stuck_post_mortems_are_reaped_once_a_minute(
             container.post_mortem_policy,
         )
     ]
+
+
+def test_triages_are_not_scheduled_without_noise(container: WorkerContainer) -> None:
+    app = registered(container)
+
+    assert {"run_triages", "reap_stuck_triages"}.isdisjoint(app.tasks)
+
+
+def triaging(container: WorkerContainer) -> WorkerContainer:
+    repository = container.repository
+    assert isinstance(repository, InMemoryIncidentRepository)
+    return replace(
+        container, triage_queue=InMemoryTriageQueue(repository), triage_policy=TriagePolicy()
+    )
+
+
+async def test_triages_run_every_five_seconds_one_round_at_a_time_until_none_is_pending(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = triaging(container)
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_triage", run_next)
+    app = registered(container)
+
+    task = app.tasks["run_triages"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        ANALYSIS_QUEUE,
+        "run_triages",
+        "run_triages",
+    )
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_triages", "")].cron == TRIAGES_CRON == "* * * * * */5"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "queue": container.triage_queue,
+        "repository": container.repository,
+        "model": container.model,
+        "clock": container.clock,
+        "policy": container.triage_policy,
+        "page_url": container.analysis.page_url,
+        "memory": container.memory,
+    }
+
+
+async def test_stuck_triages_are_reaped_once_a_minute(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = triaging(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_triages", reap)
+    app = registered(container)
+
+    task = app.tasks["reap_stuck_triages"]
+    assert (task.queue, task.lock) == (ANALYSIS_QUEUE, "reap_stuck_triages")
+    assert app.periodic_registry.periodic_tasks[("reap_stuck_triages", "")].cron == REAPER_CRON
+
+    await task.func(timestamp=0)
+
+    assert calls == [(container.triage_queue, container.clock, container.triage_policy)]
