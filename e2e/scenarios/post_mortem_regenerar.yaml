@@ -53,7 +53,7 @@ when:
       path: /postmortems/{incidente}/secoes/fatores/regenerar
       cookies: { grolla_author: Ana }
       form: { instrucao: incluir a falta de alarme no RDS }
-      status: 200
+      status: 303
 then:
   - wait_for_db_row:
       sql: >-
