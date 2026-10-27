@@ -198,7 +198,7 @@ agente quando nenhuma regra casa (só sobe).
 - **Escopo:** upload da transcrição; extração de decisões, ações, horários e participantes como
   eventos "origem: transcrição"; reavaliação das hipóteses.
 
-## S11 · AWS completa
+## S11 · AWS completa ✅
 
 O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para cá o restante.
 

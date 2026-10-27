@@ -28,6 +28,19 @@ class CloudAccount:
 
 **Config:** `cloud.accounts: [{name, role_arn, regions}]`.
 
+### Ajustes combinados durante a implementação
+
+- Suíte separada `CloudHealthQuotasContract`, no padrão da `CloudOverviewContract`.
+- A conta só aparece em cada item quando há mais de uma; a principal se chama "principal" (sem
+  `sts:GetCallerIdentity`).
+- Uso de vCPU só pelo CloudWatch (`AWS/Usage`); sem ponto, "uso sem dado".
+- Cotas do banco: instâncias e armazenamento (conexões não são cota da conta).
+- Health filtra pelas regiões configuradas; eventos globais ficam de fora.
+- Laboratório (27/10): Health sem plano → `HEALTH_UNAVAILABLE`; cotas reais (vCPUs 2 de 64,
+  instâncias de banco 1 de 40); recursos e visão geral; conta com role inexistente → "conta outra:
+  AccessDenied" sem esconder a principal. A role real não foi criada: criar identidade IAM fica
+  com o dono da conta (a conta é usada como root, e root não assume role).
+
 ## Decisions
 
 **1. Lista fechada de cotas.** Poucas cotas derrubam serviço, e listar todas é ruído e custo de
