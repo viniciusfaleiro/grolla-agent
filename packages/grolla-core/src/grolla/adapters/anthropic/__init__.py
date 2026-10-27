@@ -30,6 +30,11 @@ um com o motivo. Id que não é UUID vira "sem junção", sem invalidar a triage
 O console de operação (`consult`, etapa `console`, herdando o modelo do chat) roda o mesmo laço,
 fechando no orçamento como o chat, e devolve o texto e os gráficos pedidos (`{text, charts}`, cada
 gráfico com serviço, sinal e janela em minutos); quem filtra os gráficos é o domínio.
+
+A transcrição de call (`extract_transcript`, etapa `transcript`, herdando o modelo do post mortem)
+é uma chamada só, sem ferramentas: as decisões, ações e horários (`items`, cada um com o dono e o
+horário dito, ou null, e o trecho da fala), os participantes e o que a call disse das hipóteses
+(`confirmada` ou `descartada`, com o trecho). Item, participante ou hipótese sem texto é ignorado.
 """
 
 import asyncio
@@ -63,12 +68,14 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRANSCRIPT,
     STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
+    TRANSCRIPT_PROMPT,
     TRIAGE_PROMPT,
     VERIFICATION_PROMPT,
     InvalidAnalysisError,
@@ -90,6 +97,7 @@ from grolla.application.investigation import (
     regeneration_text,
     study_text,
     synthesis_text,
+    transcript_text,
     triage_text,
     verification_text,
 )
@@ -118,7 +126,13 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import DETERMINISTIC, ActionKind, PostMortemDraft, SectionKey
-from grolla.domain.transcript import TranscriptDraft
+from grolla.domain.transcript import (
+    HypothesisCheck,
+    TranscriptDraft,
+    TranscriptItem,
+    TranscriptItemKind,
+)
+from grolla.domain.transcript import HypothesisVerdict as CallVerdict
 from grolla.domain.triage import TriageDraft
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
@@ -327,6 +341,31 @@ TRIAGE_SCHEMA = _object(
     severity_reason=_TEXT,
 )
 
+# Transcrição de call: os itens (decisão, ação ou horário, com dono e horário dito quando houver),
+# os participantes e o veredito da call para cada hipótese citada, sempre com o trecho da fala.
+_NULLABLE_TEXT = {"type": ["string", "null"]}
+TRANSCRIPT_SCHEMA = _object(
+    items={
+        "type": "array",
+        "items": _object(
+            kind={"type": "string", "enum": [k.value for k in TranscriptItemKind]},
+            text=_TEXT,
+            owner=_NULLABLE_TEXT,
+            said_at=_NULLABLE_TEXT,
+            excerpt=_TEXT,
+        ),
+    },
+    participants={"type": "array", "items": _TEXT},
+    hypotheses={
+        "type": "array",
+        "items": _object(
+            hypothesis=_TEXT,
+            verdict={"type": "string", "enum": [v.value for v in CallVerdict]},
+            excerpt=_TEXT,
+        ),
+    },
+)
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -505,6 +544,49 @@ class _Triage(_Strict):
             same_reason=self.same_reason.strip(),
             severity=self.severity,
             severity_reason=self.severity_reason.strip(),
+        )
+
+
+class _TranscriptItem(_Strict):
+    kind: TranscriptItemKind
+    text: str
+    owner: str | None
+    said_at: str | None
+    excerpt: str
+
+
+class _HypothesisCheck(_Strict):
+    hypothesis: str
+    verdict: CallVerdict
+    excerpt: str
+
+
+class _Transcript(_Strict):
+    items: list[_TranscriptItem]
+    participants: list[str]
+    hypotheses: list[_HypothesisCheck]
+
+    def draft(self) -> TranscriptDraft:
+        """Sem espaços nas pontas; o que vem sem texto fica de fora, e dono ou horário vazio é
+        null."""
+        return TranscriptDraft(
+            items=tuple(
+                TranscriptItem(
+                    kind=i.kind,
+                    text=i.text.strip(),
+                    owner=(i.owner or "").strip() or None,
+                    said_at=(i.said_at or "").strip() or None,
+                    excerpt=i.excerpt.strip(),
+                )
+                for i in self.items
+                if i.text.strip()
+            ),
+            participants=tuple(dict.fromkeys(p.strip() for p in self.participants if p.strip())),
+            hypotheses=tuple(
+                HypothesisCheck(h.hypothesis.strip(), h.verdict, h.excerpt.strip())
+                for h in self.hypotheses
+                if h.hypothesis.strip()
+            ),
         )
 
 
@@ -689,7 +771,13 @@ class ClaudeLanguageModel:
     async def extract_transcript(
         self, context: str, transcript: str, budget: TokenBudget
     ) -> TranscriptDraft:
-        raise NotImplementedError  # contrato da transcrição: do grolla-integracoes
+        phase = _Phase(TRANSCRIPT_PROMPT, TRANSCRIPT_SCHEMA, self._transcript, STAGE_TRANSCRIPT)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, transcript_text(context, transcript), budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        return _parsed(_Transcript, response, "da transcrição").draft()
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

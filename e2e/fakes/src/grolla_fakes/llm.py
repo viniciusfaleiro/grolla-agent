@@ -69,6 +69,19 @@ o <serviço>: <trecho da métrica>", ou "Guardei: <fato>. Consultei o <serviço>
 `remember`, e pede um gráfico de `taxa_de_erro` do serviço por 60 min quando a pergunta cita
 "gráfico" ou "erro" e não é "Para registrar:" (sem gráfico, senão).
 
+A transcrição de call (schema com `participants`) também responde sempre como `completa`, sem
+ferramentas. Lê a transcrição (o texto depois do último "Transcrição:" da mensagem, ou a mensagem
+inteira) e as hipóteses do contexto (as linhas "- " da seção cujo cabeçalho começa com
+"Hipóteses", antes de "Transcrição:", sem o parêntese do fim). Cada linha "Nome: fala" põe o nome
+nos participantes e, pela fala (que é também o `excerpt`):
+- "vamos" ou "decidimos": uma decisão;
+- "fica com": uma ação, com dono o nome logo antes de "fica com" (se começa com maiúscula) ou
+  quem falou;
+- um horário "HH:MM": um item de horário, com `said_at` o horário;
+- "não foi": a hipótese descartada; "foi isso" ou "confirmado": confirmada. A hipótese é a
+  primeira do contexto com uma palavra de 4+ letras citada na fala, ou a primeira; sem hipótese
+  no contexto, nada.
+
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
 """
@@ -117,6 +130,13 @@ _INSTRUCTION_LINE = re.compile(r"Instrução:[ \t]*([^\n]*)")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _OTHERS = "Outros incidentes abertos"  # cabeçalho da lista na mensagem da triagem
 AUTO = "auto"
+_TRANSCRIPT = "Transcrição:"
+_SPEECH = re.compile(r"^\s*([^:\n]{1,60}?):\s*(.+)$")
+_CLOCK = re.compile(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b")
+_OWNER = re.compile(r"(\w+)\s+fica com")
+_WORD = re.compile(r"\w{4,}")
+DECISION_WORDS = ("vamos", "decidimos")
+CONFIRMED_WORDS = ("foi isso", "confirmado")
 
 
 class LlmMode(StrEnum):
@@ -138,6 +158,7 @@ class Phase(StrEnum):
     REGENERATION = "regeneracao"
     TRIAGE = "triagem"
     CONSOLE = "console"
+    TRANSCRIPT = "transcricao"
 
 
 class FollowUpScript(BaseModel):
@@ -172,6 +193,7 @@ _FIXED_PHASES = {
     **_POST_MORTEM_PHASES,
     "same_as": Phase.TRIAGE,
     "charts": Phase.CONSOLE,
+    "participants": Phase.TRANSCRIPT,
 }
 
 
@@ -244,6 +266,8 @@ def fixed_reply(body: dict[str, Any], current: Phase, state: FakesState) -> dict
         return triage_reply(body, TriageScript(**state.llm_triage))
     if current is Phase.CONSOLE:
         return console_reply(body)
+    if current is Phase.TRANSCRIPT:
+        return _final(body, transcript_reply(_first_text(body["messages"][0])))
     if current in _POST_MORTEM_PHASES.values():
         return post_mortem_reply(body, current)
     return memory_reply(body, current)
@@ -403,6 +427,65 @@ def _other_incidents(text: str) -> list[tuple[str, str]]:
             incident, entry = entries[-1]
             entries[-1] = (incident, f"{entry}\n{line}")
     return entries
+
+
+def transcript_reply(text: str) -> dict[str, Any]:
+    """Itens, participantes e hipóteses tirados de cada linha "Nome: fala" da transcrição."""
+    context, _, spoken = text.rpartition(_TRANSCRIPT)
+    hypotheses = _context_hypotheses(context)
+    items: list[dict[str, Any]] = []
+    participants: list[str] = []
+    checks: list[dict[str, str]] = []
+    for line in spoken.splitlines():
+        match = _SPEECH.match(line)
+        if match is None:
+            continue
+        name, speech = match.group(1).strip(), match.group(2).strip()
+        participants.append(name)
+        said = speech.lower()
+        if any(word in said for word in DECISION_WORDS):
+            items.append(_item("decisao", speech))
+        if "fica com" in said:
+            owner = _OWNER.search(speech)
+            named = owner.group(1) if owner and owner.group(1)[0].isupper() else name
+            items.append(_item("acao", speech, owner=named))
+        if clock := _CLOCK.search(speech):
+            items.append(_item("horario", speech, said_at=clock.group()))
+        if (verdict := _call_verdict(said)) and hypotheses:
+            cited = set(_WORD.findall(said))
+            hypothesis = next(
+                (h for h in hypotheses if cited & set(_WORD.findall(h.lower()))), hypotheses[0]
+            )
+            checks.append({"hypothesis": hypothesis, "verdict": verdict, "excerpt": speech})
+    return {"items": items, "participants": list(dict.fromkeys(participants)), "hypotheses": checks}
+
+
+def _item(
+    kind: str, speech: str, owner: str | None = None, said_at: str | None = None
+) -> dict[str, Any]:
+    return {"kind": kind, "text": speech, "owner": owner, "said_at": said_at, "excerpt": speech}
+
+
+def _call_verdict(said: str) -> str | None:
+    if "não foi" in said:
+        return "descartada"
+    if any(word in said for word in CONFIRMED_WORDS):
+        return "confirmada"
+    return None
+
+
+def _context_hypotheses(context: str) -> list[str]:
+    """As linhas "- " da seção "Hipóteses..." do contexto, sem o parêntese do fim."""
+    found: list[str] = []
+    inside = False
+    for line in context.splitlines():
+        if line.startswith("Hipóteses"):
+            inside = True
+        elif inside and line.startswith("- "):
+            found.append(re.sub(r"\s*\([^)]*\)$", "", line[2:]).strip())
+        elif inside and line.strip() and not line.startswith(" "):
+            inside = False
+    return found
 
 
 def memory_reply(body: dict[str, Any], current: Phase) -> dict[str, Any]:

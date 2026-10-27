@@ -28,6 +28,7 @@ from grolla.application.investigation import (
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
+    TRANSCRIPT_PROMPT,
     TRIAGE_PROMPT,
     VERIFICATION_PROMPT,
     AlertRule,
@@ -73,6 +74,13 @@ from grolla.domain.memory import (
     SynthesisDraft,
 )
 from grolla.domain.post_mortem import ActionKind, PostMortemDraft, SectionKey
+from grolla.domain.transcript import (
+    HypothesisCheck,
+    TranscriptDraft,
+    TranscriptItem,
+    TranscriptItemKind,
+)
+from grolla.domain.transcript import HypothesisVerdict as CallVerdict
 from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
@@ -1697,3 +1705,154 @@ async def test_consult_api_error_and_refusal_become_language_model_error() -> No
 async def test_consult_outside_the_schema_is_invalid(answer: object) -> None:
     with pytest.raises(InvalidAnalysisError, match="resposta do console"):
         await consult(ScriptedApi(ok(final(answer))))
+
+
+# ---- Transcrição de call: uma chamada sem ferramentas, herdando o modelo do post mortem
+
+TRANSCRIPT_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=8000, effort="low")
+EXTRACTED: dict[str, Any] = {
+    "items": [
+        {
+            "kind": "decisao",
+            "text": " Fazer rollback do pedidos-api ",
+            "owner": None,
+            "said_at": None,
+            "excerpt": " Ana: vamos fazer rollback ",
+        },
+        {
+            "kind": "acao",
+            "text": "Abrir chamado na AWS",
+            "owner": " Bruno ",
+            "said_at": "  ",
+            "excerpt": "Bruno fica com o chamado",
+        },
+        {
+            "kind": "horario",
+            "text": "Erros começaram",
+            "owner": "",
+            "said_at": "03:12",
+            "excerpt": "Carla: começou 03:12",
+        },
+        {"kind": "acao", "text": "  ", "owner": None, "said_at": None, "excerpt": "x"},
+    ],
+    "participants": [" Ana ", "Bruno", "Ana", " "],
+    "hypotheses": [
+        {"hypothesis": " Deploy 1.4.2 ", "verdict": "descartada", "excerpt": "não foi o deploy"},
+        {"hypothesis": "", "verdict": "confirmada", "excerpt": "foi isso"},
+    ],
+}
+
+
+@pytest.fixture(autouse=True)
+def transcript_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mensagem é do grolla-dominio: aqui o adapter só precisa entregá-la."""
+
+    def text(context: str, transcript: str) -> str:
+        return f"{context}\n\nTranscrição:\n{transcript}"
+
+    monkeypatch.setattr("grolla.adapters.anthropic.transcript_text", text)
+
+
+async def extract(
+    api: Handler, budget: TokenBudget | None = None, **stages: ModelSettings
+) -> TranscriptDraft:
+    return await memory_model(api, **stages).extract_transcript(
+        "Incidente: 5xx no pedidos-api", "Ana: vamos fazer rollback", budget or RecordingBudget()
+    )
+
+
+async def test_extract_transcript_returns_the_draft_in_one_call_without_tools() -> None:
+    api = ScriptedApi(ok(final(EXTRACTED)))
+    budget = RecordingBudget()
+
+    draft = await extract(api, budget, transcript=TRANSCRIPT_SETTINGS)
+
+    assert draft == TranscriptDraft(
+        items=(
+            TranscriptItem(
+                TranscriptItemKind.DECISION,
+                "Fazer rollback do pedidos-api",
+                None,
+                None,
+                "Ana: vamos fazer rollback",
+            ),
+            TranscriptItem(
+                TranscriptItemKind.ACTION,
+                "Abrir chamado na AWS",
+                "Bruno",
+                None,
+                "Bruno fica com o chamado",
+            ),
+            TranscriptItem(
+                TranscriptItemKind.TIME, "Erros começaram", None, "03:12", "Carla: começou 03:12"
+            ),
+        ),
+        participants=("Ana", "Bruno"),
+        hypotheses=(HypothesisCheck("Deploy 1.4.2", CallVerdict.DISCARDED, "não foi o deploy"),),
+    )
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["output_config"]["effort"] == "low"
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["required"] == ["items", "participants", "hypotheses"]
+    assert schema["additionalProperties"] is False
+    item = schema["properties"]["items"]["items"]
+    assert item["required"] == ["kind", "text", "owner", "said_at", "excerpt"]
+    assert item["properties"]["kind"]["enum"] == ["decisao", "acao", "horario"]
+    assert item["properties"]["owner"] == {"type": ["string", "null"]}
+    assert schema["properties"]["participants"] == {"type": "array", "items": {"type": "string"}}
+    hypothesis = schema["properties"]["hypotheses"]["items"]
+    assert hypothesis["required"] == ["hypothesis", "verdict", "excerpt"]
+    assert hypothesis["properties"]["verdict"]["enum"] == ["confirmada", "descartada"]
+    assert body["system"][0]["text"] == TRANSCRIPT_PROMPT
+    content = "Incidente: 5xx no pedidos-api\n\nTranscrição:\nAna: vamos fazer rollback"
+    assert body["messages"] == [{"role": "user", "content": content}]
+    assert [usage.stage for usage in budget.spent] == ["transcript"]
+
+
+@pytest.mark.parametrize(
+    ("stages", "model"),
+    [({"post_mortem": POST_MORTEM_SETTINGS}, "claude-opus-5-5"), ({}, "claude-sonnet-5-5")],
+)
+async def test_extract_transcript_without_its_own_stage_inherits_the_post_mortem_settings(
+    stages: dict[str, ModelSettings], model: str
+) -> None:
+    api = ScriptedApi(ok(final(EXTRACTED)))
+
+    await memory_model(api, **stages).extract_transcript("contexto", "Ana: oi", RecordingBudget())
+
+    assert api.bodies[0]["model"] == model
+
+
+async def test_extract_transcript_of_a_call_with_nothing_said() -> None:
+    answer: dict[str, list[Any]] = {"items": [], "participants": [], "hypotheses": []}
+
+    assert await extract(ScriptedApi(ok(final(answer)))) == TranscriptDraft((), (), ())
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "não é json",
+        {k: v for k, v in EXTRACTED.items() if k != "participants"},
+        {**EXTRACTED, "items": [{**EXTRACTED["items"][0], "kind": "tarefa"}]},
+        {**EXTRACTED, "hypotheses": [{"hypothesis": "x", "verdict": "talvez", "excerpt": ""}]},
+        {**EXTRACTED, "summary": "o modelo não resume"},
+    ],
+)
+async def test_extract_transcript_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError, match="transcrição"):
+        await extract(ScriptedApi(ok(final(answer))))
+
+
+async def test_extract_transcript_api_error_refusal_and_budget() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await extract(ScriptedApi(response, response, response))
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await extract(ScriptedApi(ok(final("", stop_reason="refusal"))))
+    with pytest.raises(BudgetExceededError):
+        await extract(ScriptedApi(ok(final(EXTRACTED))), RecordingBudget(fail_at=1))
