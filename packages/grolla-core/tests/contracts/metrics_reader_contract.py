@@ -15,9 +15,11 @@ import pytest
 from grolla.application.incidents import IncidentRepository
 from grolla.application.metrics import MetricsReader
 from grolla.application.post_mortem import PostMortemStore
+from grolla.domain.chat import AGENT_AUTHOR, ChatMessage
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState
 from grolla.domain.metrics import MetricsFacts
 from grolla.domain.post_mortem import AgentEvaluation, PostMortemStatus
+from grolla.domain.safety import Scope
 from grolla.testing.builders import T0, make_incident
 from grolla.testing.post_mortem import make_post_mortem
 
@@ -57,6 +59,7 @@ def ordered(facts: MetricsFacts) -> MetricsFacts:
         resolved=tuple(sorted(facts.resolved)),
         approved=tuple(sorted(facts.approved, key=lambda a: a[0])),
         answers=tuple(sorted(facts.answers)),
+        refusals=tuple(sorted(facts.refusals)),
     )
 
 
@@ -139,3 +142,22 @@ class MetricsReaderContract:
             (SINCE + timedelta(minutes=3), True),
             (SINCE + timedelta(minutes=5), False),
         )
+
+    async def test_refusals_are_the_refused_replies_since(
+        self, repository: IncidentRepository, reader: MetricsReader
+    ) -> None:
+        incident_id = await incident(repository, state=IncidentState.HANDLING)
+        refused_at = SINCE + timedelta(minutes=2)
+        replies = (
+            (refused_at, Scope.OFF_TOPIC),
+            (SINCE + timedelta(minutes=4), None),
+            (SINCE - timedelta(minutes=1), Scope.EXECUTION),
+        )
+        async with repository.transaction() as uow:
+            for at, refusal in replies:
+                reply = ChatMessage(0, incident_id, AGENT_AUTHOR, "-", at, refusal=refusal)
+                await uow.add_message(reply, wants_reply=False)
+
+        facts = ordered(await reader.facts(SINCE))
+
+        assert facts.refusals == (refused_at,)
