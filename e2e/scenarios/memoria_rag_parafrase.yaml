@@ -1,0 +1,61 @@
+# Com `memory.rag`, um episódio entra na análise de um incidente novo que descreve o mesmo
+# problema com outras palavras, de outro serviço e sem termo em comum para a busca textual:
+# "disco cheio no volume de logs" × "sem espaço livre na partição de registros". Quem acha é o
+# vetor do embedder real. O episódio é semeado por SQL porque o aprendizado do LLM fake escreve
+# sempre o mesmo corpo; o job de indexação o recorta em trechos como qualquer outro registro.
+name: episódio escrito com outras palavras chega à análise pela busca vetorial
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - capture:
+      name: episodio
+      sql: >-
+        INSERT INTO memories (id, kind, subject, subject_kind, title, body, confidence,
+        source_kind, source_author, created_at, updated_at)
+        VALUES (gen_random_uuid(), 'episodio', 'guarda-api', 'servico',
+        'Disco cheio no volume de logs',
+        'O disco do volume de logs do guarda-api encheu e as escritas travaram. Apagar os logs
+        antigos liberou o volume.',
+        'confirmado', 'pessoa', 'Caio', now(), now())
+        RETURNING id
+  # O job de indexação roda a cada 30 s; o primeiro embedding carrega o modelo.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memory_chunks WHERE memory_id = '{episodio}' AND origin = 'memoria'
+      at_least: 1
+      timeout_seconds: 120
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Armazenamento esgotado no lote-api
+              service_name: lote-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Sem espaço livre na partição de registros do lote-api
+              description: >-
+                A partição onde o lote-api salva seus registros está 100% ocupada e novas
+                gravações falham.
+            startsAt: "2026-01-01T12:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=170
+            fingerprint: e2e-rag-parafrase-1
+then:
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains:
+        - Sem espaço livre na partição de registros do lote-api
+        - "[episodio] guarda-api: Disco cheio no volume de logs"
+      timeout_seconds: 90
