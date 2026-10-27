@@ -71,7 +71,7 @@ def _chat_message(row: sa.Row[Any]) -> ChatMessage:
         author=row.author,
         text=row.text,
         at=row.at,
-        evaluations=_evaluations(row.evaluations),
+        evaluations=evaluations_from(row.evaluations),
         reply_status=None if row.reply_status is None else ReplyStatus(row.reply_status),
         reply_to=row.reply_to,
     )
@@ -193,12 +193,12 @@ def _verification(data: Mapping[str, Any]) -> Verification:
             for a in data["actions"]
         ),
         missing=data["missing"],
-        evaluations=_evaluations(data["evaluations"]),
+        evaluations=evaluations_from(data["evaluations"]),
         partial_reason=None if reason is None else PartialReason(reason),
     )
 
 
-def _evaluations(data: Sequence[Mapping[str, Any]]) -> tuple[Evaluation, ...]:
+def evaluations_from(data: Sequence[Mapping[str, Any]]) -> tuple[Evaluation, ...]:
     return tuple(
         Evaluation(
             tool=e["tool"], subject=e["subject"], finding=e["finding"], url=e["url"], ok=e["ok"]
@@ -268,7 +268,7 @@ def _analysis(data: Mapping[str, Any]) -> Analysis:
         started_at=_optional_datetime(data["started_at"]),
         finished_at=_optional_datetime(data["finished_at"]),
         summary=data["summary"],
-        evaluations=_evaluations(data["evaluations"]),
+        evaluations=evaluations_from(data["evaluations"]),
         hypotheses=_hypotheses(data["hypotheses"]),
         plan=tuple(data["plan"]),
         partial_reason=None if reason is None else PartialReason(reason),
@@ -311,7 +311,7 @@ def read_cycle(data: Mapping[str, Any]) -> Cycle:
         summary=data["summary"],
         changed=data["changed"],
         evidence=_evidence(data["evidence"]),
-        evaluations=_evaluations(data["evaluations"]),
+        evaluations=evaluations_from(data["evaluations"]),
         partial_reason=None if reason is None else PartialReason(reason),
         posted=data["posted"],
     )
