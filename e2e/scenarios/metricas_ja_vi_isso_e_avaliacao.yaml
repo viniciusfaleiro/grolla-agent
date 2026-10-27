@@ -79,7 +79,7 @@ when:
       path: /incidents/{novo}/ja-vi-isso
       cookies: { grolla_author: Ana }
       form: { mesmo: sim }
-      status: 200
+      status: 303
   - wait_for_db_row:
       sql: >-
         SELECT count(*) FROM incident_events WHERE incident_id = '{novo}'
