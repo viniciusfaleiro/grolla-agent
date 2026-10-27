@@ -450,3 +450,78 @@ async def test_read_file_with_refused_api_is_unavailable() -> None:
 
     with pytest.raises(ToolUnavailableError, match="HTTP 203"):
         await fake.history().read_file("authorizer-api", "README.md")
+
+
+def documented() -> FakeAzureDevOps:
+    """O repositório inteiro com três `.md` (um em maiúsculas) e arquivos que não são `.md`."""
+    fake = FakeAzureDevOps()
+    fake.listing = fixture("items_full")
+    fake.files["/docs/runbook.md"] = {
+        "path": "/docs/runbook.md",
+        "content": "# Runbook\n\n## Pool de conexões esgotado\n\nPause a reconciliação.\n",
+    }
+    fake.files["/docs/ADR-001.MD"] = {"path": "/docs/ADR-001.MD", "content": "# ADR 1\n"}
+    return fake
+
+
+async def test_documents_are_the_md_files_smallest_first_with_their_links() -> None:
+    fake = documented()
+
+    documents = await fake.history().documents("authorizer-api", 10, 100_000)
+
+    [listing] = [r for r in fake.requests if "recursionLevel" in r.url.params]
+    assert dict(listing.url.params) == {
+        "$format": "json",
+        "scopePath": "/",
+        "recursionLevel": "Full",
+        "versionDescriptor.version": "main",
+        "versionDescriptor.versionType": "branch",
+        "api-version": "7.1",
+    }
+    assert [d.path for d in documents] == ["docs/ADR-001.MD", "docs/runbook.md", "README.md"]
+    assert documents[1].url == f"{WEB}?path=/docs/runbook.md&version=GBmain"
+    assert "## Pool de conexões esgotado" in documents[1].content
+    fetched = sorted(r.url.params["path"] for r in fake.requests if "path" in r.url.params)
+    assert fetched == ["/README.md", "/docs/ADR-001.MD", "/docs/runbook.md"]
+
+
+async def test_documents_stop_at_the_file_and_byte_limits() -> None:
+    history = documented().history()
+    smallest = len(b"# ADR 1\n")
+
+    assert [d.path for d in await history.documents("authorizer-api", 1, 100_000)] == [
+        "docs/ADR-001.MD"
+    ]
+    assert [d.path for d in await history.documents("authorizer-api", 10, smallest)] == [
+        "docs/ADR-001.MD"
+    ]
+    assert await history.documents("authorizer-api", 10, smallest - 1) == []
+
+
+async def test_documents_skip_binary_and_vanished_files() -> None:
+    fake = documented()
+    fake.files["/docs/ADR-001.MD"] = {"path": "/docs/ADR-001.MD", "content": "PNG\x00"}
+    del fake.files["/docs/runbook.md"]
+
+    documents = await fake.history().documents("authorizer-api", 10, 100_000)
+
+    assert [d.path for d in documents] == ["README.md"]
+
+
+async def test_documents_of_service_without_repository_are_empty() -> None:
+    assert await documented().history().documents("servico-sem-repositorio", 10, 1000) == []
+
+
+async def test_documents_with_failing_api_or_network_are_unavailable() -> None:
+    fake = documented()
+    fake.status = 503
+
+    with pytest.raises(ToolUnavailableError, match="HTTP 503"):
+        await fake.history().documents("authorizer-api", 10, 1000)
+
+    def refuse(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("recusada")
+
+    history = AzureDevOpsChangeHistory(BASE, TOKEN, ["Core"], {}, httpx2.MockTransport(refuse))
+    with pytest.raises(ToolUnavailableError, match="falha de rede"):
+        await history.documents("authorizer-api", 10, 1000)
