@@ -44,6 +44,15 @@ seja o modo das outras fases:
 - aprendizado: o episódio "<serviço>: <título do incidente>", com `noise` verdadeiro só se a
   mensagem cita `incident_discarded` ou "descartado", e sem dossiês.
 
+As fases do post mortem também respondem sempre como `completa`, sem ferramentas:
+- rascunho (schema com `avaliacao_agente`): um texto determinístico por seção, citando o
+  serviço da linha "Serviços:" e o título da linha "Incidente:", e dois itens no plano de ação
+  ("Criar alarme de conexões do <serviço>", `detectar`; "Revisar o pool de conexões do
+  <serviço>", `prevenir`);
+- regeneração de uma seção (schema com `body`): "Seção reescrita pelo Grolla para o
+  <serviço>, seguindo a instrução: <texto da linha "Instrução:">" ("sem instrução" quando a
+  linha não vem ou está vazia).
+
 Os argumentos de cada ferramenta saem do `input_schema` recebido: enum vira o primeiro valor,
 booleano vira true e `service` vira o primeiro serviço da linha "Serviços: ..." da mensagem.
 """
@@ -83,6 +92,7 @@ _EPISODE = re.compile(
 # Nome de cada dependência no resumo de `service_dependencies`: "banco x (nome): N chamadas".
 _DEPENDENCY = re.compile(r"(?:\(([^)]+)\)|(?:serviço|host) ([^\s:;(]+)): \d+ chamadas")
 _INTEGRATION_LINE = re.compile(r"Integração: (\S+) chamada por (\S+)")
+_INSTRUCTION_LINE = re.compile(r"Instrução:[ \t]*([^\n]*)")
 
 
 class LlmMode(StrEnum):
@@ -100,6 +110,8 @@ class Phase(StrEnum):
     STUDY = "estudo"
     SYNTHESIS = "sintese"
     FOLLOW_UP = "acompanhamento"
+    POST_MORTEM = "post_mortem"
+    REGENERATION = "regeneracao"
 
 
 class FollowUpScript(BaseModel):
@@ -117,6 +129,8 @@ _MEMORY_PHASES = {
     "dossier": Phase.STUDY,
     "environment": Phase.SYNTHESIS,
 }
+# Fases do post mortem, idem: sem ferramentas e sempre no modo `completa`.
+_POST_MORTEM_PHASES = {"avaliacao_agente": Phase.POST_MORTEM, "body": Phase.REGENERATION}
 
 
 class LlmControl(BaseModel):
@@ -147,10 +161,12 @@ def llm_router(state: FakesState) -> APIRouter:
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         body: dict[str, Any] = await request.json()
         current = phase(body)
-        if current in _MEMORY_PHASES.values():
+        if current in _MEMORY_PHASES.values() or current in _POST_MORTEM_PHASES.values():
             state.requests.append(
                 RecordedRequest(method="POST", path=MESSAGES_PATH, body=body, status=200)
             )
+            if current in _POST_MORTEM_PHASES.values():
+                return JSONResponse(post_mortem_reply(body, current))
             return JSONResponse(memory_reply(body, current))
         modes = {
             Phase.ANALYSIS: state.llm_mode,
@@ -199,9 +215,9 @@ def phase(body: dict[str, Any]) -> Phase:
     output_format: dict[str, Any] = output.get("format") or {}
     schema: dict[str, Any] = output_format.get("schema") or {}
     properties: dict[str, Any] = schema.get("properties") or {}
-    for key, memory_phase in _MEMORY_PHASES.items():
+    for key, fixed_phase in (_MEMORY_PHASES | _POST_MORTEM_PHASES).items():
         if key in properties:
-            return memory_phase
+            return fixed_phase
     if "verdicts" in properties:
         return Phase.VERIFICATION
     if "reply" in properties:
@@ -281,6 +297,36 @@ def memory_reply(body: dict[str, Any], current: Phase) -> dict[str, Any]:
     if not results:
         return _message(body, _tool_calls(body, STUDY_TOOLS), "tool_use")
     return _final(body, {"dossier": _dossier(_service(first), first, results)})
+
+
+def post_mortem_reply(body: dict[str, Any], current: Phase) -> dict[str, Any]:
+    """Rascunho do post mortem ou regeneração de uma seção, com conteúdo determinístico."""
+    first = _first_text(body["messages"][0])
+    service = _service(first)
+    if current is Phase.REGENERATION:
+        match = _INSTRUCTION_LINE.search(first)
+        instruction = (match.group(1).strip() if match else "") or "sem instrução"
+        text = f"Seção reescrita pelo Grolla para o {service}, seguindo a instrução: {instruction}"
+        return _final(body, {"body": text})
+    title = _INCIDENT_LINE.search(first)
+    incident = title.group(1).strip() if title else "incidente"
+    return _final(
+        body,
+        {
+            "resumo": f"O {service} teve o incidente {incident}, resolvido pelo time.",
+            "impacto": f"Parte das requisições do {service} falhou durante o incidente.",
+            "deteccao": "O alerta de taxa de erro detectou o problema.",
+            "fatores": f"- Deploy recente do {service}\n- Pool de conexões sem folga",
+            "hipoteses": "- Deploy recente introduziu a falha: confirmada",
+            "licoes": "Funcionou: o rollback. Não funcionou: o alarme de conexões. Sorte: nenhuma.",
+            "plano": f"Itens para que o {service} não repita o incidente.",
+            "avaliacao_agente": "O agente apontou a causa raiz antes do time.",
+            "actions": [
+                {"description": f"Criar alarme de conexões do {service}", "kind": "detectar"},
+                {"description": f"Revisar o pool de conexões do {service}", "kind": "prevenir"},
+            ],
+        },
+    )
 
 
 def _learned(text: str) -> dict[str, Any]:

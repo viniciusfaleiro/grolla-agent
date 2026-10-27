@@ -652,3 +652,53 @@ def test_reset_brings_the_follow_up_back_to_the_default() -> None:
     client.post("/_control/reset")
 
     assert cycle_of(follow_up_turns(client)[1])["trend"] == "normalizado"
+
+
+# ---- Post mortem
+
+POST_MORTEM_BRIEF = "Incidente: pedidos-api com 5xx\nServiços: pedidos-api\nEventos:\n- resolvido"
+
+
+def test_post_mortem_draft_writes_every_section_and_two_plan_items() -> None:
+    client = TestClient(create_app())
+    payload = memory_request("avaliacao_agente", POST_MORTEM_BRIEF, [])
+
+    body = client.post(PATH, json=payload).json()
+
+    assert body["stop_reason"] == "end_turn"
+    draft = json.loads(body["content"][0]["text"])
+    sections = {"resumo", "impacto", "deteccao", "fatores", "hipoteses", "licoes", "plano"}
+    assert set(draft) == {*sections, "avaliacao_agente", "actions"}
+    assert all(draft[key].strip() for key in sections)
+    assert "pedidos-api com 5xx" in draft["resumo"]
+    assert [a["kind"] for a in draft["actions"]] == ["detectar", "prevenir"]
+    assert all("pedidos-api" in a["description"] for a in draft["actions"])
+
+
+@pytest.mark.parametrize(
+    ("instruction", "expected"),
+    [
+        ("Instrução: incluir a falta de alarme no RDS", "incluir a falta de alarme no RDS"),
+        ("Instrução:", "sem instrução"),
+        ("", "sem instrução"),
+    ],
+)
+def test_regeneration_cites_the_instruction(instruction: str, expected: str) -> None:
+    client = TestClient(create_app())
+    message = f"{POST_MORTEM_BRIEF}\nSeção: fatores\n{instruction}"
+
+    body = client.post(PATH, json=memory_request("body", message, [])).json()
+
+    text = json.loads(body["content"][0]["text"])["body"]
+    assert (
+        text == f"Seção reescrita pelo Grolla para o pedidos-api, seguindo a instrução: {expected}"
+    )
+
+
+def test_post_mortem_phases_ignore_the_analysis_mode() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar"})
+
+    response = client.post(PATH, json=memory_request("body", POST_MORTEM_BRIEF, []))
+
+    assert response.status_code == 200
