@@ -32,6 +32,7 @@ from grolla.domain.memory import (
     is_human,
     memory_text,
 )
+from grolla.domain.post_mortem import PostMortem, PostMortemDraft, SectionKey
 
 STAGE_INVESTIGATION = "investigation"
 STAGE_VERIFICATION = "verification"
@@ -39,6 +40,7 @@ STAGE_WARROOM_CHAT = "warroom_chat"
 STAGE_LEARNING = "learning"
 STAGE_STUDY = "study"
 STAGE_FOLLOW_UP = "follow_up"
+STAGE_POST_MORTEM = "post_mortem"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
@@ -649,6 +651,19 @@ class InvestigationBrief:
 
 
 @dataclass(frozen=True)
+class PostMortemBrief:
+    """O que o modelo recebe para escrever ou regenerar o post mortem: o contexto do incidente
+    (como no chat, com análise, validação, timeline, chat e ciclos) e o documento atual.
+    """
+
+    incident: Incident
+    context: str
+    current: PostMortem | None  # na regeneração: o documento com as edições humanas
+    impact: str | None
+    now: datetime
+
+
+@dataclass(frozen=True)
 class LearningBrief:
     """O que o modelo recebe para aprender com um incidente encerrado."""
 
@@ -728,6 +743,24 @@ class LanguageModel(Protocol):
         """Um ciclo de acompanhamento: tendência, taxa de erro e o que mudou, com as
         ferramentas; levanta LanguageModelError, InvalidAnalysisError ou BudgetExceededError.
         """
+        ...
+
+    async def draft_post_mortem(
+        self, brief: PostMortemBrief, budget: TokenBudget
+    ) -> PostMortemDraft:
+        """O rascunho do post mortem, sem ferramentas; levanta LanguageModelError,
+        InvalidAnalysisError ou BudgetExceededError.
+        """
+        ...
+
+    async def regenerate_section(
+        self,
+        brief: PostMortemBrief,
+        key: SectionKey,
+        instruction: str | None,
+        budget: TokenBudget,
+    ) -> str:
+        """O novo texto de uma seção, sem ferramentas; mesmas exceções."""
         ...
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
@@ -1187,3 +1220,19 @@ def follow_up_text(context: str, previous: Cycle | None) -> str:
     return "\n".join(
         [context, "", before, "", "Olhe o serviço agora e devolva o ciclo de acompanhamento."]
     )
+
+
+# ---- Post mortem: prompt e mensagens da etapa `post_mortem` ----
+# Contrato do post mortem: os textos e os corpos são do grolla-dominio.
+
+POST_MORTEM_PROMPT = ""
+
+
+def post_mortem_text(brief: PostMortemBrief) -> str:
+    """Mensagem do rascunho: o contexto do incidente e o impacto estimado."""
+    raise NotImplementedError
+
+
+def regeneration_text(brief: PostMortemBrief, key: SectionKey, instruction: str | None) -> str:
+    """Mensagem da regeneração: o contexto, o documento atual, a seção e a instrução."""
+    raise NotImplementedError

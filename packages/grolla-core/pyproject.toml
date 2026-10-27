@@ -9,6 +9,7 @@ dependencies = [
     "anthropic",
     "boto3",
     "fastembed>=0.9.1",
+    "fpdf2>=2.8.9",
     "httpx2",
     "mcp",
     "procrastinate",

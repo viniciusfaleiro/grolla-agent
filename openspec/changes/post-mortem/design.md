@@ -161,6 +161,20 @@ STAGE_POST_MORTEM = "post_mortem"
     `author`, `status`, `requested_at`, `started_at`, `finished_at`, `reason`;
   - índices nos pendentes.
 
+### Ajustes do commit de contrato
+
+- `PostMortemStore.summaries(filters, today)`, e não `list`, para não sombrear o builtin.
+- `request_regeneration(incident_id, key, *, instruction, author, at)` e
+  `finish(job, pm, *, versions, usages, reason, at)` com argumentos nomeados.
+- `PostMortemBrief` em `application.investigation` traz `context`, montado como no chat, o
+  documento atual e o impacto. Junto ficam `POST_MORTEM_PROMPT`, `post_mortem_text` e
+  `regeneration_text`.
+- `PostMortem` ganha `status_by` e `status_at`.
+- Containers: a api tem `post_mortems` e `renderer` (`FpdfDocumentRenderer`); o worker tem
+  `post_mortems` e `post_mortem_policy`.
+- Config `post_mortem.max_tokens`/`timeout_seconds` e a etapa `post_mortem`.
+- Dependência `fpdf2`.
+
 ## Decisions
 
 **1. Métricas e timeline sem LLM.** São fatos do log; o núcleo formata com a origem de cada item.

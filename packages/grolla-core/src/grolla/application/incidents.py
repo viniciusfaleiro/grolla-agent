@@ -90,6 +90,10 @@ class IncidentUnitOfWork(Protocol):
         """Grava o pedido de análise inicial do incidente, pendente desde `at`."""
         ...
 
+    async def request_post_mortem(self, incident_id: UUID, at: datetime) -> None:
+        """Pede o rascunho do post mortem do incidente resolvido (ignora se já existe)."""
+        ...
+
     async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
         """Pede um ciclo de acompanhamento antecipado (alerta agrupado ou mensagem no chat).
 

@@ -58,6 +58,7 @@ from grolla.application.investigation import (
     LanguageModelError,
     LearningBrief,
     LlmUsage,
+    PostMortemBrief,
     ServiceStudyBrief,
     SynthesisBrief,
     TokenBudget,
@@ -91,6 +92,7 @@ from grolla.domain.memory import (
     SubjectKind,
     SynthesisDraft,
 )
+from grolla.domain.post_mortem import PostMortemDraft, SectionKey
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -401,6 +403,7 @@ class ClaudeLanguageModel:
         learning: ModelSettings | None = None,
         study: ModelSettings | None = None,
         follow_up: ModelSettings | None = None,
+        post_mortem: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -409,6 +412,7 @@ class ClaudeLanguageModel:
         self._learning = learning or settings  # etapas da memória também herdam
         self._study = study or settings
         self._follow_up = follow_up or settings
+        self._post_mortem = post_mortem or settings
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -489,6 +493,20 @@ class ClaudeLanguageModel:
                 Evidence(text=e.text, url=e.url) for e in cycle.evidence[:MAX_CYCLE_EVIDENCE]
             ),
         )
+
+    async def draft_post_mortem(
+        self, brief: PostMortemBrief, budget: TokenBudget
+    ) -> PostMortemDraft:
+        raise NotImplementedError  # contrato do post mortem: do grolla-integracoes
+
+    async def regenerate_section(
+        self,
+        brief: PostMortemBrief,
+        key: SectionKey,
+        instruction: str | None,
+        budget: TokenBudget,
+    ) -> str:
+        raise NotImplementedError
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

@@ -4,6 +4,7 @@ from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.adapters.aws import AwsCloudInventory
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.fastembed import FastembedTextEmbedder
+from grolla.adapters.fpdf import FpdfDocumentRenderer
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresChatQueue,
@@ -13,6 +14,7 @@ from grolla.adapters.postgres import (
     PostgresLearningQueue,
     PostgresMemoryStore,
     PostgresNotificationOutbox,
+    PostgresPostMortemStore,
     PostgresStudyQueue,
     migrate,
 )
@@ -35,6 +37,7 @@ from grolla.application.investigation import (
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
+    STAGE_POST_MORTEM,
     STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -46,6 +49,7 @@ from grolla.application.investigation import (
 )
 from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
+from grolla.application.post_mortem import DocumentRenderer, PostMortemPolicy, PostMortemStore
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
 from grolla.domain.follow_up import FollowUpPolicy
@@ -66,6 +70,8 @@ class ApiContainer:
     studies: StudyQueue
     learning_queue: LearningQueue  # aprendizados falhos na página da memória
     impact_policy: ImpactPolicy
+    post_mortems: PostMortemStore
+    renderer: DocumentRenderer
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,8 @@ class WorkerContainer:
     follow_up_policy: FollowUpPolicy | None = None
     follow_up_limits: FollowUpLimits = field(default_factory=FollowUpLimits)
     impact_policy: ImpactPolicy = field(default_factory=ImpactPolicy)
+    post_mortems: PostMortemStore | None = None
+    post_mortem_policy: PostMortemPolicy = field(default_factory=PostMortemPolicy)
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -117,6 +125,8 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         studies=PostgresStudyQueue(database),
         learning_queue=PostgresLearningQueue(database),
         impact_policy=config.impact_policy(),
+        post_mortems=PostgresPostMortemStore(database),
+        renderer=FpdfDocumentRenderer(),
     )
 
 
@@ -153,6 +163,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             learning=_model_settings(config.llm.stages.get(STAGE_LEARNING)),
             study=_model_settings(config.llm.stages.get(STAGE_STUDY)),
             follow_up=_model_settings(config.llm.stages.get(STAGE_FOLLOW_UP)),
+            post_mortem=_model_settings(config.llm.stages.get(STAGE_POST_MORTEM)),
         ),
         telemetry=SignozTelemetry(
             config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
@@ -179,6 +190,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         follow_up_policy=config.follow_up_policy(),
         follow_up_limits=config.follow_up_limits(),
         impact_policy=config.impact_policy(),
+        post_mortems=PostgresPostMortemStore(database),
+        post_mortem_policy=config.post_mortem_policy(),
     )
 
 

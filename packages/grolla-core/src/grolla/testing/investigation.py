@@ -25,6 +25,7 @@ from grolla.application.investigation import (
     InvestigationBrief,
     LearningBrief,
     LlmUsage,
+    PostMortemBrief,
     RepositoryDocument,
     ServiceStudyBrief,
     Signal,
@@ -45,6 +46,7 @@ from grolla.domain.memory import (
     SubjectKind,
     SynthesisDraft,
 )
+from grolla.domain.post_mortem import PostMortemDraft, SectionKey
 from grolla.testing.builders import make_draft, make_verification_draft
 
 FAKE_SOURCE_URL = "https://observabilidade.interno/consulta"
@@ -410,6 +412,20 @@ class ScriptedLanguageModel:
         if self.follow_up_error is not None:
             raise self.follow_up_error
         return self.follow_up_draft
+
+    async def draft_post_mortem(
+        self, brief: PostMortemBrief, budget: TokenBudget
+    ) -> PostMortemDraft:
+        raise NotImplementedError  # contrato do post mortem: implementado pelo grolla-dominio
+
+    async def regenerate_section(
+        self,
+        brief: PostMortemBrief,
+        key: SectionKey,
+        instruction: str | None,
+        budget: TokenBudget,
+    ) -> str:
+        raise NotImplementedError
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)

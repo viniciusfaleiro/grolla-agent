@@ -2,11 +2,11 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `domain.post_mortem` (seções, status, plano de ação, versões, draft e funções com `NotImplementedError`).
-- [ ] 0.2 `application.post_mortem` (`PostMortemStore`, `PostMortemJob`, filtros e resumo, `DocumentRenderer`, `PostMortemBrief`, casos de uso com `NotImplementedError`); `request_post_mortem`; `LanguageModel.draft_post_mortem`/`regenerate_section`; `STAGE_POST_MORTEM`.
-- [ ] 0.3 Stubs no Postgres, no Anthropic, no adapter `fpdf` e nos fakes; migração 0009; dependência `fpdf2`.
-- [ ] 0.4 Config `post_mortem` e etapa `post_mortem`; bootstrap (containers com `post_mortems` e `renderer`).
-- [ ] 0.5 `make check` verde e commit de contrato.
+- [x] 0.1 `domain.post_mortem` (seções, status, plano de ação, versões, draft e funções com `NotImplementedError`).
+- [x] 0.2 `application.post_mortem` (`PostMortemStore`, `PostMortemJob`, filtros e resumo, `DocumentRenderer`, `PostMortemBrief`, casos de uso com `NotImplementedError`); `request_post_mortem`; `LanguageModel.draft_post_mortem`/`regenerate_section`; `STAGE_POST_MORTEM`.
+- [x] 0.3 Stubs no Postgres, no Anthropic, no adapter `fpdf` e nos fakes; migração 0009; dependência `fpdf2`.
+- [x] 0.4 Config `post_mortem` e etapa `post_mortem`; bootstrap (containers com `post_mortems` e `renderer`).
+- [x] 0.5 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
 
