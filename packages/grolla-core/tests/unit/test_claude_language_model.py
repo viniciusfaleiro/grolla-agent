@@ -20,6 +20,7 @@ from grolla.application.investigation import (
     CHAT_PROMPT,
     FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
+    POST_MORTEM_PROMPT,
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
@@ -32,6 +33,7 @@ from grolla.application.investigation import (
     LanguageModelError,
     LearningBrief,
     LlmUsage,
+    PostMortemBrief,
     ServiceStudyBrief,
     SynthesisBrief,
     TokenBudget,
@@ -62,6 +64,7 @@ from grolla.domain.memory import (
     SubjectKind,
     SynthesisDraft,
 )
+from grolla.domain.post_mortem import ActionKind, PostMortemDraft, SectionKey
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 
@@ -1201,3 +1204,177 @@ async def test_follow_up_api_error_and_refusal_become_language_model_error() -> 
 async def test_follow_up_outside_the_schema_is_invalid(result: object) -> None:
     with pytest.raises(InvalidAnalysisError):
         await follow_up(ScriptedApi(ok(final(result))))
+
+
+# ---- Post mortem: rascunho e regeneração, uma chamada sem ferramentas cada ----
+
+POST_MORTEM_SETTINGS = ModelSettings(model="claude-opus-5-5", max_tokens=32000, effort="high")
+WRITTEN = {
+    "resumo": " O pedidos-api devolveu 5xx por 20 min. ",
+    "impacto": "12% dos pedidos falharam.",
+    "deteccao": "Alerta de taxa de erro em 2 min.",
+    "fatores": "Pool de conexões pequeno para o pico.",
+    "hipoteses": "- Deploy 1.4.2: confirmada",
+    "licoes": "Funcionou: o rollback. Sorte: fora do horário de pico.",
+    "plano": "Itens abaixo.",
+    "avaliacao_agente": "A causa raiz saiu em 4 min.",
+    "actions": [
+        {"description": " Alarme de conexões no RDS ", "kind": "detectar"},
+        {"description": "Aumentar o pool", "kind": "prevenir"},
+        {"description": "  ", "kind": "mitigar"},
+    ],
+}
+
+
+@pytest.fixture(autouse=True)
+def post_mortem_texts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """As mensagens são do grolla-dominio: aqui o adapter só precisa entregá-las."""
+
+    def drafting(brief: PostMortemBrief) -> str:
+        return f"post mortem de {brief.incident.title}"
+
+    def regenerating(brief: PostMortemBrief, key: SectionKey, instruction: str | None) -> str:
+        return f"regenerar {key.value} de {brief.incident.title}: {instruction}"
+
+    module = "grolla.adapters.anthropic"
+    monkeypatch.setattr(f"{module}.post_mortem_text", drafting)
+    monkeypatch.setattr(f"{module}.regeneration_text", regenerating)
+
+
+def post_mortem_brief() -> PostMortemBrief:
+    incident = make_incident(services=("pedidos-api",))
+    return PostMortemBrief(incident, "contexto", current=None, impact=None, now=T0)
+
+
+async def test_draft_post_mortem_writes_every_model_section_in_one_call_without_tools() -> None:
+    api = ScriptedApi(ok(final(WRITTEN)))
+    budget = RecordingBudget()
+    model = memory_model(api, post_mortem=POST_MORTEM_SETTINGS)
+
+    draft = await model.draft_post_mortem(post_mortem_brief(), budget)
+
+    assert draft == PostMortemDraft(
+        sections={
+            SectionKey.SUMMARY: "O pedidos-api devolveu 5xx por 20 min.",
+            SectionKey.IMPACT: "12% dos pedidos falharam.",
+            SectionKey.DETECTION: "Alerta de taxa de erro em 2 min.",
+            SectionKey.FACTORS: "Pool de conexões pequeno para o pico.",
+            SectionKey.HYPOTHESES: "- Deploy 1.4.2: confirmada",
+            SectionKey.LESSONS: "Funcionou: o rollback. Sorte: fora do horário de pico.",
+            SectionKey.ACTIONS: "Itens abaixo.",
+            SectionKey.AGENT: "A causa raiz saiu em 4 min.",
+        },
+        actions=(
+            ("Alarme de conexões no RDS", ActionKind.DETECT),
+            ("Aumentar o pool", ActionKind.PREVENT),
+        ),
+    )
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-opus-5-5"
+    assert body["output_config"]["effort"] == "high"
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["required"] == [
+        "resumo",
+        "impacto",
+        "deteccao",
+        "fatores",
+        "hipoteses",
+        "licoes",
+        "plano",
+        "avaliacao_agente",
+        "actions",
+    ]
+    assert schema["properties"]["actions"]["items"]["properties"]["kind"]["enum"] == [
+        "prevenir",
+        "detectar",
+        "mitigar",
+    ]
+    assert body["system"][0]["text"] == POST_MORTEM_PROMPT
+    title = post_mortem_brief().incident.title
+    assert body["messages"] == [{"role": "user", "content": f"post mortem de {title}"}]
+    assert [usage.stage for usage in budget.spent] == ["post_mortem"]
+
+
+async def test_post_mortem_without_its_own_stage_inherits_the_investigation_settings() -> None:
+    api = ScriptedApi(ok(final(WRITTEN)))
+
+    await memory_model(api).draft_post_mortem(post_mortem_brief(), RecordingBudget())
+
+    assert api.bodies[0]["model"] == SETTINGS.model
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "não é json",
+        {**WRITTEN, "fatores": "  "},
+        {**WRITTEN, "actions": [{"description": "x", "kind": "corrigir"}]},
+        {k: v for k, v in WRITTEN.items() if k != "licoes"},
+        {**WRITTEN, "metricas": "o modelo não escreve métricas"},
+    ],
+)
+async def test_post_mortem_outside_the_schema_is_invalid(written: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await memory_model(ScriptedApi(ok(final(written)))).draft_post_mortem(
+            post_mortem_brief(), RecordingBudget()
+        )
+
+
+async def test_post_mortem_api_error_refusal_and_budget() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await memory_model(ScriptedApi(response, response, response)).draft_post_mortem(
+            post_mortem_brief(), RecordingBudget()
+        )
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await memory_model(ScriptedApi(ok(final("", stop_reason="refusal")))).draft_post_mortem(
+            post_mortem_brief(), RecordingBudget()
+        )
+    with pytest.raises(BudgetExceededError):
+        await memory_model(ScriptedApi(ok(final(WRITTEN)))).draft_post_mortem(
+            post_mortem_brief(), RecordingBudget(fail_at=1)
+        )
+
+
+async def regenerate(api: ScriptedApi, budget: TokenBudget | None = None) -> str:
+    model = memory_model(api, post_mortem=POST_MORTEM_SETTINGS)
+    return await model.regenerate_section(
+        post_mortem_brief(),
+        SectionKey.FACTORS,
+        "incluir a falta de alarme no RDS",
+        budget or RecordingBudget(),
+    )
+
+
+async def test_regenerate_section_returns_the_new_text_in_one_call_without_tools() -> None:
+    api = ScriptedApi(ok(final({"body": " Faltou alarme no RDS. "})))
+    budget = RecordingBudget()
+
+    assert await regenerate(api, budget) == "Faltou alarme no RDS."
+
+    [body] = api.bodies
+    assert "tools" not in body
+    assert body["model"] == "claude-opus-5-5"
+    assert body["output_config"]["format"]["schema"]["required"] == ["body"]
+    assert body["system"][0]["text"] == POST_MORTEM_PROMPT
+    title = post_mortem_brief().incident.title
+    text = f"regenerar fatores de {title}: incluir a falta de alarme no RDS"
+    assert body["messages"] == [{"role": "user", "content": text}]
+    assert [usage.stage for usage in budget.spent] == ["post_mortem"]
+
+
+@pytest.mark.parametrize("answer", ["não é json", {"body": "  "}, {"text": "x"}])
+async def test_regenerated_section_outside_the_schema_is_invalid(answer: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await regenerate(ScriptedApi(ok(final(answer))))
+
+
+async def test_regeneration_api_error_becomes_language_model_error() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await regenerate(ScriptedApi(response, response, response))

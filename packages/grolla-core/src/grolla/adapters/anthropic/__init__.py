@@ -14,6 +14,10 @@ O acompanhamento da crise (`follow_up`, etapa `follow_up`) roda o mesmo laço, f
 orçamento como o chat, e devolve a tendência, a taxa de erro, o resumo, se algo mudou e até três
 evidências.
 
+O post mortem usa duas chamadas sem ferramentas, com saída estruturada e a etapa `post_mortem`:
+o rascunho (`draft_post_mortem`, um campo por seção escrita pelo modelo e os itens do plano) e
+a regeneração de uma seção (`regenerate_section`, `{"body": string}`).
+
 A memória usa mais três chamadas: o estudo de um serviço (`study_service`, etapa `study`) roda
 o mesmo laço, fechando no orçamento como o chat, e devolve o dossiê; o aprendizado ao encerrar
 (`learn`, etapa `learning`) e a síntese do ambiente (`synthesize`, etapa `study`) são uma
@@ -43,9 +47,11 @@ from grolla.application.investigation import (
     CHAT_PROMPT,
     FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
+    POST_MORTEM_PROMPT,
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
+    STAGE_POST_MORTEM,
     STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -66,6 +72,8 @@ from grolla.application.investigation import (
     brief_text,
     follow_up_text,
     learning_text,
+    post_mortem_text,
+    regeneration_text,
     study_text,
     synthesis_text,
     verification_text,
@@ -92,7 +100,7 @@ from grolla.domain.memory import (
     SubjectKind,
     SynthesisDraft,
 )
-from grolla.domain.post_mortem import PostMortemDraft, SectionKey
+from grolla.domain.post_mortem import DETERMINISTIC, ActionKind, PostMortemDraft, SectionKey
 
 # Poucas retentativas e timeout curto por requisição: a análise inteira tem o próprio timeout,
 # e uma API fora do ar precisa virar análise parcial "LLM indisponível" em segundos.
@@ -263,6 +271,20 @@ FOLLOW_UP_SCHEMA = _object(
 )
 MAX_CYCLE_EVIDENCE = 3
 
+# Post mortem: um campo de texto (markdown) por seção escrita pelo modelo, na ordem do template,
+# e os itens do plano de ação, sem dono nem prazo. A regeneração devolve só o texto da seção.
+MODEL_SECTIONS = tuple(key for key in SectionKey if key not in DETERMINISTIC)
+POST_MORTEM_SCHEMA = _object(
+    **{key.value: _TEXT for key in MODEL_SECTIONS},
+    actions={
+        "type": "array",
+        "items": _object(
+            description=_TEXT, kind={"type": "string", "enum": [k.value for k in ActionKind]}
+        ),
+    },
+)
+SECTION_SCHEMA = _object(body=_TEXT)
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -390,6 +412,29 @@ class _Cycle(_Strict):
     evidence: list[_Evidence]
 
 
+class _ProposedAction(_Strict):
+    description: str
+    kind: ActionKind
+
+
+class _PostMortem(_Strict):
+    """Os campos são os valores de `MODEL_SECTIONS`, mais o plano de ação."""
+
+    resumo: str
+    impacto: str
+    deteccao: str
+    fatores: str
+    hipoteses: str
+    licoes: str
+    plano: str
+    avaliacao_agente: str
+    actions: list[_ProposedAction]
+
+
+class _Section(_Strict):
+    body: str
+
+
 class ClaudeLanguageModel:
     def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
@@ -497,7 +542,23 @@ class ClaudeLanguageModel:
     async def draft_post_mortem(
         self, brief: PostMortemBrief, budget: TokenBudget
     ) -> PostMortemDraft:
-        raise NotImplementedError  # contrato do post mortem: do grolla-integracoes
+        phase = _Phase(POST_MORTEM_PROMPT, POST_MORTEM_SCHEMA, self._post_mortem, STAGE_POST_MORTEM)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, post_mortem_text(brief), budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        written = _parsed(_PostMortem, response, "do post mortem")
+        fields = written.model_dump()
+        sections = {key: str(fields[key.value]).strip() for key in MODEL_SECTIONS}
+        if empty := [key.value for key, body in sections.items() if not body]:
+            raise InvalidAnalysisError(f"seções vazias no post mortem: {', '.join(empty)}")
+        return PostMortemDraft(
+            sections=sections,
+            actions=tuple(
+                (a.description.strip(), a.kind) for a in written.actions if a.description.strip()
+            ),
+        )
 
     async def regenerate_section(
         self,
@@ -506,7 +567,17 @@ class ClaudeLanguageModel:
         instruction: str | None,
         budget: TokenBudget,
     ) -> str:
-        raise NotImplementedError
+        phase = _Phase(POST_MORTEM_PROMPT, SECTION_SCHEMA, self._post_mortem, STAGE_POST_MORTEM)
+        text = regeneration_text(brief, key, instruction)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, text, budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        body = _parsed(_Section, response, "da seção").body.strip()
+        if not body:
+            raise InvalidAnalysisError(f"seção {key.value} regenerada vazia")
+        return body
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)
