@@ -15,6 +15,7 @@
       {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
       <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
       {{ impact_chip(impact) }}
+      {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
     </div>
   </div>
 
@@ -128,9 +129,6 @@
   {% else %}
   <div id="war-room-error" class="error" role="alert"></div>
   <p class="closed-note">Incidente {{ header.state | lower }}. O chat continua aberto para perguntas ao Grolla.</p>
-  {% if incident.state == "resolvido" %}
-  <p><a class="button" href="/postmortems/{{ incident.id }}">Post mortem</a></p>
-  {% endif %}
   {% endif %}
 
   {% if verification and verification.root_cause %}

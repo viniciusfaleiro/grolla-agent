@@ -20,7 +20,12 @@ from grolla.domain.post_mortem import (
 from grolla.testing.builders import T0, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
-from grolla.testing.post_mortem import InMemoryPostMortemStore
+from grolla.testing.post_mortem import (
+    FakeDocumentRenderer,
+    InMemoryPostMortemStore,
+    make_action,
+    make_post_mortem,
+)
 from grolla_api.app import Services, create_app
 from grolla_api.post_mortem_pages import changed_action, list_filters
 from grolla_api.war_room import AUTHOR_COOKIE
@@ -67,34 +72,12 @@ def resolved(
     return incident
 
 
-def make_post_mortem(
+def document(
     incident: Incident,
     status: PostMortemStatus = PostMortemStatus.DRAFT,
     actions: tuple[ActionItem, ...] = (),
-    bodies: dict[SectionKey, str] | None = None,
 ) -> PostMortem:
-    bodies = bodies or {}
-    sections = tuple(
-        Section(key, bodies.get(key, f"Texto de {SECTION_TITLES[key]}"), AGENT_AUTHOR, T0)
-        for key in SectionKey
-    )
-    return PostMortem(
-        incident_id=incident.id,
-        status=status,
-        sections=sections,
-        actions=actions,
-        created_at=T0,
-        updated_at=T0,
-    )
-
-
-def item(
-    *,
-    description: str = "Alarme de conexões no RDS",
-    owner: str | None = None,
-    due: date | None = None,
-) -> ActionItem:
-    return ActionItem(uuid4(), description, ActionKind.DETECT, owner=owner, due=due)
+    return make_post_mortem(incident.id, status=status, actions=actions)
 
 
 async def saved(store: InMemoryPostMortemStore, pm: PostMortem) -> PostMortem:
@@ -109,8 +92,8 @@ async def test_list_shows_title_status_services_and_overdue_items(
     client: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository, severity=Severity.P1, services=("pedidos-api",))
-    late = item(owner="Ana", due=TODAY - timedelta(days=1))
-    await saved(store, make_post_mortem(incident, PostMortemStatus.REVIEW, (late,)))
+    late = make_action(owner="Ana", due=TODAY - timedelta(days=1))
+    await saved(store, document(incident, PostMortemStatus.REVIEW, (late,)))
 
     page = client.get("/postmortems").text
 
@@ -128,9 +111,9 @@ async def test_list_filters_by_service_and_status(
     wanted = resolved(repository, services=("pedidos-api",))
     other_service = resolved(repository, services=("captura",))
     other_status = resolved(repository, services=("pedidos-api",))
-    await saved(store, make_post_mortem(wanted, PostMortemStatus.REVIEW))
-    await saved(store, make_post_mortem(other_service, PostMortemStatus.REVIEW))
-    await saved(store, make_post_mortem(other_status, PostMortemStatus.DRAFT))
+    await saved(store, document(wanted, PostMortemStatus.REVIEW))
+    await saved(store, document(other_service, PostMortemStatus.REVIEW))
+    await saved(store, document(other_status, PostMortemStatus.DRAFT))
 
     page = client.get("/postmortems?servico=pedidos-api&status=em_revisao").text
 
@@ -169,7 +152,9 @@ async def test_page_shows_sections_in_template_order_with_rendered_text(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    pm = make_post_mortem(incident, bodies={SectionKey.SUMMARY: "Pedidos **falharam** por 20 min"})
+    pm = document(incident)
+    summary = Section(SectionKey.SUMMARY, "Pedidos **falharam** por 20 min", AGENT_AUTHOR, T0)
+    pm = replace(pm, sections=(summary, *pm.sections[1:]))
     await saved(store, pm)
 
     page = ana.get(f"/postmortems/{incident.id}").text
@@ -188,8 +173,8 @@ async def test_page_marks_overdue_items_and_offers_to_conclude(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    late = item(owner="Ana", due=TODAY - timedelta(days=1))
-    await saved(store, make_post_mortem(incident, PostMortemStatus.REVIEW, (late,)))
+    late = make_action(owner="Ana", due=TODAY - timedelta(days=1))
+    await saved(store, document(incident, PostMortemStatus.REVIEW, (late,)))
 
     page = ana.get(f"/postmortems/{incident.id}").text
 
@@ -204,7 +189,7 @@ async def test_approved_page_offers_pdf_and_no_edit_or_regenerate(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.APPROVED))
+    await saved(store, document(incident, PostMortemStatus.APPROVED))
 
     page = ana.get(f"/postmortems/{incident.id}").text
 
@@ -219,7 +204,7 @@ async def test_page_without_author_asks_the_name_and_hides_writes(
     client: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     page = client.get(f"/postmortems/{incident.id}").text
 
@@ -270,7 +255,7 @@ async def test_editing_a_section_reloads_and_keeps_the_previous_version(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
     url = f"/postmortems/{incident.id}/secoes/resumo"
 
     response = ana.post(url, data={"texto": "Resumo do time"}, headers=HTMX)
@@ -281,7 +266,7 @@ async def test_editing_a_section_reloads_and_keeps_the_previous_version(
     assert pm is not None
     assert pm.status is PostMortemStatus.REVIEW
     versions = ana.get(f"{url}/versoes").text
-    assert "Texto de Resumo executivo" in versions
+    assert "Resumo executivo: texto do agente." in versions
     assert "Grolla" in versions
 
 
@@ -289,7 +274,7 @@ async def test_plain_form_edit_redirects_with_303(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = ana.post(f"/postmortems/{incident.id}/secoes/impacto", data={"texto": "Novo"})
 
@@ -301,7 +286,7 @@ async def test_writes_without_author_are_401(
     client: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = client.post(f"/postmortems/{incident.id}/secoes/resumo", data={"texto": "x"})
 
@@ -314,7 +299,7 @@ async def test_editing_an_approved_post_mortem_is_refused(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.APPROVED))
+    await saved(store, document(incident, PostMortemStatus.APPROVED))
 
     response = ana.post(f"/postmortems/{incident.id}/secoes/resumo", data={"texto": "x"})
 
@@ -326,7 +311,7 @@ async def test_unknown_section_is_404(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     assert ana.post(f"/postmortems/{incident.id}/secoes/x", data={"texto": "y"}).status_code == 404
     assert ana.get(f"/postmortems/{incident.id}/secoes/x/versoes").status_code == 404
@@ -346,7 +331,7 @@ async def test_versions_fragment_without_history(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     page = ana.get(f"/postmortems/{incident.id}/secoes/fatores/versoes").text
 
@@ -357,7 +342,7 @@ async def test_regeneration_request_is_confirmed(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
     url = f"/postmortems/{incident.id}/secoes/fatores/regenerar"
 
     response = ana.post(url, data={"instrucao": "incluir a falta de alarme no RDS"}, headers=HTMX)
@@ -375,7 +360,7 @@ async def test_regeneration_without_htmx_redirects(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = ana.post(f"/postmortems/{incident.id}/secoes/resumo/regenerar", data={})
 
@@ -386,7 +371,7 @@ async def test_regenerating_an_approved_post_mortem_is_refused(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.APPROVED))
+    await saved(store, document(incident, PostMortemStatus.APPROVED))
 
     response = ana.post(f"/postmortems/{incident.id}/secoes/resumo/regenerar", data={})
 
@@ -400,8 +385,8 @@ async def test_approving_without_owner_is_refused_with_a_message(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    orphan = item(description="Alarme de conexões no RDS")
-    await saved(store, make_post_mortem(incident, PostMortemStatus.REVIEW, (orphan,)))
+    orphan = make_action("Alarme de conexões no RDS")
+    await saved(store, document(incident, PostMortemStatus.REVIEW, (orphan,)))
 
     response = ana.post(f"/postmortems/{incident.id}/status", data={"para": "aprovado"})
 
@@ -414,8 +399,8 @@ async def test_approving_with_owner_and_due_moves_the_status(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    ready = item(owner="Ana", due=TODAY + timedelta(days=7))
-    await saved(store, make_post_mortem(incident, PostMortemStatus.REVIEW, (ready,)))
+    ready = make_action(owner="Ana", due=TODAY + timedelta(days=7))
+    await saved(store, document(incident, PostMortemStatus.REVIEW, (ready,)))
 
     response = ana.post(f"/postmortems/{incident.id}/status", data={"para": "aprovado"})
 
@@ -430,7 +415,7 @@ async def test_invalid_target_status_is_422(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = ana.post(f"/postmortems/{incident.id}/status", data={"para": "publicado"})
 
@@ -445,7 +430,7 @@ async def test_adding_an_action_item(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = ana.post(
         f"/postmortems/{incident.id}/plano",
@@ -466,7 +451,7 @@ async def test_adding_an_item_with_invalid_kind_or_date_is_422(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
     url = f"/postmortems/{incident.id}/plano"
 
     bad_kind = ana.post(url, data={"descricao": "x", "tipo": "rezar"})
@@ -482,8 +467,8 @@ async def test_concluding_an_item_keeps_the_other_fields(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    open_item = item(owner="Ana", due=TODAY)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.REVIEW, (open_item,)))
+    open_item = make_action(owner="Ana", due=TODAY)
+    await saved(store, document(incident, PostMortemStatus.REVIEW, (open_item,)))
 
     response = ana.post(
         f"/postmortems/{incident.id}/plano/{open_item.id}", data={"situacao": "concluido"}
@@ -499,7 +484,7 @@ async def test_unknown_item_is_404(
     ana: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     response = ana.post(f"/postmortems/{incident.id}/plano/{uuid4()}", data={"situacao": "aceito"})
 
@@ -507,7 +492,7 @@ async def test_unknown_item_is_404(
 
 
 def test_changed_action_clears_owner_and_due_when_sent_empty() -> None:
-    current = item(owner="Ana", due=TODAY)
+    current = make_action(owner="Ana", due=TODAY)
 
     fields = changed_action(
         current, {"descricao": "Novo", "tipo": "prevenir", "dono": "", "prazo": ""}
@@ -527,7 +512,7 @@ async def test_pdf_of_an_approved_post_mortem(
     client: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.APPROVED))
+    await saved(store, document(incident, PostMortemStatus.APPROVED))
 
     response = client.get(f"/postmortems/{incident.id}.pdf")
 
@@ -543,23 +528,23 @@ async def test_draft_has_no_pdf(
     client: TestClient, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident))
+    await saved(store, document(incident))
 
     assert client.get(f"/postmortems/{incident.id}.pdf").status_code == 409
-
-
-class FailingRenderer:
-    def render(self, pm: PostMortem, incident: Incident) -> bytes:
-        raise RenderError(f"{incident.title} ({pm.status}): sem fonte")
 
 
 async def test_pdf_render_failure_is_503(
     services: Services, repository: InMemoryIncidentRepository, store: InMemoryPostMortemStore
 ) -> None:
     incident = resolved(repository)
-    await saved(store, make_post_mortem(incident, PostMortemStatus.CLOSED))
+    await saved(store, document(incident, PostMortemStatus.CLOSED))
     app = create_app(
-        replace(services, repository=repository, post_mortems=store, renderer=FailingRenderer())
+        replace(
+            services,
+            repository=repository,
+            post_mortems=store,
+            renderer=FakeDocumentRenderer(RenderError("sem fonte")),
+        )
     )
 
     response = TestClient(app).get(f"/postmortems/{incident.id}.pdf")

@@ -583,6 +583,7 @@ a.chip:hover { color: var(--brand); }
 /* Post mortem: lista com filtros, ciclo do documento, seções e plano de ação */
 a.button { display: inline-block; text-decoration: none; }
 a.button-primary:hover { color: var(--brand-ink); }
+.chip-link { font-weight: 700; color: var(--brand); background: var(--brand-soft); }
 
 .pm-filters { display: flex; flex-wrap: wrap; gap: 0.6rem 0.9rem; align-items: flex-end; margin-bottom: 1.25rem; }
 .pm-filters label { display: grid; gap: 0.25rem; font-size: 0.84rem; font-weight: 600; color: var(--muted); }
