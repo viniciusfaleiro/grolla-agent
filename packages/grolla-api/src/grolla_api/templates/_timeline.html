@@ -1,5 +1,6 @@
 {# Timeline com o autor; o polling só troca este bloco quando chega evento. #}
 {% from "_macros.html" import hhmm %}
+{% from "_follow_up.html" import impact_chip, proposal_notice, follow_up_section %}
 <div id="timeline"
      hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
@@ -11,7 +12,7 @@
   <li{% if is_quiet(event) %} class="quiet"{% endif %}>
     {{ hhmm(event.at) }}
     <div class="event{% if human %} event-human{% endif %}">
-      <span class="event-label">{{ event_labels.get(event.type, event.type) }}</span>
+      <span class="event-label">{{ event_label(event, event_labels) }}</span>
       {% if event.author != "sistema" %}<span class="event-author">por {{ display_name(event.author) }}</span>{% endif %}
       {% set detail = event_detail(event) %}
       {% if detail %}<div class="event-detail">{{ detail | truncate(180) }}</div>{% endif %}
@@ -23,3 +24,8 @@
 <p class="muted">Nenhum evento.</p>
 {% endif %}
 </div>
+{% if oob %}
+{{ follow_up_section(cycles, oob=True) }}
+{{ proposal_notice(proposal, header, author, "/incidents/" ~ incident.id ~ "/actions/", oob=True) }}
+{{ impact_chip(impact, oob=True) }}
+{% endif %}

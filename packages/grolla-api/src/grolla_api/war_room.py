@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, quote, unquote
 
+from grolla.domain.analysis import PARTIAL_REASON_TEXT, PartialReason
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
+from grolla.domain.follow_up import Cycle, CycleStatus, Proposal, Trend
 from grolla.domain.incidents import EventType, Incident, IncidentEvent, IncidentState, Severity
 from grolla.domain.war_room import (
     AssumeCommander,
@@ -92,6 +94,23 @@ SUGGESTIONS = (
 )
 
 FAILED_REPLY_PREFIX = "não consegui responder"
+
+TREND_LABELS = {
+    Trend.WORSE: "piorando",
+    Trend.STABLE: "estável",
+    Trend.BETTER: "melhorando",
+    Trend.NORMAL: "normalizado",
+}
+
+PROPOSAL_LABELS = {
+    Proposal.MITIGATE: "Grolla sugere marcar como mitigado",
+    Proposal.RESOLVE: "Grolla sugere encerrar",
+}
+
+# A proposta leva ao botão que já existe: mitigar é um form; encerrar abre o popover do motivo.
+PROPOSAL_ACTIONS = {Proposal.MITIGATE: "mitigate", Proposal.RESOLVE: "resolve"}
+
+RECENT_CYCLES = 6
 
 
 def _severity(form: Mapping[str, str]) -> ChangeSeverity:
@@ -261,11 +280,58 @@ def is_quiet(event: IncidentEvent) -> bool:
     return event.type in QUIET_EVENTS
 
 
+def trend_label(value: object) -> str:
+    try:
+        return TREND_LABELS[Trend(str(value))]
+    except ValueError:
+        return str(value)
+
+
+def partial_text(value: object) -> str:
+    try:
+        return PARTIAL_REASON_TEXT[PartialReason(str(value))]
+    except ValueError:
+        return str(value)
+
+
+def percent(rate: float | None) -> str:
+    """'12,5%' ou '0%'; vazio quando a taxa não foi medida."""
+    if rate is None:
+        return ""
+    return f"{rate:.1f}".removesuffix(".0").replace(".", ",") + "%"
+
+
+def _proposal(value: object) -> Proposal | None:
+    try:
+        return Proposal(str(value))
+    except ValueError:
+        return None
+
+
+def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
+    """O rótulo do evento; o do ciclo já diz a tendência e o resumo."""
+    data = event.data
+    if event.type is EventType.CYCLE_COMPLETED:
+        summary = plain_text(str(data.get("summary", "")))
+        return f"Acompanhamento: {trend_label(data.get('trend'))} — {summary}".removesuffix(" — ")
+    proposal = _proposal(data.get("proposal"))
+    if event.type is EventType.AGENT_PROPOSAL and proposal is not None:
+        return PROPOSAL_LABELS[proposal]
+    return labels.get(event.type, event.type)
+
+
 def event_detail(event: IncidentEvent) -> str:
     """Uma linha legível com o que importa do evento; vazio se não há nada a dizer."""
     data = event.data
+    if event.type is EventType.CYCLE_COMPLETED:
+        return ""  # o rótulo já diz tudo
+    if event.type is EventType.CYCLE_PARTIAL:
+        reason = data.get("reason")
+        return partial_text(reason) if reason else ""
     if "from" in data and "to" in data:
-        return f"{_label(data['from'])} → {_label(data['to'])}"
+        change = f"{_label(data['from'])} → {_label(data['to'])}"
+        reason = data.get("reason")
+        return f"{change}: {reason}" if reason else change
     for key in ("text", "reason", "title", "commander", "summary"):
         value = data.get(key)
         if value:
@@ -333,6 +399,34 @@ def rich_text(text: str) -> Markup:
             paragraph.append(_inline(line))
     flush()
     return Markup("".join(blocks))  # noqa: S704 — conteúdo escapado em _inline
+
+
+@dataclass(frozen=True)
+class ProposalNotice:
+    label: str  # "Grolla sugere marcar como mitigado"
+    reason: str
+    action: str  # o nome da ação no war room
+
+
+def current_proposal(incident: Incident, events: Sequence[IncidentEvent]) -> ProposalNotice | None:
+    """A última proposta do agente, enquanto o incidente segue no estado em que ela foi feita."""
+    last = next((e for e in reversed(events) if e.type is EventType.AGENT_PROPOSAL), None)
+    if last is None or last.data.get("state") != incident.state.value:
+        return None
+    proposal = _proposal(last.data.get("proposal"))
+    if proposal is None:
+        return None
+    return ProposalNotice(
+        label=PROPOSAL_LABELS[proposal],
+        reason=str(last.data.get("reason", "")),
+        action=PROPOSAL_ACTIONS[proposal],
+    )
+
+
+def recent_cycles(cycles: Sequence[Cycle]) -> list[Cycle]:
+    """Os últimos ciclos terminados, o mais recente primeiro."""
+    done = [c for c in cycles if c.status in (CycleStatus.COMPLETED, CycleStatus.PARTIAL)]
+    return done[::-1][:RECENT_CYCLES]
 
 
 def is_agent(message: ChatMessage) -> bool:
