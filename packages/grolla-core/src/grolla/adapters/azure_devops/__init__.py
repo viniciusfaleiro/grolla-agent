@@ -23,6 +23,7 @@ from grolla.application.investigation import (
     NO_REPOSITORY,
     READ_LIMIT,
     TRUNCATED,
+    RepositoryDocument,
     ToolResult,
     ToolUnavailableError,
 )
@@ -89,6 +90,11 @@ class AzureDevOpsChangeHistory:
         except httpx2.HTTPError as error:
             raise ToolUnavailableError(f"falha de rede: {type(error).__name__}") from error
         return self._summary(repository, builds, since)
+
+    async def documents(
+        self, service: str, max_files: int, max_bytes: int
+    ) -> list[RepositoryDocument]:
+        raise NotImplementedError  # contrato da memória com RAG: do grolla-integracoes
 
     async def read_file(self, service: str, path: str) -> ToolResult:
         try:

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from grolla.application.analysis import AnalysisPolicy
 from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
+from grolla.application.memory_retrieval import RagPolicy
 from grolla.bootstrap.settings import ConfigError
 from grolla.domain.incidents import Severity, SeverityPolicy, SeverityRule
 
@@ -85,9 +86,19 @@ class StudyConfig(_Section):
     lookback_days: int = Field(default=7, gt=0)
 
 
+class RagConfig(_Section):
+    """Busca híbrida com embeddings locais; o modelo precisa estar embutido na imagem."""
+
+    size: Literal["small", "large"] = "small"  # small: rápido e leve; large: mais preciso
+    chunk_chars: int = Field(default=1200, ge=200, le=8000)
+    max_doc_files: int = Field(default=30, gt=0)
+    max_doc_bytes: int = Field(default=300_000, gt=0)
+
+
 class MemoryConfig(_Section):
     learning_max_tokens: int = Field(default=60_000, gt=0)
     study: StudyConfig | None = None  # sem a seção, nenhum estudo do ambiente roda
+    rag: RagConfig | None = None  # sem a seção, só a busca textual
 
 
 class TeamConfig(BaseModel):
@@ -130,9 +141,16 @@ class TeamConfig(BaseModel):
         )
 
     def memory_policy(self) -> MemoryPolicy:
-        study = self.memory.study
+        study, rag = self.memory.study, self.memory.rag
         return MemoryPolicy(
             learning_max_tokens=self.memory.learning_max_tokens,
+            rag=None
+            if rag is None
+            else RagPolicy(
+                chunk_chars=rag.chunk_chars,
+                max_doc_files=rag.max_doc_files,
+                max_doc_bytes=rag.max_doc_bytes,
+            ),
             study=None
             if study is None
             else StudyPolicy(

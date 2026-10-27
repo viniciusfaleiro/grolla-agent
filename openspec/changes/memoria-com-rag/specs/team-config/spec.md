@@ -2,7 +2,7 @@
 
 ### Requirement: Configuração do RAG
 A seção `memory` do YAML SHALL aceitar a subseção opcional `rag` com:
-- `model`: o modelo de embeddings, que precisa estar embutido na imagem do worker;
+- `size`: o tamanho do modelo de embeddings, `small` (padrão) ou `large`, que precisa estar embutido na imagem do worker;
 - `chunk_chars`: o tamanho máximo de um trecho;
 - `max_doc_files` e `max_doc_bytes`: os limites da documentação indexada por serviço.
 

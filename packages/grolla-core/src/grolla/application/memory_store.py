@@ -8,11 +8,49 @@ o chat a usarem sem import circular com `grolla.application.memory` (que reexpor
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from grolla.domain.incidents import Alert, Incident
-from grolla.domain.memory import Memory, MemoryContext, MemoryVersion, SubjectKind
+from grolla.domain.memory import (
+    Chunk,
+    ChunkHit,
+    Memory,
+    MemoryContext,
+    MemoryVersion,
+    SubjectKind,
+)
+
+EmbeddingKind = Literal["query", "passage"]
+
+
+class EmbeddingError(Exception):
+    """O modelo de embeddings falhou ou não está disponível."""
+
+
+class TextEmbedder(Protocol):
+    """Embeddings de texto, gerados localmente. O mesmo modelo serve consulta e trecho."""
+
+    @property
+    def model(self) -> str:
+        """O nome do modelo; trechos de outro modelo não são comparados."""
+        ...
+
+    async def embed(self, texts: Sequence[str], kind: EmbeddingKind) -> list[list[float]]:
+        """Um vetor normalizado por texto, na mesma ordem; levanta EmbeddingError."""
+        ...
+
+
+@dataclass(frozen=True)
+class Query:
+    """Uma consulta à memória; sem vetor, só a busca textual (RAG desligado)."""
+
+    text: str
+    vector: Sequence[float] | None = None
+    model: str | None = None  # o modelo do vetor: só trechos desse modelo entram
+
+
+Embedded = tuple[Chunk, Sequence[float]]
 
 
 @dataclass(frozen=True)
@@ -26,7 +64,11 @@ class SubjectSummary:
 
 class MemoryStore(Protocol):
     async def context_for(
-        self, services: Sequence[str], alert_names: Sequence[str], text: str
+        self,
+        services: Sequence[str],
+        alert_names: Sequence[str],
+        text: str,
+        query: Query | None = None,
     ) -> MemoryContext:
         """A memória para investigar um incidente dos `services`.
 
@@ -71,11 +113,48 @@ class MemoryStore(Protocol):
         """Mais recentes primeiro."""
         ...
 
+    # ---- Busca com RAG (memória com RAG) ----
+    # Com `query.vector`, `context_for` ordena os episódios, depois do critério determinístico,
+    # por fusão de rankings (RRF) do vetor e do texto, e preenche `documents` com até
+    # DOCUMENT_LIMIT trechos de documentação dos `services`.
+
+    async def search_chunks(self, subject: str | None, query: Query, limit: int) -> list[ChunkHit]:
+        """Busca híbrida (RRF de vetor e texto) nos trechos de registros ativos e de documentos
+        do modelo da query; `subject` None busca em todos. Sem vetor, só a textual.
+        """
+        ...
+
+    async def unindexed(self, model: str, limit: int) -> list[Memory]:
+        """Registros ativos sem trechos deste modelo ou mudados depois da última indexação."""
+        ...
+
+    async def replace_chunks(
+        self, memory_id: UUID, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        """Troca os trechos do registro pelos dados, indexados em `at`."""
+        ...
+
+    async def replace_documents(
+        self, service: str, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        """Troca todos os trechos de documentação do serviço (arquivo removido some)."""
+        ...
+
+    async def drop_stale_chunks(self, model: str) -> int:
+        """Apaga trechos de registros esquecidos e de outro modelo; devolve quantos."""
+        ...
+
 
 async def memory_for(
-    memory: MemoryStore | None, incident: Incident, alerts: Sequence[Alert]
+    memory: MemoryStore | None,
+    incident: Incident,
+    alerts: Sequence[Alert],
+    embedder: TextEmbedder | None = None,
 ) -> MemoryContext:
-    """A memória para investigar o incidente; vazia sem memória ligada."""
+    """A memória para investigar o incidente; vazia sem memória ligada. Com `embedder`, a busca
+    é híbrida (contrato da memória com RAG: o grolla-dominio liga o `embedder`).
+    """
+    del embedder
     if memory is None:
         return MemoryContext()
     names = list(dict.fromkeys(alert.rule_name for alert in alerts))

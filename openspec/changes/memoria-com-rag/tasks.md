@@ -2,19 +2,19 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 Domínio: `ChunkOrigin`, `Chunk`, `ChunkHit`, `chunk_text`, `MemoryContext.documents`, com corpos `NotImplementedError`.
-- [ ] 0.2 Application:
+- [x] 0.1 Domínio: `ChunkOrigin`, `Chunk`, `ChunkHit`, `chunk_text`, `MemoryContext.documents`, com corpos `NotImplementedError`.
+- [x] 0.2 Application:
   - `TextEmbedder`, `EmbeddingError` e `Query`;
   - os métodos novos do `MemoryStore`;
   - `RepositoryDocument` e `ChangeHistory.documents`;
   - `Toolbox(embedder=)`;
   - `application.memory_retrieval`, com `RagPolicy` e os casos de uso;
   - `MemoryPolicy.rag`.
-- [ ] 0.3 Stubs no Postgres, no Azure DevOps e nos fakes; adapter `grolla.adapters.fastembed` vazio; migração `0007`.
-- [ ] 0.4 Dependência `fastembed` no `grolla-core` e `uv.lock`.
-- [ ] 0.5 Imagem `pgvector/pgvector:pg16` no `docker-compose.yml`, no `deploy/compose.yml` e no `conftest.py` da raiz.
-- [ ] 0.6 Config `memory.rag`, bootstrap (`WorkerContainer.embedder`) e Dockerfile do worker com o modelo embutido.
-- [ ] 0.7 `make check` verde com os stubs e commit de contrato.
+- [x] 0.3 Stubs no Postgres, no Azure DevOps e nos fakes; adapter `grolla.adapters.fastembed` vazio; migração `0007`.
+- [x] 0.4 Dependência `fastembed` no `grolla-core` e `uv.lock`.
+- [x] 0.5 Imagem `pgvector/pgvector:pg16` no `docker-compose.yml`, no `deploy/compose.yml` e no `conftest.py` da raiz.
+- [x] 0.6 Config `memory.rag` (`size: small | large`), bootstrap (`WorkerContainer.embedder`) e Dockerfile do worker com o modelo embutido.
+- [x] 0.7 `make check` verde com os stubs e commit de contrato.
 
 ## 1. grolla-dominio
 

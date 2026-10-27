@@ -24,6 +24,7 @@ from grolla.application.investigation import (
     InvestigationBrief,
     LearningBrief,
     LlmUsage,
+    RepositoryDocument,
     ServiceStudyBrief,
     Signal,
     SynthesisBrief,
@@ -147,6 +148,11 @@ class FakeChangeHistory:
         if service not in self.deploys:
             return ToolResult(NO_REPOSITORY, None)
         return ToolResult(self.deploys[service], f"https://pipelines.interno/{service}")
+
+    async def documents(
+        self, service: str, max_files: int, max_bytes: int
+    ) -> list[RepositoryDocument]:
+        raise NotImplementedError  # contrato da memória com RAG: implementado pelo grolla-dominio
 
     async def read_file(self, service: str, path: str) -> ToolResult:
         self.reads.append((service, path))

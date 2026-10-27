@@ -77,6 +77,31 @@ class MemoryVersion:
     active: bool
 
 
+class ChunkOrigin(StrEnum):
+    MEMORY = "memoria"  # trecho de um dossiê, episódio ou nota
+    DOCUMENT = "documento"  # trecho de um .md do repositório de um serviço
+
+
+@dataclass(frozen=True)
+class Chunk:
+    """Um trecho indexado para a busca: uma seção de um registro ou de um documento."""
+
+    origin: ChunkOrigin
+    subject: str  # assunto do registro; serviço dono do repositório no documento
+    heading: str  # título da seção ("" quando o texto não tem seção)
+    text: str
+    memory_id: UUID | None = None  # origem MEMORY
+    kind: MemoryKind | None = None  # origem MEMORY
+    path: str | None = None  # origem DOCUMENT: caminho no repositório
+    url: str | None = None  # origem DOCUMENT: link do arquivo
+
+
+@dataclass(frozen=True)
+class ChunkHit:
+    chunk: Chunk
+    score: float  # maior é melhor; só serve para ordenar
+
+
 @dataclass(frozen=True)
 class MemoryContext:
     """O que a investigação, a validação, o chat e o estudo recebem da memória."""
@@ -84,13 +109,15 @@ class MemoryContext:
     dossiers: tuple[Memory, ...] = ()  # ambiente, serviços do incidente e integrações citadas
     notes: tuple[Memory, ...] = ()  # ativas, não consolidadas, desses assuntos
     episodes: tuple[Memory, ...] = ()  # até EPISODE_LIMIT parecidos
+    documents: tuple[ChunkHit, ...] = ()  # até DOCUMENT_LIMIT trechos de documentação
 
     @property
     def empty(self) -> bool:
-        return not (self.dossiers or self.notes or self.episodes)
+        return not (self.dossiers or self.notes or self.episodes or self.documents)
 
 
 EPISODE_LIMIT = 5
+DOCUMENT_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -231,3 +258,12 @@ def memory_text(context: MemoryContext) -> str:
             lines += [_record_text(r) for r in records]
     lines.append("</memoria>")
     return "\n".join(lines)
+
+
+def chunk_text(body: str, limit: int) -> list[tuple[str, str]]:
+    """(título da seção, texto) por seção `#`/`##` do markdown; seção maior que `limit`
+    caracteres é cortada em parágrafos. Nunca devolve trecho vazio.
+
+    Contrato da memória com RAG: o corpo é do grolla-dominio.
+    """
+    raise NotImplementedError

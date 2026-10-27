@@ -20,10 +20,11 @@ from grolla.application.memory import (
     StudyRun,
     StudyStatus,
 )
-from grolla.application.memory_store import SubjectSummary
+from grolla.application.memory_store import Embedded, Query, SubjectSummary
 from grolla.domain.memory import (
     ENVIRONMENT,
     EPISODE_LIMIT,
+    ChunkHit,
     Confidence,
     Memory,
     MemoryContext,
@@ -57,8 +58,13 @@ class InMemoryMemoryStore:
         return [r for r in self.records.values() if r.active and r.kind is kind]
 
     async def context_for(
-        self, services: Sequence[str], alert_names: Sequence[str], text: str
+        self,
+        services: Sequence[str],
+        alert_names: Sequence[str],
+        text: str,
+        query: Query | None = None,
     ) -> MemoryContext:
+        del query  # contrato da memória com RAG: a busca híbrida é do grolla-dominio
         dossiers = {d.subject: d for d in self._active(MemoryKind.DOSSIER)}
         mine = [dossiers[s] for s in (ENVIRONMENT, *services) if s in dossiers]
         service_bodies = " ".join(dossiers[s].body.casefold() for s in services if s in dossiers)
@@ -167,6 +173,27 @@ class InMemoryMemoryStore:
     async def versions(self, memory_id: UUID) -> list[MemoryVersion]:
         mine = [v for v in self.history if v.memory_id == memory_id]
         return sorted(mine, key=lambda v: v.at, reverse=True)
+
+    # ---- memória com RAG (contrato: corpos do grolla-dominio) ----
+
+    async def search_chunks(self, subject: str | None, query: Query, limit: int) -> list[ChunkHit]:
+        raise NotImplementedError
+
+    async def unindexed(self, model: str, limit: int) -> list[Memory]:
+        raise NotImplementedError
+
+    async def replace_chunks(
+        self, memory_id: UUID, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        raise NotImplementedError
+
+    async def replace_documents(
+        self, service: str, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        raise NotImplementedError
+
+    async def drop_stale_chunks(self, model: str) -> int:
+        raise NotImplementedError
 
 
 @dataclass

@@ -30,6 +30,7 @@ from grolla.application.investigation import (
     ToolUnavailableError,
     note_title,
 )
+from grolla.application.memory_retrieval import RagPolicy
 from grolla.application.memory_store import MemoryStore, memory_for
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, Evaluation
 from grolla.domain.incidents import (
@@ -72,6 +73,7 @@ class MemoryPolicy:
     learning_max_tokens: int = 60_000
     learning_timeout: timedelta = timedelta(minutes=3)
     study: "StudyPolicy | None" = None  # None: nenhum estudo do ambiente roda
+    rag: RagPolicy | None = None  # None: sem embeddings, só a busca textual
 
 
 @dataclass(frozen=True)

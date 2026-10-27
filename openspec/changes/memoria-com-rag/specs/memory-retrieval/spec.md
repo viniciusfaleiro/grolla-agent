@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Embeddings locais
-Com `memory.rag` no YAML, o worker SHALL gerar embeddings com um modelo multilíngue que roda no próprio processo, embutido na imagem do worker, sem chamada a serviço externo e sem baixar nada em tempo de execução. O nome do modelo SHALL vir do YAML. Os embeddings SHALL ser gerados só no worker; a api SHALL NOT carregar o modelo.
+Com `memory.rag` no YAML, o worker SHALL gerar embeddings com um modelo multilíngue que roda no próprio processo, embutido na imagem do worker, sem chamada a serviço externo e sem baixar nada em tempo de execução. O YAML SHALL escolher o tamanho do modelo: `small` (leve e rápido) ou `large` (mais preciso, maior). A imagem do worker SHALL trazer os dois por padrão, e um parâmetro de build SHALL permitir embutir só um. Os embeddings SHALL ser gerados só no worker; a api SHALL NOT carregar o modelo.
 
 #### Scenario: Sem rede
 - **WHEN** o worker sobe com `memory.rag` numa rede sem acesso à internet
 - **THEN** os embeddings são gerados normalmente
 
 #### Scenario: Modelo ausente na imagem
-- **WHEN** o YAML pede um modelo que não está embutido na imagem
+- **WHEN** o YAML pede `size: large` e a imagem foi construída só com o `small`
 - **THEN** o worker não sobe e a mensagem nomeia o modelo
 
 ### Requirement: Memória indexada em trechos
@@ -23,7 +23,7 @@ Cada dossiê, episódio e nota ativo SHALL ser indexado em trechos: um por seç�
 - **THEN** em até 1 min os trechos dela saem do índice
 
 #### Scenario: Modelo trocado
-- **WHEN** o YAML passa a pedir outro modelo de embeddings e o worker é reiniciado
+- **WHEN** o YAML troca `size: small` por `size: large` e o worker é reiniciado
 - **THEN** todos os trechos são reindexados com o modelo novo, e a busca usa só trechos do modelo atual
 
 ### Requirement: Documentação dos repositórios na memória

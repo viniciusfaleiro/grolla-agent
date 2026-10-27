@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from grolla.application.clock import Clock
-from grolla.application.memory_store import MemoryStore
+from grolla.application.memory_store import MemoryStore, TextEmbedder
 from grolla.domain.analysis import Analysis, AnalysisDraft, Evaluation, VerificationDraft
 from grolla.domain.chat import ChatDraft
 from grolla.domain.incidents import Alert, Incident, IncidentEvent
@@ -118,8 +118,17 @@ class Telemetry(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RepositoryDocument:
+    """Um arquivo de documentação (.md) do repositório de um serviço."""
+
+    path: str
+    url: str | None
+    content: str
+
+
 class ChangeHistory(Protocol):
-    """Deploys e execuções de pipeline."""
+    """Deploys, execuções de pipeline e arquivos do repositório do serviço."""
 
     async def recent_deploys(self, service: str, since: datetime) -> ToolResult:
         """Deploys do repositório do serviço desde `since`; levanta ToolUnavailableError.
@@ -134,6 +143,15 @@ class ChangeHistory(Protocol):
 
         Arquivo binário é recusado com aviso, sem erro; serviço sem repositório diz
         NO_REPOSITORY. Levanta ToolUnavailableError.
+        """
+        ...
+
+    async def documents(
+        self, service: str, max_files: int, max_bytes: int
+    ) -> list[RepositoryDocument]:
+        """Os `.md` do repositório do serviço no branch padrão, menores primeiro, até
+        `max_files` arquivos e `max_bytes` no total; serviço sem repositório devolve [].
+        Levanta ToolUnavailableError.
         """
         ...
 
@@ -381,10 +399,12 @@ class Toolbox:
         *,
         memory: MemoryStore | None = None,
         remember_as: Source | None = None,
+        embedder: TextEmbedder | None = None,
     ) -> None:
         """`memory` liga `recall`; `remember_as` (só no chat) liga `remember`, gravando notas
-        com essa fonte.
+        com essa fonte; `embedder` faz o `recall` usar a busca híbrida nos trechos.
         """
+        self._embedder = embedder
         self._memory = memory
         self._remember_as = remember_as
         self._telemetry = telemetry

@@ -173,8 +173,9 @@ async def query_for(embedder: TextEmbedder | None, text: str) -> Query | None:
   milissegundos. A coluna `vector` sem dimensão aceita trocar de modelo, e só se compara com
   trechos do mesmo `model`.
 
-**Config (`memory.rag`):** `model` (padrão
-`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, 384 dimensões), `chunk_chars`
+**Config (`memory.rag`):** `size`, `small` (padrão:
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, 384 dimensões, 0,22 GB) ou `large`
+(`intfloat/multilingual-e5-large`, 1024 dimensões, 2,2 GB), mapeados no adapter; `chunk_chars`
 (200 a 8000, padrão 1200), `max_doc_files` (padrão 30) e `max_doc_bytes` (padrão 300000).
 
 **Worker:** job `index_memory` a cada 30 s, na fila `analysis`, com lock próprio, só com
@@ -183,6 +184,18 @@ só os arquivos locais.
 
 **Imagens:** `pgvector/pgvector:pg16` no `docker-compose.yml`, no `deploy/compose.yml`, no
 testcontainers (`conftest.py` da raiz) e no compose do laboratório.
+
+### Ajustes do commit de contrato
+
+- O YAML escolhe `size: small | large`, a pedido do usuário. O adapter `grolla.adapters.fastembed`
+  mapeia o tamanho para o modelo, e `RagPolicy` não leva modelo: vale o `TextEmbedder.model`.
+- A imagem do worker embute os dois modelos por padrão; o build arg `GROLLA_RAG_MODELS` escolhe
+  só um.
+- `TextEmbedder`, `Query`, `Embedded` e `EmbeddingError` ficam em
+  `grolla.application.memory_store`. `memory_for(..., embedder=None)`. `run_next_study` recebe
+  `embedder` quando o grolla-dominio ligar a indexação de documentos.
+- `fastembed` e `onnxruntime` são proibidos no núcleo pelo import-linter; `fastembed`, `onnx` e
+  `pgvector` entram no vocabulário proibido.
 
 ## Decisions
 

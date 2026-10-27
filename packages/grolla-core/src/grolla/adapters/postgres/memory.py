@@ -24,10 +24,11 @@ from grolla.application.memory import (
     StudyRun,
     StudyStatus,
 )
-from grolla.application.memory_store import SubjectSummary
+from grolla.application.memory_store import Embedded, Query, SubjectSummary
 from grolla.domain.memory import (
     ENVIRONMENT,
     EPISODE_LIMIT,
+    ChunkHit,
     Confidence,
     Memory,
     MemoryContext,
@@ -216,8 +217,13 @@ class PostgresMemoryStore:
         return found[0] if found else None
 
     async def context_for(
-        self, services: Sequence[str], alert_names: Sequence[str], text: str
+        self,
+        services: Sequence[str],
+        alert_names: Sequence[str],
+        text: str,
+        query: Query | None = None,
     ) -> MemoryContext:
+        del query  # contrato da memória com RAG: a busca híbrida é do grolla-persistencia
         services = list(services)
         async with self._engine.connect() as connection:
             result = await connection.execute(
@@ -363,6 +369,27 @@ class PostgresMemoryStore:
                 {"id": memory_id},
             )
             return [_version(row) for row in result]
+
+    # ---- memória com RAG (contrato: corpos do grolla-persistencia) ----
+
+    async def search_chunks(self, subject: str | None, query: Query, limit: int) -> list[ChunkHit]:
+        raise NotImplementedError
+
+    async def unindexed(self, model: str, limit: int) -> list[Memory]:
+        raise NotImplementedError
+
+    async def replace_chunks(
+        self, memory_id: UUID, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        raise NotImplementedError
+
+    async def replace_documents(
+        self, service: str, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        raise NotImplementedError
+
+    async def drop_stale_chunks(self, model: str) -> int:
+        raise NotImplementedError
 
 
 def _job(row: sa.Row[Any]) -> LearningJob:

@@ -4,7 +4,7 @@
 # A porta do Postgres no host é 5433 para não colidir com outros projetos locais na 5432.
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: grolla
       POSTGRES_USER: grolla

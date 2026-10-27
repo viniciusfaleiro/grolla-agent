@@ -18,9 +18,18 @@ COPY packages/grolla-core/src packages/grolla-core/src
 COPY packages/grolla-worker/src packages/grolla-worker/src
 RUN uv sync --frozen --no-dev --package grolla-worker --no-editable
 
+# Modelos de embeddings da memória com RAG, embutidos na imagem: em produção nada é baixado.
+# GROLLA_RAG_MODELS escolhe os tamanhos ("small", "large" ou "small large").
+FROM build AS models
+ARG GROLLA_RAG_MODELS="small large"
+RUN /app/.venv/bin/python -c "import sys; from fastembed import TextEmbedding; \
+from grolla.adapters.fastembed import MODELS; \
+[TextEmbedding(MODELS[s], cache_dir='/opt/grolla/models') for s in sys.argv[1:]]" $GROLLA_RAG_MODELS
+
 FROM python:3.12-slim-bookworm
 RUN useradd --system --uid 10001 grolla
 COPY --from=build /app/.venv /app/.venv
+COPY --from=models /opt/grolla/models /opt/grolla/models
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1
 USER grolla
 CMD ["grolla-worker"]

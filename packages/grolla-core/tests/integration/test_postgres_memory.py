@@ -119,8 +119,8 @@ async def clean(database: PostgresDatabase) -> None:
     async with database.engine.begin() as connection:
         await connection.execute(
             sa.text(
-                "TRUNCATE memory_versions, memories, learnings, service_studies, llm_usage,"
-                " study_runs"
+                "TRUNCATE memory_chunks, memory_versions, memories, learnings, service_studies,"
+                " llm_usage, study_runs"
             )
         )
 
