@@ -257,6 +257,7 @@ class TeamConfig(BaseModel):
             ),
             window=timedelta(minutes=self.grouping_window_minutes),
             page_url=self.page_url,
+            triage=self.noise is not None,
         )
 
 

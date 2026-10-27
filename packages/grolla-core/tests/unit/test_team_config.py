@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 from grolla.bootstrap.settings import ConfigError
-from grolla.bootstrap.team_config import load_team_config
+from grolla.bootstrap.team_config import TeamConfig, load_team_config
 from grolla.domain.incidents import Severity
 
 INCIDENT = UUID("00000000-0000-0000-0000-000000000001")
@@ -75,3 +75,17 @@ def test_versioned_configs_are_valid(path: str) -> None:
     root = Path(__file__).parents[4]
 
     assert load_team_config(root / path).team == "credenciadora"
+
+
+def test_triage_is_requested_only_with_the_noise_section() -> None:
+    off = TeamConfig(team="t", page_base_url="http://grolla")
+    on = TeamConfig.model_validate(
+        {"team": "t", "page_base_url": "http://grolla", "noise": {"window_minutes": 10}}
+    )
+
+    assert off.intake_policy().triage is False
+    assert off.triage_policy() is None
+    assert on.intake_policy().triage is True
+    policy = on.triage_policy()
+    assert policy is not None
+    assert policy.window.total_seconds() == 600
