@@ -15,6 +15,7 @@
       {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
       <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
       {{ impact_chip(impact) }}
+      {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
     </div>
   </div>
 

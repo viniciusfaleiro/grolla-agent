@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% from "_macros.html" import when, day, join %}
+{% block title %}Post mortem · {{ incident.title }}{% endblock %}
+
+{% macro action_fields(item=none) %}
+<label>Descrição
+  <textarea name="descricao" required rows="2">{{ item.description if item else "" }}</textarea>
+</label>
+<div class="pm-action-fields">
+  <label>Tipo
+    <select name="tipo">
+      {% for value, label in action_kind_labels.items() %}<option value="{{ value }}"{% if item and item.kind == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Dono
+    <input name="dono" maxlength="60" value="{{ item.owner or '' if item else '' }}" placeholder="quem cuida">
+  </label>
+  <label>Prazo
+    <input type="date" name="prazo" value="{{ item.due.isoformat() if item and item.due else '' }}">
+  </label>
+  {% if item %}
+  <label>Situação
+    <select name="situacao">
+      {% for value, label in action_status_labels.items() %}<option value="{{ value }}"{% if item.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro action_plan(pm, plan_url, editable) %}
+<div class="pm-plan">
+  <h3>Itens do plano</h3>
+  {% if pm.actions %}
+  <div class="table-wrap">
+    <table class="pm-actions">
+      <thead><tr><th>Descrição</th><th>Tipo</th><th>Dono</th><th>Prazo</th><th>Situação</th>{% if editable %}<th><span class="visually-hidden">Ações</span></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for item in pm.actions %}
+        <tr id="item-{{ item.id }}"{% if item.id in overdue %} class="pm-item-overdue"{% endif %}>
+          <td>{{ item.description }}</td>
+          <td><span class="chip">{{ action_kind_labels[item.kind] }}</span></td>
+          <td>{{ item.owner or "—" }}</td>
+          <td>{% if item.due %}{{ item.due.strftime("%d/%m/%Y") }}{% else %}—{% endif %}</td>
+          <td>
+            <span class="pm-item-status pm-item-{{ item.status }}">{{ action_status_labels[item.status] }}</span>
+            {% if item.id in overdue %}<span class="badge badge-overdue">vencido</span>{% endif %}
+          </td>
+          {% if editable %}
+          <td class="pm-item-actions">
+            {% if item.status == "aberto" %}
+            <form hx-post="{{ plan_url }}/{{ item.id }}"><input type="hidden" name="situacao" value="concluido"><button>Concluir</button></form>
+            <form hx-post="{{ plan_url }}/{{ item.id }}" hx-confirm="Aceitar o risco deste item sem fazê-lo?"><input type="hidden" name="situacao" value="aceito"><button class="button-quiet">Aceitar</button></form>
+            {% endif %}
+            <button class="button-quiet" popovertarget="editar-{{ item.id }}">Editar</button>
+            <div id="editar-{{ item.id }}" popover>
+              <form class="popover-form" hx-post="{{ plan_url }}/{{ item.id }}">
+                <h3>Editar o item</h3>
+                {{ action_fields(item) }}
+                <div class="row">
+                  <button type="button" class="button-quiet" popovertarget="editar-{{ item.id }}" popovertargetaction="hide">Cancelar</button>
+                  <button class="button-primary">Salvar</button>
+                </div>
+              </form>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Nenhum item no plano ainda.</p>
+  {% endif %}
+  {% if editable %}
+  <details class="pm-add">
+    <summary>Adicionar item</summary>
+    <form class="edit-form" hx-post="{{ plan_url }}">
+      {{ action_fields() }}
+      <div class="row"><button class="button-primary">Adicionar</button></div>
+    </form>
+  </details>
+  {% endif %}
+  <div id="erro-plano" class="error" role="alert"></div>
+</div>
+{% endmacro %}
+
+{% block content %}
+{% set url = "/postmortems/" ~ incident.id %}
+<nav class="crumbs" aria-label="Caminho"><a href="/postmortems">Post mortems</a> <span aria-hidden="true">/</span></nav>
+<div class="incident-head pm-head">
+  <div class="incident-title">
+    <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
+    <h1>{{ incident.title }}</h1>
+  </div>
+  <div class="chips">
+    {% if pm %}<span class="pm-status pm-status-{{ pm.status }}">{{ pm_status_labels[pm.status] }}</span>{% endif %}
+    {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+    <span class="muted">detectado em {{ when(incident.detected_at) }}</span>
+    <a href="/incidents/{{ incident.id }}">ver o incidente</a>
+  </div>
+</div>
+
+{% if not pm %}
+<div class="empty">
+  <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
+  {% if resolved %}
+  <h2>O rascunho está sendo escrito</h2>
+  <p>O Grolla está montando o post mortem com a timeline, as métricas e o que o time fez. Recarregue em instantes.</p>
+  {% else %}
+  <h2>Ainda não há post mortem</h2>
+  <p>O post mortem nasce quando o incidente é resolvido.</p>
+  {% endif %}
+</div>
+{% else %}
+
+{% if not author %}{{ join(back_to, "Seu nome fica nas edições, nos itens do plano e nas mudanças de status.") }}{% endif %}
+
+<section class="panel pm-status-panel">
+  <ol class="stages" aria-label="Ciclo do post mortem">
+    {% set current = (pm_status_labels | list).index(pm.status) %}
+    {% for value, label in pm_status_labels.items() %}
+    {% set i = loop.index0 %}
+    <li class="{{ 'feita' if i < current or pm.status == 'encerrado' else ('atual' if i == current else 'futura') }}"{% if i == current %} aria-current="step"{% endif %}>{{ label }}</li>
+    {% endfor %}
+  </ol>
+  <p class="muted pm-status-by">{{ pm_status_labels[pm.status] }}{% if pm.status_at %} por {{ display_name(pm.status_by) }} em {{ when(pm.status_at) }}{% endif %} · atualizado em {{ when(pm.updated_at) }}</p>
+  <div class="pm-status-actions">
+    {% if author %}
+    {% for transition in transitions[pm.status] %}
+    <form hx-post="{{ url }}/status">
+      <input type="hidden" name="para" value="{{ transition.to }}">
+      <button class="{{ 'button-primary' if transition.primary else '' }}">{{ transition.label }}</button>
+    </form>
+    {% endfor %}
+    {% endif %}
+    {% if has_pdf(pm.status) %}<a class="button" href="{{ url }}.pdf">Baixar PDF</a>{% endif %}
+  </div>
+  {% if pm.status == "rascunho" %}<p class="hint muted">A primeira edição de uma seção já move o post mortem para em revisão.</p>{% endif %}
+  {% if pm.status == "em_revisao" %}<p class="hint muted">Para aprovar, todo item do plano precisa de dono e prazo.</p>{% endif %}
+  {% if pm.status == "aprovado" %}<p class="hint muted">Para encerrar, todo item do plano precisa estar concluído ou aceito. Para corrigir o texto, volte para revisão.</p>{% endif %}
+  <div id="erro-status" class="error" role="alert"></div>
+</section>
+
+{% if overdue %}
+<p class="pm-overdue-note" role="status"><strong>{{ overdue | length }} {{ "item do plano vencido" if overdue | length == 1 else "itens do plano vencidos" }}</strong> <a href="#secao-plano">ver o plano de ação</a></p>
+{% endif %}
+
+<div class="pm-sections">
+  {% for section in pm.sections %}
+  {% set key = section.key %}
+  <section class="panel pm-section{% if not_generated(section) %} pm-section-missing{% endif %}" id="secao-{{ key }}">
+    <header class="pm-section-head">
+      <h2><span class="pm-section-number">{{ loop.index }}</span>{{ section_titles[key] }}</h2>
+      <span class="muted">por {{ display_name(section.author) }} · {{ when(section.updated_at) }}</span>
+    </header>
+    <div class="rich pm-body">{{ rich_text(section.body) }}</div>
+
+    {% if key == "plano" %}{{ action_plan(pm, url ~ "/plano", author and pm.status != "encerrado") }}{% endif %}
+
+    {% if author and (can_edit(pm.status) or can_regenerate(pm.status, key)) %}
+    <div class="record-actions">
+      {% if can_edit(pm.status) %}
+      <details class="record-edit">
+        <summary>Editar</summary>
+        <form class="edit-form" hx-post="{{ url }}/secoes/{{ key }}">
+          <label class="visually-hidden" for="texto-{{ key }}">Texto de {{ section_titles[key] }}</label>
+          <textarea id="texto-{{ key }}" name="texto" required rows="{{ 14 if key == 'timeline' else 8 }}">{{ section.body }}</textarea>
+          <div class="row"><button class="button-primary">Salvar</button></div>
+        </form>
+      </details>
+      {% endif %}
+      {% if can_regenerate(pm.status, key) %}
+      <details class="record-edit">
+        <summary>Regenerar</summary>
+        <form class="edit-form" hx-post="{{ url }}/secoes/{{ key }}/regenerar" hx-target="#aviso-{{ key }}">
+          <label for="instrucao-{{ key }}">O que o Grolla deve levar em conta (opcional)</label>
+          <input id="instrucao-{{ key }}" name="instrucao" maxlength="500" placeholder="ex.: incluir a falta de alarme no RDS">
+          <p class="hint muted">O Grolla reescreve só esta seção, lendo o post mortem atual com as edições do time. O texto de agora fica no histórico.</p>
+          <div class="row"><button class="button-primary">Regenerar</button></div>
+        </form>
+      </details>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div id="aviso-{{ key }}" class="pm-notice" role="status"></div>
+    <details class="versions" hx-get="{{ url }}/secoes/{{ key }}/versoes" hx-trigger="toggle once" hx-target="find .versions-list">
+      <summary>Histórico de versões</summary>
+      <div class="versions-list"><p class="muted">Carregando…</p></div>
+    </details>
+    <div id="erro-{{ key }}" class="error" role="alert"></div>
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
