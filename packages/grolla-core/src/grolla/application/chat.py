@@ -36,6 +36,7 @@ from grolla.domain.analysis import (
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, Incident, IncidentEvent
 from grolla.domain.memory import MemoryContext, Source, SourceKind, memory_text
+from grolla.domain.safety import REFUSALS, Scope
 
 CHAT_LIMIT_REACHED = "limite do chat deste incidente atingido"
 REPLY_FAILED = "não consegui responder"
@@ -170,6 +171,7 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
 
     Com o teto de tokens do chat do incidente atingido, responde CHAT_LIMIT_REACHED sem chamar
     o modelo. Qualquer falha vira "não consegui responder: <motivo>", com as consultas feitas.
+    Pedido fora do domínio ou de execução vira a recusa fixa do escopo, sem as consultas.
     """
     job = await queue.claim(clock.now())
     if job is None:
@@ -207,17 +209,19 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
             draft = await model.reply(brief, context, job.text, toolbox, budget)
     except Exception as error:  # qualquer falha vira "não consegui responder": a resposta chega
         reason = failure_reason(error, timed_out=deadline.expired())
-        text, ok = _failed(reason), False
+        text, ok, refusal = _failed(reason), False, None
     else:
-        text, ok = draft.text, True
+        refusal = None if draft.scope is Scope.DOMAIN else draft.scope
+        text, ok = (draft.text if refusal is None else REFUSALS[refusal]), True
     await _answer(
         queue,
         job,
         text,
         clock.now(),
         ok=ok,
-        evaluations=toolbox.evaluations,
+        evaluations=toolbox.evaluations if refusal is None else (),
         usages=budget.usages,
+        refusal=refusal,
     )
     return True
 
@@ -247,6 +251,7 @@ async def _answer(  # noqa: PLR0913 — a resposta reúne o texto, as consultas 
     ok: bool,
     evaluations: Sequence[Evaluation] = (),
     usages: Sequence[LlmUsage] = (),
+    refusal: Scope | None = None,
 ) -> None:
     reply = ChatMessage(
         id=0,
@@ -257,6 +262,7 @@ async def _answer(  # noqa: PLR0913 — a resposta reúne o texto, as consultas 
         evaluations=tuple(evaluations),
         reply_status=ReplyStatus.ANSWERED if ok else ReplyStatus.FAILED,
         reply_to=job.message_id,
+        refusal=refusal,
     )
     data = {"reply_to": job.message_id, "ok": ok, "text": text}
     event = IncidentEvent(job.incident_id, now, EventType.AGENT_MESSAGE, data, AGENT_AUTHOR)

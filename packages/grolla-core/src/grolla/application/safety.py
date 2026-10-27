@@ -1,7 +1,4 @@
-"""Limite de mensagens por pessoa no chat do war room e no console.
-
-Contrato do agente cercado: os corpos são do grolla-dominio.
-"""
+"""Limite de mensagens por pessoa no chat do war room e no console."""
 
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -27,5 +24,10 @@ class RateLimitedError(Exception):
 async def ensure_under_limit(
     counter: MessageCounter, author: str, now: datetime, per_hour: int
 ) -> None:
-    """Levanta RateLimitedError quando o autor já mandou `per_hour` mensagens na última hora."""
-    raise NotImplementedError
+    """Levanta RateLimitedError quando o autor já mandou `per_hour` mensagens na última hora.
+
+    `retry_at` é quando a mais antiga das `per_hour` últimas sai da janela.
+    """
+    sent = await counter.sent_since(author, now - WINDOW)
+    if len(sent) >= per_hour:
+        raise RateLimitedError(per_hour, sorted(sent)[-per_hour] + WINDOW)
