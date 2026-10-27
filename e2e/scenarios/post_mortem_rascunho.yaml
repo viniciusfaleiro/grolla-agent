@@ -95,7 +95,15 @@ then:
   - expect_page:
       service: api
       path: /postmortems
-      contains: [pm-rascunho-api]
+      contains: [pm-rascunho-api, Rascunhos para revisar, agente sem avaliação]
+  - expect_page:
+      service: api
+      path: /postmortems?sem_avaliacao=1&servico=pm-rascunho-api
+      contains: [pm-rascunho-api, Limpar filtros]
+  - expect_page:
+      service: api
+      path: /postmortems/{incidente}
+      contains: [PDF depois de aprovar, class="pm-outline", falta avaliar]
   # O descartado não ganha pedido nem documento.
   - expect_db_count:
       sql: SELECT count(*) FROM post_mortem_jobs WHERE incident_id = '{descartado}'

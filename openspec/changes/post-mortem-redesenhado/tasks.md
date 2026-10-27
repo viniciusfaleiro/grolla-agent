@@ -8,7 +8,7 @@
 
 ## 2. e2e
 
-- [ ] 2.1 Trechos dos cenários que mudaram e o filtro de vencidos ou sem avaliação.
+- [x] 2.1 Trechos dos cenários que mudaram e o filtro de vencidos ou sem avaliação.
 
 ## 3. Fechamento
 
