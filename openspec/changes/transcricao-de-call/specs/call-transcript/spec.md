@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Upload da transcrição
-No war room, uma pessoa identificada SHALL poder enviar a transcrição da call colando o texto ou um arquivo `.txt`, `.vtt` ou `.srt`, com no máximo `transcript.max_chars` caracteres (padrão 200000). O texto SHALL ficar guardado com quem enviou e quando, e SHALL virar um pedido de extração. Arquivo vazio, maior que o limite ou de outro tipo SHALL ser recusado com a mensagem.
+No war room, uma pessoa identificada SHALL poder enviar a transcrição da call colando o texto ou um arquivo `.txt`, `.vtt` ou `.srt`, O texto SHALL ficar guardado com quem enviou e quando, e SHALL virar um pedido de extração. Texto acima de `transcript.max_chars` caracteres (padrão 200000) SHALL ser cortado no limite, com o aviso "cortada no limite" na timeline. Texto vazio ou arquivo de outro tipo SHALL ser recusado com a mensagem.
 
 #### Scenario: Enviar a transcrição
 - **WHEN** Ana envia o `.vtt` da call do incidente

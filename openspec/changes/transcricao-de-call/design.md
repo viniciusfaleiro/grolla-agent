@@ -77,6 +77,17 @@ async def reap_stuck_transcripts(store, clock, policy) -> int: ...
 **Schema (migração 0013):** `transcripts` (`id`, `incident_id`, `author`, `text`, `received_at`,
 `status`, `started_at`, `finished_at`, `reason`).
 
+### Ajustes combinados durante a implementação
+
+- Texto acima de `max_chars` é cortado e marcado (`truncated`), não recusado: na crise, metade
+  da call vale mais que nada. A api só recusa arquivo acima de `max_chars × 4` bytes.
+- `transcripts.queued_at`: posição na fila; reprocessar vai para o fim, sem furar a fila.
+- `InMemoryTranscriptStore(repository)`: os eventos vão para o log do repositório do fake.
+- Todo evento TRANSCRIPT_* leva `transcript` (o id) no data; `said_at` normalizado para HH:MM.
+- Contexto da extração: incidente, serviços, estado, "Hipóteses da análise:" em linhas "- " e a
+  causa raiz da validação; a transcrição vai entre `<transcricao>` como dado.
+- Jobs na fila `analysis`: a extração é do war room de um incidente e tem a prioridade dele.
+
 ## Decisions
 
 **1. Upload de texto, sem integração com a ferramenta de reunião.** Funciona com Teams, Meet ou

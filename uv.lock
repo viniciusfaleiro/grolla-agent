@@ -564,6 +564,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "grolla-core" },
     { name = "jinja2" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 
@@ -572,6 +573,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "grolla-core", editable = "packages/grolla-core" },
     { name = "jinja2" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 

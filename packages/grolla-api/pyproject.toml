@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "grolla-core",
     "jinja2",
+    "python-multipart",  # upload da transcrição da call
     "uvicorn",
 ]
 
