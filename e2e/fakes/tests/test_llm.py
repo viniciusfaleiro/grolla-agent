@@ -525,3 +525,130 @@ def test_memory_phases_ignore_the_analysis_mode() -> None:
     response = client.post(PATH, json=memory_request("environment", "nada", []))
 
     assert response.status_code == 200
+
+
+# ---- Acompanhamento da crise
+
+FOLLOW_UP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "trend": {"type": "string", "enum": ["piorando", "estavel", "melhorando", "normalizado"]},
+        "error_rate": {"type": ["number", "null"]},
+        "summary": {"type": "string"},
+        "changed": {"type": "boolean"},
+        "evidence": {"type": "array"},
+    },
+}
+FOLLOW_UP_MESSAGE = "Incidente: Taxa de erro alta\nServiços: pedidos-api\nCiclo anterior: nenhum"
+
+
+def follow_up_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        **request(messages),
+        "output_config": {"format": {"type": "json_schema", "schema": FOLLOW_UP_SCHEMA}},
+    }
+
+
+def follow_up_turns(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:
+    first = {"role": "user", "content": FOLLOW_UP_MESSAGE}
+    calls = client.post(PATH, json=follow_up_request([first])).json()
+    results = [
+        {"type": "tool_result", "tool_use_id": block["id"], "content": "taxa de erro 0,3%"}
+        for block in calls["content"]
+    ]
+    messages = [
+        first,
+        {"role": "assistant", "content": calls["content"]},
+        {"role": "user", "content": results},
+    ]
+    return calls, client.post(PATH, json=follow_up_request(messages)).json()
+
+
+def cycle_of(final: dict[str, Any]) -> dict[str, Any]:
+    assert final["stop_reason"] == "end_turn"
+    return json.loads(final["content"][0]["text"])
+
+
+def test_follow_up_queries_the_metric_and_answers_normalized_by_default() -> None:
+    calls, final = follow_up_turns(TestClient(create_app()))
+
+    assert [(block["name"], block["input"]) for block in calls["content"]] == [
+        ("query_metric", {"service": "pedidos-api", "signal": "taxa_de_erro"})
+    ]
+    assert cycle_of(final) == {
+        "trend": "normalizado",
+        "error_rate": 0.0,
+        "summary": "Taxa de erro em 0% no pedidos-api.",
+        "changed": False,
+        "evidence": [{"text": "taxa de erro 0,3%", "url": None}],
+    }
+
+
+def test_follow_up_answers_the_script_from_the_control() -> None:
+    client = TestClient(create_app())
+    script = {"trend": "piorando", "error_rate": 12.5, "changed": True}
+    client.post("/_control/llm", json={"follow_up": script})
+
+    cycle = cycle_of(follow_up_turns(client)[1])
+
+    assert cycle["trend"] == "piorando"
+    assert cycle["error_rate"] == 12.5
+    assert cycle["changed"] is True
+    assert cycle["summary"] == "Taxa de erro em 12,5% no pedidos-api."
+
+
+def test_follow_up_script_without_measure_and_with_summary() -> None:
+    client = TestClient(create_app())
+    script = {"trend": "estavel", "error_rate": None, "summary": "Sem dado de erro."}
+    client.post("/_control/llm", json={"follow_up": script})
+
+    cycle = cycle_of(follow_up_turns(client)[1])
+
+    assert (cycle["error_rate"], cycle["summary"]) == (None, "Sem dado de erro.")
+
+
+def test_follow_up_script_with_unknown_trend_is_rejected() -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/_control/llm", json={"follow_up": {"trend": "caindo"}})
+
+    assert response.status_code == 422
+
+
+def test_follow_up_down_mode_answers_overloaded_and_leaves_the_others_alone() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"follow_up_mode": "fora_do_ar"})
+
+    response = client.post(PATH, json=follow_up_request([{"role": "user", "content": "x"}]))
+
+    assert response.status_code == 529
+    assert first_turn(client)["stop_reason"] == "tool_use"
+    assert chat_turns(client)[1]["stop_reason"] == "end_turn"
+
+
+def test_other_modes_do_not_change_the_follow_up() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar", "chat_mode": "fora_do_ar"})
+
+    assert cycle_of(follow_up_turns(client)[1])["trend"] == "normalizado"
+
+
+def test_slow_follow_up_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grolla_fakes.llm, "SLOW_SECONDS", 0.2)
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"follow_up_mode": "lenta"})
+    start = time.monotonic()
+
+    response = client.post(PATH, json=follow_up_request([{"role": "user", "content": "x"}]))
+
+    assert time.monotonic() - start >= 0.2
+    assert response.status_code == 200
+
+
+def test_reset_brings_the_follow_up_back_to_the_default() -> None:
+    client = TestClient(create_app())
+    control = {"follow_up_mode": "fora_do_ar", "follow_up": {"trend": "piorando"}}
+    client.post("/_control/llm", json=control)
+    client.post("/_control/reset")
+
+    assert cycle_of(follow_up_turns(client)[1])["trend"] == "normalizado"

@@ -59,6 +59,14 @@ def test_page_offers_the_verification_scripts_through_the_control_route() -> Non
         assert f'data-verification="{mode}"' in page
 
 
+def test_page_offers_the_follow_up_trends_through_the_control_route() -> None:
+    page = console(FakeApi()).get("/_console").text
+
+    assert "follow_up:" in page
+    for trend in ("normalizado", "melhorando", "estavel", "piorando"):
+        assert f'data-follow-up="{trend}"' in page
+
+
 def test_fired_alert_reaches_the_webhook_in_the_alerting_format() -> None:
     api = FakeApi()
     client = console(api)

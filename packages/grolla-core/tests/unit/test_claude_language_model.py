@@ -17,6 +17,7 @@ from contracts.language_model_contract import (
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
@@ -51,6 +52,7 @@ from grolla.domain.analysis import (
     VerificationDraft,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
 from grolla.domain.memory import (
     ENVIRONMENT,
     DossierDraft,
@@ -1021,3 +1023,167 @@ class TestClaudeMemoryModelContract(MemoryModelContract):
         return memory_model(
             lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
         )
+
+
+# ---- Acompanhamento da crise
+
+FOLLOW_UP_SETTINGS = ModelSettings(model="claude-haiku-5-5", max_tokens=8000, effort="low")
+PREVIOUS = Cycle(
+    incident_id=UUID("0193a3a0-7c1e-7000-8000-000000000002"),
+    number=1,
+    status=CycleStatus.COMPLETED,
+    requested_at=T0,
+    trend=Trend.WORSE,
+    error_rate=40.0,
+    summary="Erro subindo.",
+)
+
+
+@pytest.fixture(autouse=True)
+def follow_up_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mensagem é do grolla-dominio: aqui o adapter só precisa entregá-la."""
+
+    def text(context: str, previous: Cycle | None) -> str:
+        return f"{context}\nAnterior: {previous.trend if previous else 'nenhum'}"
+
+    monkeypatch.setattr("grolla.adapters.anthropic.follow_up_text", text)
+
+
+def cycle_result(**changes: object) -> dict[str, object]:
+    result: dict[str, object] = {
+        "trend": "melhorando",
+        "error_rate": 12.5,
+        "summary": "  Erro caindo depois do rollback.  ",
+        "changed": True,
+        "evidence": [{"text": "taxa de erro 12,5%", "url": "https://signoz/x"}],
+    }
+    return {**result, **changes}
+
+
+def follower(handler: Handler) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(
+        "chave",
+        SETTINGS,
+        base_url="http://fake/anthropic",
+        transport=httpx2.MockTransport(handler),
+        follow_up=FOLLOW_UP_SETTINGS,
+    )
+
+
+async def follow_up(
+    handler: Handler,
+    toolbox: Toolbox | None = None,
+    budget: TokenBudget | None = None,
+    previous: Cycle | None = PREVIOUS,
+) -> CycleDraft:
+    return await follower(handler).follow_up(
+        brief(), CONTEXT, previous, toolbox or RecordingToolbox(), budget or RecordingBudget()
+    )
+
+
+async def test_follow_up_runs_the_tools_and_returns_the_cycle() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(cycle_result())))
+    toolbox = RecordingToolbox()
+
+    draft = await follow_up(api, toolbox)
+
+    assert draft == CycleDraft(
+        trend=Trend.BETTER,
+        error_rate=12.5,
+        summary="Erro caindo depois do rollback.",
+        changed=True,
+        evidence=(Evidence("taxa de erro 12,5%", "https://signoz/x"),),
+    )
+    assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
+
+
+async def test_follow_up_request_uses_its_prompt_schema_message_and_stage() -> None:
+    api = ScriptedApi(ok(final(cycle_result())))
+    budget = RecordingBudget()
+
+    await follow_up(api, budget=budget)
+
+    [body] = api.bodies
+    assert body["model"] == "claude-haiku-5-5"
+    assert body["output_config"]["effort"] == "low"
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["required"] == ["trend", "error_rate", "summary", "changed", "evidence"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["trend"]["enum"] == [
+        "piorando",
+        "estavel",
+        "melhorando",
+        "normalizado",
+    ]
+    assert schema["properties"]["error_rate"] == {"type": ["number", "null"]}
+    assert body["system"][0]["text"] == FOLLOW_UP_PROMPT
+    assert body["messages"] == [{"role": "user", "content": f"{CONTEXT}\nAnterior: piorando"}]
+    assert [usage.stage for usage in budget.spent] == ["follow_up"]
+
+
+async def test_follow_up_without_its_own_stage_inherits_the_investigation_settings() -> None:
+    api = ScriptedApi(ok(final(cycle_result())))
+
+    await claude(api).follow_up(brief(), CONTEXT, None, RecordingToolbox(), RecordingBudget())
+
+    assert api.bodies[0]["model"] == "claude-sonnet-5-5"
+    assert api.bodies[0]["messages"][0]["content"].endswith("Anterior: nenhum")
+
+
+async def test_follow_up_without_measure_has_no_error_rate_and_at_most_three_evidences() -> None:
+    evidence = [{"text": f"e{i}", "url": None} for i in range(5)]
+    api = ScriptedApi(ok(final(cycle_result(error_rate=None, evidence=evidence))))
+
+    draft = await follow_up(api)
+
+    assert draft.error_rate is None
+    assert [e.text for e in draft.evidence] == ["e0", "e1", "e2"]
+
+
+async def test_follow_up_with_the_budget_ending_answers_with_what_it_already_consulted() -> None:
+    tool_use, answer = fixture("anthropic_tool_use.json"), final(cycle_result())
+    budget = TokenBudget(limit=tokens_of(tool_use) + tokens_of(answer) + 10)
+    api = ScriptedApi(ok(tool_use), ok(answer))
+
+    draft = await follow_up(api, budget=budget)
+
+    assert draft.trend is Trend.BETTER
+    assert api.bodies[-1]["tool_choice"] == {"type": "none"}
+    assert api.bodies[-1]["messages"][-1]["content"][-1] == {"type": "text", "text": WRAP_UP}
+
+
+async def test_follow_up_budget_exceeded_stops_the_loop() -> None:
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(final(cycle_result())))
+    toolbox = RecordingToolbox()
+
+    with pytest.raises(BudgetExceededError):
+        await follow_up(api, toolbox, RecordingBudget(fail_at=1))
+
+    assert toolbox.calls == []
+
+
+async def test_follow_up_api_error_and_refusal_become_language_model_error() -> None:
+    overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+    response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+
+    with pytest.raises(LanguageModelError, match="529"):
+        await follow_up(ScriptedApi(response, response, response))
+    with pytest.raises(LanguageModelError, match="recusou"):
+        await follow_up(ScriptedApi(ok(final("", stop_reason="refusal"))))
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        "não é json",
+        cycle_result(trend="caindo"),
+        cycle_result(error_rate=120),
+        cycle_result(error_rate=-1),
+        cycle_result(summary="  "),
+        cycle_result(extra=1),
+        {"trend": "estavel"},
+    ],
+)
+async def test_follow_up_outside_the_schema_is_invalid(result: object) -> None:
+    with pytest.raises(InvalidAnalysisError):
+        await follow_up(ScriptedApi(ok(final(result))))

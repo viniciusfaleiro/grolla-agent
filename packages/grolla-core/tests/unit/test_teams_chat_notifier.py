@@ -7,7 +7,7 @@ from uuid import UUID
 import httpx2
 import pytest
 from contracts.chat_notifier_contract import ChatNotifierContract
-from grolla.adapters.teams import TeamsChatNotifier, adaptive_card
+from grolla.adapters.teams import PROPOSAL_NOTE, TeamsChatNotifier, adaptive_card
 from grolla.application.incidents import ChatNotifier, NotificationFailedError
 from grolla.domain.analysis import (
     Analysis,
@@ -19,6 +19,7 @@ from grolla.domain.analysis import (
     SeenBefore,
     Verification,
 )
+from grolla.domain.follow_up import Cycle, CycleStatus, Trend
 from grolla.domain.incidents import Notification, NotificationKind, Severity
 from grolla.testing.builders import T0, make_verification, make_verification_draft
 
@@ -599,3 +600,147 @@ def test_analysis_card_says_seen_before_with_the_past_incident_link_and_reason()
 
 def test_analysis_card_without_seen_before_has_no_mention() -> None:
     assert not any(line.startswith("Já vi isso") for line in texts(analysis_card(analysis())))
+
+
+# ---- Acompanhamento da crise
+
+IMPACT = "R$ 3.000,00 estimado"
+
+
+def cycle(trend: Trend = Trend.WORSE, error_rate: float | None = 12.5) -> Cycle:
+    return Cycle(
+        incident_id=UUID(int=1),
+        number=2,
+        status=CycleStatus.COMPLETED,
+        requested_at=T0,
+        trend=trend,
+        error_rate=error_rate,
+        summary="Erro subiu de 7% para 12,5% no capture-api.",
+        changed=True,
+        evidence=(
+            Evidence("taxa de erro 12,5% às 10:20", "https://signoz/metricas/2"),
+            Evidence("sem deploy novo", None),
+        ),
+    )
+
+
+def follow_up_card(
+    kind: NotificationKind = NotificationKind.FOLLOW_UP_UPDATE,
+    *,
+    summary: str = "Taxa de erro de 7,2%",
+    evidence: str = "",
+    item: Cycle | None = None,
+    impact: str | None = IMPACT,
+) -> dict[str, Any]:
+    return adaptive_card(
+        replace(notification(kind), summary=summary, evidence=evidence, cycle=item, impact=impact)
+    )
+
+
+def war_room_only(card: dict[str, Any]) -> None:
+    assert card["actions"] == [
+        {"type": "Action.OpenUrl", "title": "Abrir o war room", "url": "https://grolla/incidents/1"}
+    ]
+
+
+def test_update_card_has_trend_error_rate_impact_summary_and_evidence() -> None:
+    card = follow_up_card(item=cycle())
+
+    assert texts(card) == [
+        "Atualização · P2",
+        "Taxa de erro alta no capture-api",
+        "Tendência: Piorando",
+        "Taxa de erro: 12,5%",
+        f"Impacto: {IMPACT}",
+        "Erro subiu de 7% para 12,5% no capture-api.",
+        "Evidências",
+        "- [taxa de erro 12,5% às 10:20](https://signoz/metricas/2)\n- sem deploy novo",
+    ]
+    assert card["body"][0]["color"] == "Attention"
+    war_room_only(card)
+
+
+@pytest.mark.parametrize(
+    ("trend", "label", "color"),
+    [
+        (Trend.WORSE, "Piorando", "Attention"),
+        (Trend.STABLE, "Estável", "Warning"),
+        (Trend.BETTER, "Melhorando", "Accent"),
+        (Trend.NORMAL, "Normalizado", "Good"),
+    ],
+)
+def test_update_card_shows_the_trend_with_a_readable_label(
+    trend: Trend, label: str, color: str
+) -> None:
+    card = follow_up_card(item=cycle(trend))
+
+    assert f"Tendência: {label}" in texts(card)
+    assert card["body"][0]["color"] == color
+
+
+@pytest.mark.parametrize(("rate", "text"), [(None, "não medida"), (0.0, "0%"), (10.0, "10%")])
+def test_update_card_error_rate_format(rate: float | None, text: str) -> None:
+    assert f"Taxa de erro: {text}" in texts(follow_up_card(item=cycle(error_rate=rate)))
+
+
+def test_update_card_without_impact_or_evidence_leaves_them_out() -> None:
+    card = follow_up_card(item=replace(cycle(), evidence=()), impact=None)
+
+    assert not any(line.startswith(("Impacto", "Evidências")) for line in texts(card))
+
+
+def test_no_change_card_is_short_with_the_core_text_and_impact() -> None:
+    card = follow_up_card(summary="Sem mudança: estável, 12% de erro")
+
+    assert texts(card) == [
+        "Sem mudança · P2",
+        "Taxa de erro alta no capture-api",
+        "Sem mudança: estável, 12% de erro",
+        f"Impacto: {IMPACT}",
+    ]
+    war_room_only(card)
+    assert len(texts(follow_up_card(summary="Sem mudança", impact=None))) == 3
+
+
+def test_proposal_card_says_what_grolla_suggests_and_why() -> None:
+    card = follow_up_card(
+        NotificationKind.AGENT_PROPOSAL,
+        summary="Grolla sugere marcar como mitigado",
+        evidence="Normalizado há 15 min: taxa de erro em 0% nos últimos 3 ciclos.",
+    )
+
+    lines = texts(card)
+    assert lines[0] == "Grolla sugere marcar como mitigado · P2"
+    assert "Normalizado há 15 min: taxa de erro em 0% nos últimos 3 ciclos." in lines
+    assert lines[-1] == PROPOSAL_NOTE
+    assert card["body"][0]["color"] == "Accent"
+    war_room_only(card)
+
+
+def test_alert_reopened_card_says_it_is_back_to_handling_and_links_the_alert() -> None:
+    card = follow_up_card(
+        NotificationKind.ALERT_REOPENED,
+        summary="Alerta voltou a disparar: de volta a em tratamento",
+        evidence="A taxa de erro HTTP 5xx está em 7,2% (limite 2%).",
+    )
+
+    lines = texts(card)
+    assert lines[0] == "Alerta voltou a disparar · P2"
+    assert "Alerta voltou a disparar: de volta a em tratamento" in lines
+    assert "A taxa de erro HTTP 5xx está em 7,2% (limite 2%)." in lines
+    assert card["body"][0]["color"] == "Attention"
+    assert [a["title"] for a in card["actions"]] == ["Abrir o war room", "Ver alerta na origem"]
+
+
+def test_follow_up_cards_use_only_elements_the_test_console_renders() -> None:
+    cards = [
+        follow_up_card(item=cycle()),
+        follow_up_card(),
+        follow_up_card(NotificationKind.AGENT_PROPOSAL, evidence="motivo"),
+        follow_up_card(NotificationKind.ALERT_REOPENED, evidence="alerta"),
+    ]
+    for card in cards:
+        types = {e["type"] for e in card["body"]}
+        types |= {i["type"] for e in card["body"] for i in e.get("items", [])}
+        assert types <= {"TextBlock", "FactSet", "Container"}
+        assert {a["type"] for a in card["actions"]} == {"Action.OpenUrl"}
