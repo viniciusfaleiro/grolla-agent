@@ -61,6 +61,12 @@ from grolla.application.post_mortem import (
     request_regeneration,
     update_action,
 )
+from grolla.application.transcript import (
+    TranscriptPolicy,
+    TranscriptStore,
+    retry_transcript,
+    upload_transcript,
+)
 from grolla.application.triage import merge_incidents
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
@@ -82,6 +88,7 @@ from grolla.domain.post_mortem import (
     SectionKey,
 )
 from grolla.domain.war_room import InvalidActionError
+from starlette.datastructures import UploadFile
 
 from grolla_api.console_pages import (
     CONSOLE_SUGGESTIONS,
@@ -134,6 +141,7 @@ from grolla_api.war_room import (
     SUGGESTIONS,
     SYSTEM_AUTHORS,
     TOOL_LABELS,
+    UTF8_MAX_BYTES,
     action_from,
     ago,
     chat_version,
@@ -144,6 +152,8 @@ from grolla_api.war_room import (
     encode_author,
     event_detail,
     event_label,
+    failed_transcript,
+    from_transcript,
     header_of,
     initials,
     is_agent,
@@ -159,12 +169,14 @@ from grolla_api.war_room import (
     parse_form,
     partial_text,
     percent,
+    reading_transcript,
     recent_cycles,
     rich_text,
     safe_redirect,
     same_problem,
     seen_answer_text,
     seen_before_answer,
+    transcript_file,
     trend_label,
     visible_events,
 )
@@ -211,6 +223,8 @@ EVENT_LABELS = {
     EventType.MERGED_INTO: "Juntado em",
     EventType.INCIDENT_MERGED: "Recebeu o incidente",
     EventType.INCIDENT_OPENED_MANUALLY: "Aberto manualmente",  # pelo console: "Aberto pelo console"
+    # O envio, os itens, as hipóteses e a falha montam o rótulo com o conteúdo (event_label).
+    EventType.TRANSCRIPT_PARTICIPANTS: "Participantes da call",
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -255,6 +269,9 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "trend_label": trend_label,
     "rich_text": rich_text,
     "visible_events": visible_events,
+    "from_transcript": from_transcript,
+    "failed_transcript": failed_transcript,
+    "reading_transcript": reading_transcript,
     "source_of": source_of,
     "study_modes": STUDY_MODE_LABELS,
     "study_statuses": STUDY_STATUS_LABELS,
@@ -300,6 +317,9 @@ REGENERATION_ASKED = (
     "para ver o texto novo; o atual fica no histórico."
 )
 PDF_FAILED = "não consegui gerar o PDF; tente de novo em instantes"
+TRANSCRIPT_ERROR = "#erro-transcricao"  # dentro do popover de envio
+TRANSCRIPT_OFF = "a transcrição está desligada nesta instância"
+TRANSCRIPT_NOT_FOUND = "transcrição não encontrada"
 
 
 def error_fragment(message: str, status_code: int, target: str) -> HTMLResponse:
@@ -331,6 +351,8 @@ class Services:
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
     console: ConsoleStore | None = None  # None: console desligado (sem a seção `console`)
     telemetry: Telemetry | None = None  # gráficos do console; sem ela, "gráfico indisponível"
+    transcripts: TranscriptStore | None = None  # None: envio de transcrição dá 404
+    transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.
@@ -542,6 +564,72 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         except InvalidActionError as error:
             return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, WAR_ROOM_ERROR)
         return reload_page(request, f"/incidents/{target.id}")
+
+    def transcripts_or_404() -> TranscriptStore:
+        if services.transcripts is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, TRANSCRIPT_OFF)
+        return services.transcripts
+
+    async def transcript_sent(request: Request) -> tuple[str, str | None]:
+        """O texto e o nome do arquivo: o arquivo, se veio, vale mais que o texto colado."""
+        limit = services.transcript_policy.max_chars * UTF8_MAX_BYTES
+        async with request.form(max_files=1, max_part_size=limit) as form:  # fecha o arquivo
+            upload = form.get("arquivo")
+            if isinstance(upload, UploadFile) and upload.filename:
+                content = await upload.read(limit + 1)
+                max_chars = services.transcript_policy.max_chars
+                return transcript_file(upload.filename, content, max_chars), upload.filename
+            text = form.get("texto")
+            return (text if isinstance(text, str) else ""), None
+
+    @app.post("/incidents/{incident_id}/transcricao")
+    async def send_transcript(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        """Guarda a transcrição da call e pede a leitura ao worker."""
+        store = transcripts_or_404()
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, TRANSCRIPT_ERROR)
+        found = await incident_or_404(incident_id)
+        try:
+            raw, filename = await transcript_sent(request)
+            await upload_transcript(
+                repository=repository,
+                store=store,
+                incident_id=found.id,
+                author=author,
+                raw=raw,
+                filename=filename,
+                clock=services.clock,
+                policy=services.transcript_policy,
+            )
+        except LookupError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "incidente não encontrado") from error
+        except InvalidActionError as error:
+            return error_fragment(
+                str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, TRANSCRIPT_ERROR
+            )
+        return reload_page(request, f"/incidents/{found.id}")
+
+    @app.post("/incidents/{incident_id}/transcricao/{transcript_id}/reprocessar")
+    async def retry_failed_transcript(  # pyright: ignore[reportUnusedFunction]
+        request: Request, incident_id: str, transcript_id: str
+    ) -> Response:
+        store = transcripts_or_404()
+        target = f"#erro-transcricao-{escape(transcript_id)}"
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, target)
+        found = await incident_or_404(incident_id)
+        transcript = await store.get(int(transcript_id)) if transcript_id.isdigit() else None
+        if transcript is None or transcript.incident_id != found.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, TRANSCRIPT_NOT_FOUND)
+        try:
+            await retry_transcript(
+                store=store, transcript_id=transcript.id, author=author, clock=services.clock
+            )
+        except InvalidActionError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, target)
+        return reload_page(request, f"/incidents/{found.id}")
 
     @app.get("/incidents/{incident_id}/chat", response_class=HTMLResponse)
     async def chat(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]

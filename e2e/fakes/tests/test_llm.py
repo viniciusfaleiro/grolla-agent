@@ -877,3 +877,115 @@ def test_console_answers_even_with_the_chat_down() -> None:
     body = console_request([{"role": "user", "content": "Pergunta: oi"}])
 
     assert client.post(PATH, json=body).status_code == 200
+
+
+# ---- Transcrição de call: reconhecida pelo schema com `participants`
+
+TRANSCRIPT_CONTEXT = (
+    "Incidente: Taxa de erro alta\nServiços: pedidos-api\n\n"
+    "Hipóteses da análise:\n"
+    "- Deploy recente introduziu a falha (confiança 0,7)\n"
+    "- Banco pedidos-db sem conexões (confiança 0,3)\n\n"
+    "Plano:\n- Comparar os deploys"
+)
+CALL = (
+    "Ana: vamos fazer rollback do pedidos-api\n"
+    "Bruno: o Carlos fica com o chamado na AWS\n"
+    "Carlos: eu fico com nada; fica com a Ana o status\n"
+    "Ana: os erros começaram 03:12\n"
+    "Bruno: não foi o banco\n"
+    "Carlos: foi isso, o deploy\n"
+    "linha sem quem falou\n"
+)
+
+
+def transcript_of(client: TestClient, content: str) -> dict[str, Any]:
+    body = client.post(PATH, json=memory_request("participants", content, [])).json()
+    assert body["stop_reason"] == "end_turn"
+    return json.loads(body["content"][0]["text"])
+
+
+def speech(
+    kind: str, text: str, owner: str | None = None, said_at: str | None = None
+) -> dict[str, Any]:
+    return {"kind": kind, "text": text, "owner": owner, "said_at": said_at, "excerpt": text}
+
+
+def test_transcript_reads_decisions_actions_times_participants_and_hypotheses() -> None:
+    content = f"{TRANSCRIPT_CONTEXT}\n\nTranscrição:\n{CALL}"
+
+    assert transcript_of(TestClient(create_app()), content) == {
+        "items": [
+            speech("decisao", "vamos fazer rollback do pedidos-api"),
+            speech("acao", "o Carlos fica com o chamado na AWS", owner="Carlos"),
+            speech("acao", "eu fico com nada; fica com a Ana o status", owner="Carlos"),
+            speech("horario", "os erros começaram 03:12", said_at="03:12"),
+        ],
+        "participants": ["Ana", "Bruno", "Carlos"],
+        "hypotheses": [
+            {
+                "hypothesis": "Banco pedidos-db sem conexões",
+                "verdict": "descartada",
+                "excerpt": "não foi o banco",
+            },
+            {
+                "hypothesis": "Deploy recente introduziu a falha",
+                "verdict": "confirmada",
+                "excerpt": "foi isso, o deploy",
+            },
+        ],
+    }
+
+
+def test_transcript_of_the_e2e_call_has_one_item_of_each_kind() -> None:
+    call = (
+        "Ana: vamos fazer rollback do build 20261027.1\n"
+        "Bruno: o Bruno fica com o rollback às 03:20\n"
+        "Carla: não foi o banco, o pool está normal"
+    )
+
+    result = transcript_of(TestClient(create_app()), f"{TRANSCRIPT_CONTEXT}\nTranscrição:\n{call}")
+
+    assert result["items"] == [
+        speech("decisao", "vamos fazer rollback do build 20261027.1"),
+        speech("acao", "o Bruno fica com o rollback às 03:20", owner="Bruno"),
+        speech("horario", "o Bruno fica com o rollback às 03:20", said_at="03:20"),
+    ]
+    assert result["hypotheses"] == [
+        {
+            "hypothesis": "Banco pedidos-db sem conexões",
+            "verdict": "descartada",
+            "excerpt": "não foi o banco, o pool está normal",
+        }
+    ]
+
+
+def test_transcript_verdict_without_a_cited_subject_goes_to_the_first_hypothesis() -> None:
+    content = f"{TRANSCRIPT_CONTEXT}\nTranscrição:\nAna: confirmado, decidimos às 4:05"
+
+    result = transcript_of(TestClient(create_app()), content)
+
+    assert result["hypotheses"] == [
+        {
+            "hypothesis": "Deploy recente introduziu a falha",
+            "verdict": "confirmada",
+            "excerpt": "confirmado, decidimos às 4:05",
+        }
+    ]
+    assert [i["kind"] for i in result["items"]] == ["decisao", "horario"]
+    assert result["items"][1]["said_at"] == "4:05"
+
+
+def test_transcript_without_hypotheses_in_the_context_has_no_verdict() -> None:
+    result = transcript_of(TestClient(create_app()), "Ana: não foi o deploy, vamos esperar")
+
+    assert result["hypotheses"] == []
+    assert result["participants"] == ["Ana"]
+    assert result["items"] == [speech("decisao", "não foi o deploy, vamos esperar")]
+
+
+def test_transcript_ignores_the_analysis_mode() -> None:
+    client = TestClient(create_app())
+    client.post("/_control/llm", json={"mode": "fora_do_ar"})
+
+    assert transcript_of(client, "Transcrição:\nAna: oi")["participants"] == ["Ana"]

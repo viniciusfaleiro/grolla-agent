@@ -21,6 +21,7 @@ from grolla.domain.incidents import (
     IncidentEvent,
     duration_text,
 )
+from grolla.domain.transcript import TRANSCRIPT_ORIGIN, HypothesisVerdict, TranscriptItemKind
 
 AGENT_AUTHOR = "Grolla"
 
@@ -219,6 +220,14 @@ _AGENT_EVENTS = frozenset(
         EventType.FOLLOW_UP_STOPPED,
         EventType.AGENT_MESSAGE,
         EventType.AGENT_PROPOSAL,
+        EventType.TRANSCRIPT_FAILED,
+    }
+)
+_TRANSCRIPT_EVENTS = frozenset(
+    {
+        EventType.TRANSCRIPT_ITEM,
+        EventType.TRANSCRIPT_PARTICIPANTS,
+        EventType.TRANSCRIPT_HYPOTHESIS,
     }
 )
 _HIDDEN_EVENTS = frozenset(
@@ -255,13 +264,25 @@ EVENT_TEXT: Mapping[EventType, str] = {
     EventType.FOLLOW_UP_STOPPED: "parou o acompanhamento",
     EventType.AGENT_PROPOSAL: "sugeriu",
     EventType.SEEN_BEFORE_ANSWERED: "respondeu se era o mesmo problema",
+    EventType.TRANSCRIPT_RECEIVED: "enviou a transcrição da call",
+    EventType.TRANSCRIPT_FAILED: "não conseguiu ler a transcrição",
+}
+_ITEM_TEXT: Mapping[str, str] = {
+    TranscriptItemKind.DECISION: "decisão",
+    TranscriptItemKind.ACTION: "ação",
+    TranscriptItemKind.TIME: "horário",
+}
+_VERDICT_TEXT: Mapping[str, str] = {
+    HypothesisVerdict.CONFIRMED: "a call confirmou",
+    HypothesisVerdict.DISCARDED: "a call descartou",
 }
 _DETAIL_KEYS = ("rule_name", "summary", "root_cause", "title", "text", "proposal", "reason")
 DETAIL_LIMIT = 200  # caracteres de cada detalhe de um evento na timeline
 
 
 def origin_of(event: IncidentEvent) -> str | None:
-    """Alerta, agente, chat ou pessoa; None para os eventos internos de entrega de cards.
+    """Alerta, agente, chat, pessoa ou transcrição; None para os eventos internos de entrega de
+    cards.
 
     O que o núcleo grava sozinho a partir dos alertas (severidade e estado) conta como alerta.
     """
@@ -271,6 +292,8 @@ def origin_of(event: IncidentEvent) -> str | None:
         return ALERT_ORIGIN
     if event.type in _AGENT_EVENTS:
         return AGENT_ORIGIN
+    if event.type in _TRANSCRIPT_EVENTS:
+        return TRANSCRIPT_ORIGIN
     if event.type is EventType.HUMAN_MESSAGE:
         return CHAT_ORIGIN
     return ALERT_ORIGIN if event.author == SYSTEM_AUTHOR else PERSON_ORIGIN
@@ -283,14 +306,33 @@ def _detail(data: Mapping[str, Any]) -> str:
     return f": {' · '.join(parts)}" if parts else ""
 
 
+def _transcript_line(event: IncidentEvent) -> str:
+    """O que a call disse, no horário dito quando houver (senão, o da extração)."""
+    data = event.data
+    said = data.get("said_at") or f"{event.at:%H:%M}"
+    if event.type is EventType.TRANSCRIPT_PARTICIPANTS:
+        what = f"participantes da call: {', '.join(data.get('names', []))}"
+    elif event.type is EventType.TRANSCRIPT_HYPOTHESIS:
+        verdict = _VERDICT_TEXT.get(data.get("verdict", ""), "a call citou")
+        what = f"{verdict}: {data.get('hypothesis')}"
+    else:
+        owner = f" ({data['owner']})" if data.get("owner") else ""
+        what = f"{_ITEM_TEXT.get(data.get('kind', ''), 'item')}{owner}: {data.get('text')}"
+    return f"- {said} [{TRANSCRIPT_ORIGIN}] {' '.join(what.split())[:DETAIL_LIMIT]}"
+
+
 def timeline_text(events: Sequence[IncidentEvent]) -> str:
-    """Uma linha por evento relevante, com horário, origem (alerta, agente, chat ou pessoa) e o
-    que aconteceu; sem os eventos internos de entrega de cards.
+    """Uma linha por evento relevante, com horário, origem (alerta, agente, chat, pessoa ou
+    transcrição) e o que aconteceu; sem os eventos internos de entrega de cards. O que veio da
+    transcrição mostra o horário dito na call, quando houver.
     """
     lines: list[str] = []
     for event in events:
         origin = origin_of(event)
         if origin is None:
+            continue
+        if origin == TRANSCRIPT_ORIGIN:
+            lines.append(_transcript_line(event))
             continue
         who = f"{event.author}: " if origin in (CHAT_ORIGIN, PERSON_ORIGIN) else ""
         what = EVENT_TEXT.get(event.type, event.type.value)

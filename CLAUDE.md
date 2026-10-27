@@ -52,7 +52,8 @@ memória, "era o mesmo problema?", avaliação do agente e `/metricas`. S4 (on-c
 haver conta no Spike.sh. `menos-ruido` (S8): triagem do incidente novo, sugestão de junção e
 "Juntar com…", severidade sugerida quando nenhuma regra casa. `console-de-operacao` (S9): conversa
 com o agente fora de incidente em `/console`, gráficos desenhados no servidor e "Abrir incidente"
-pela conversa. Próximo: S10 (transcrição de call) — ver
+pela conversa. `transcricao-de-call` (S10): transcrição enviada no war room vira decisões, ações,
+horários e hipóteses na timeline e no post mortem. Próximo: S11 (AWS completa) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
 ## Estrutura (uv workspace)

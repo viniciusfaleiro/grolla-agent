@@ -192,7 +192,7 @@ agente quando nenhuma regra casa (só sobe).
 - **Escopo:** chat geral com sessões salvas; respostas com evidência e gráficos; "abrir incidente
   a partir desta conversa"; prioridade menor que incidentes e limite de tokens próprio.
 
-## S10 · Transcrição de call
+## S10 · Transcrição de call ✅
 
 - **Valor:** o que foi decidido na call entra no registro sem esforço manual.
 - **Escopo:** upload da transcrição; extração de decisões, ações, horários e participantes como

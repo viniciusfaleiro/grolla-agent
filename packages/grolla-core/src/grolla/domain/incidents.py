@@ -122,6 +122,11 @@ class EventType(StrEnum):
     AGENT_PROPOSAL = "agent_proposal"
     SEEN_BEFORE_ANSWERED = "seen_before_answered"  # data: {"past": <id>, "same": bool}
     TRIAGE_COMPLETED = "triage_completed"
+    TRANSCRIPT_RECEIVED = "transcript_received"  # data: {"transcript", "chars", "truncated"}
+    TRANSCRIPT_ITEM = "transcript_item"  # {"kind","text","owner","said_at","excerpt","origin"}
+    TRANSCRIPT_PARTICIPANTS = "transcript_participants"  # {"names": [...], "origin"}
+    TRANSCRIPT_HYPOTHESIS = "transcript_hypothesis"  # {"hypothesis","verdict","excerpt","origin"}
+    TRANSCRIPT_FAILED = "transcript_failed"  # {"transcript", "reason"}
     INCIDENT_OPENED_MANUALLY = "incident_opened_manually"  # data: {"origin": "console", ...}
     MERGE_SUGGESTED = "merge_suggested"  # data: {"other": <id>, "reason": str}
     INCIDENT_MERGED = "incident_merged"  # no principal; data: {"merged": <id>}

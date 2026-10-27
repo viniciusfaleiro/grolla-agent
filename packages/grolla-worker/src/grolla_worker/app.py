@@ -7,8 +7,6 @@ from grolla.application.analysis import (
 )
 from grolla.application.chat import reap_stuck_replies, run_next_reply
 from grolla.application.console import (
-    ConsolePolicy,
-    ConsoleStore,
     reap_stuck_console_replies,
     run_next_console_reply,
 )
@@ -33,6 +31,10 @@ from grolla.application.post_mortem import (
     PostMortemStore,
     reap_stuck_post_mortems,
     run_next_post_mortem,
+)
+from grolla.application.transcript import (
+    reap_stuck_transcripts,
+    run_next_transcript,
 )
 from grolla.application.triage import (
     TriagePolicy,
@@ -66,6 +68,7 @@ CYCLES_CRON = "* * * * * */10"
 POST_MORTEMS_CRON = "* * * * * */10"
 TRIAGES_CRON = "* * * * * */5"
 CONSOLE_REPLIES_CRON = "* * * * * */3"
+TRANSCRIPTS_CRON = "* * * * * */5"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -268,8 +271,8 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     if triages is not None and triage is not None:
         _triage_jobs(app, container, triages, triage)
 
-    if container.console is not None and container.console_policy is not None:
-        _console_jobs(app, container, container.console, container.console_policy)
+    _transcript_jobs(app, container)
+    _console_jobs(app, container)
 
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:
@@ -409,10 +412,48 @@ def _triage_jobs(
         await reap_stuck_triages(queue, container.clock, policy)
 
 
-def _console_jobs(
-    app: procrastinate.App, container: WorkerContainer, store: ConsoleStore, policy: ConsolePolicy
-) -> None:
+def _transcript_jobs(app: procrastinate.App, container: WorkerContainer) -> None:
+    """A extração das transcrições de call, só com `transcripts` no container, na fila
+    `analysis`: é do war room de um incidente, com a prioridade das análises, e não do console.
+    """
+    store, policy = container.transcripts, container.transcript_policy
+    if store is None:
+        return
+
+    # Uma rodada por vez (lock): as transcrições enviadas até a fila esvaziar.
+    @app.periodic(cron=TRANSCRIPTS_CRON)
+    @app.task(
+        name="run_transcripts",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="run_transcripts",
+        lock="run_transcripts",
+    )
+    async def run(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_transcript(
+            store=store,
+            repository=container.repository,
+            model=container.model,
+            clock=container.clock,
+            policy=policy,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_transcripts",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_transcripts",
+        lock="reap_stuck_transcripts",
+    )
+    async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_transcripts(store, container.clock, policy)
+
+
+def _console_jobs(app: procrastinate.App, container: WorkerContainer) -> None:
     """As respostas do console de operação, só com a seção `console` no YAML."""
+    store, policy = container.console, container.console_policy
+    if store is None or policy is None:
+        return
 
     # Uma rodada por vez (lock), na fila de prioridade menor: as perguntas até ela esvaziar.
     @app.periodic(cron=CONSOLE_REPLIES_CRON)

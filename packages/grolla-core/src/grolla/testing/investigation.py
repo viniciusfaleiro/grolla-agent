@@ -20,6 +20,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRANSCRIPT,
     STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -58,6 +59,7 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     SectionKey,
 )
+from grolla.domain.transcript import TranscriptDraft, TranscriptItem, TranscriptItemKind
 from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import make_draft, make_verification_draft
 
@@ -298,6 +300,35 @@ def fake_usage(tokens: int = 1_000, stage: str = STAGE_INVESTIGATION) -> LlmUsag
 ToolCalls = Sequence[tuple[str, Mapping[str, Any]]]
 
 
+DEFAULT_TRANSCRIPT = TranscriptDraft(
+    items=(
+        TranscriptItem(
+            TranscriptItemKind.DECISION,
+            "fazer o rollback",
+            None,
+            "03:12",
+            "Pedro: vamos fazer o rollback agora, 03:12",
+        ),
+        TranscriptItem(
+            TranscriptItemKind.ACTION,
+            "olhar o pool de conexões",
+            "Pedro",
+            None,
+            "Ana: o Pedro fica com olhar o pool de conexões",
+        ),
+        TranscriptItem(
+            TranscriptItemKind.TIME,
+            "o banco voltou",
+            None,
+            "03:07",
+            "Pedro: o banco voltou às 03:07",
+        ),
+    ),
+    participants=("Ana", "Pedro"),
+    hypotheses=(),
+)
+
+
 class ScriptedLanguageModel:
     """Modelo de linguagem roteirizado.
 
@@ -335,6 +366,12 @@ class ScriptedLanguageModel:
     Cada (contexto, pergunta) recebido fica em `consultations`. Por padrão, a resposta é um
     texto curto sobre o primeiro serviço citado nos argumentos de `console_calls`, com o gráfico
     de `taxa_de_erro` dele na última hora; sem serviço citado, um texto curto sem gráfico.
+
+    Em `extract_transcript`, sem ferramentas: espera `transcript_delay`, gasta um uso da etapa
+    `transcript` e levanta `transcript_error` ou devolve `transcript` (padrão
+    `DEFAULT_TRANSCRIPT`: uma decisão às 03:12, uma ação com dono e um horário, com Ana e Pedro
+    de participantes e nenhuma hipótese, tirados de nada: não lê o texto). Cada (contexto,
+    transcrição) recebido fica em `extractions`.
     """
 
     def __init__(  # noqa: PLR0913 — o roteiro de cada fase é ajustável no teste
@@ -374,7 +411,14 @@ class ScriptedLanguageModel:
         console_calls: ToolCalls = (),
         console_error: Exception | None = None,
         console_delay: float = 0.0,
+        transcript: TranscriptDraft | None = None,
+        transcript_error: Exception | None = None,
+        transcript_delay: float = 0.0,
     ) -> None:
+        self.transcript = transcript or DEFAULT_TRANSCRIPT
+        self.transcript_error = transcript_error
+        self.transcript_delay = transcript_delay
+        self.extractions: list[tuple[str, str]] = []
         self.console = console
         self.console_calls = list(console_calls)
         self.console_error = console_error
@@ -540,6 +584,17 @@ class ScriptedLanguageModel:
             return ConsoleDraft("Nada fora do normal nas consultas.")
         chart = ChartRequest(cited[0], "taxa_de_erro", CONSOLE_CHART_MINUTES)
         return ConsoleDraft(f"{cited[0]} estável: taxa de erro em 0,2% na última hora.", (chart,))
+
+    async def extract_transcript(
+        self, context: str, transcript: str, budget: TokenBudget
+    ) -> TranscriptDraft:
+        self.extractions.append((context, transcript))
+        if self.transcript_delay:
+            await asyncio.sleep(self.transcript_delay)
+        budget.spend(replace(self.usage, stage=STAGE_TRANSCRIPT))
+        if self.transcript_error is not None:
+            raise self.transcript_error
+        return self.transcript
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)

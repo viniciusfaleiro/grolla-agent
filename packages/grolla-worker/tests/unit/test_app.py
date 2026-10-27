@@ -35,6 +35,7 @@ from grolla.testing.memory import (
     InMemoryStudyQueue,
 )
 from grolla.testing.post_mortem import InMemoryPostMortemStore
+from grolla.testing.transcript import InMemoryTranscriptStore
 from grolla.testing.triage import InMemoryTriageQueue
 from grolla_worker.app import (
     ANALYSES_CRON,
@@ -51,6 +52,7 @@ from grolla_worker.app import (
     REPLIES_CRON,
     SCHEDULE_CYCLES_CRON,
     STUDIES_CRON,
+    TRANSCRIPTS_CRON,
     TRIAGES_CRON,
     VERIFICATIONS_CRON,
     build_app,
@@ -872,3 +874,73 @@ async def test_stuck_console_replies_are_reaped_once_a_minute(
     await task.func(timestamp=0)
 
     assert calls == [(container.console, container.clock, container.console_policy)]
+
+
+def test_transcripts_are_not_scheduled_without_the_store(container: WorkerContainer) -> None:
+    app = registered(replace(container, transcripts=None))
+
+    assert {"run_transcripts", "reap_stuck_transcripts"}.isdisjoint(app.tasks)
+
+
+def transcribing(container: WorkerContainer) -> WorkerContainer:
+    repository = container.repository
+    assert isinstance(repository, InMemoryIncidentRepository)
+    return replace(container, transcripts=InMemoryTranscriptStore(repository))
+
+
+async def test_transcripts_run_every_five_seconds_one_round_at_a_time_until_none_is_pending(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = transcribing(container)
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_transcript", run_next)
+    app = registered(container)
+
+    task = app.tasks["run_transcripts"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        ANALYSIS_QUEUE,
+        "run_transcripts",
+        "run_transcripts",
+    )
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("run_transcripts", "")].cron == TRANSCRIPTS_CRON == "* * * * * */5"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "store": container.transcripts,
+        "repository": container.repository,
+        "model": container.model,
+        "clock": container.clock,
+        "policy": container.transcript_policy,
+    }
+
+
+async def test_stuck_transcripts_are_reaped_once_a_minute(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = transcribing(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_transcripts", reap)
+    app = registered(container)
+
+    task = app.tasks["reap_stuck_transcripts"]
+    assert (task.queue, task.lock) == (ANALYSIS_QUEUE, "reap_stuck_transcripts")
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("reap_stuck_transcripts", "")].cron == REAPER_CRON
+
+    await task.func(timestamp=0)
+
+    assert calls == [(container.transcripts, container.clock, container.transcript_policy)]
