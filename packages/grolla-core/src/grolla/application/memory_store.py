@@ -145,6 +145,19 @@ class MemoryStore(Protocol):
         ...
 
 
+async def query_for(embedder: TextEmbedder | None, text: str) -> Query:
+    """A consulta da busca: com vetor quando há embedder. Qualquer falha do embedder vira
+    consulta só textual (a investigação nunca para por causa do RAG).
+    """
+    if embedder is None:
+        return Query(text)
+    try:
+        [vector] = await embedder.embed([text], "query")
+    except Exception:
+        return Query(text, model=embedder.model)
+    return Query(text, vector, embedder.model)
+
+
 async def memory_for(
     memory: MemoryStore | None,
     incident: Incident,
@@ -152,11 +165,11 @@ async def memory_for(
     embedder: TextEmbedder | None = None,
 ) -> MemoryContext:
     """A memória para investigar o incidente; vazia sem memória ligada. Com `embedder`, a busca
-    é híbrida (contrato da memória com RAG: o grolla-dominio liga o `embedder`).
+    é híbrida e traz trechos da documentação.
     """
-    del embedder
     if memory is None:
         return MemoryContext()
     names = list(dict.fromkeys(alert.rule_name for alert in alerts))
     text = " ".join([incident.title, *(alert.summary for alert in alerts)])
-    return await memory.context_for(incident.services, names, text)
+    query = await query_for(embedder, text)
+    return await memory.context_for(incident.services, names, text, query)

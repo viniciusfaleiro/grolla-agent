@@ -14,15 +14,21 @@ Regras que a suíte fixa:
 - `dossier` devolve o dossiê esquecido quando não há ativo.
 """
 
+import itertools
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from grolla.application.memory_store import MemoryStore
+from grolla.application.memory_retrieval import memory_chunks
+from grolla.application.memory_store import MemoryStore, Query, TextEmbedder
 from grolla.domain.memory import (
+    DOCUMENT_LIMIT,
     ENVIRONMENT,
     EPISODE_LIMIT,
+    Chunk,
+    ChunkOrigin,
     Confidence,
     Memory,
     MemoryKind,
@@ -34,6 +40,7 @@ from grolla.domain.memory import (
     written,
 )
 from grolla.testing.builders import T0
+from grolla.testing.memory import FakeTextEmbedder
 
 
 def unique(prefix: str) -> str:
@@ -302,3 +309,286 @@ class MemoryStoreContract:
         mine = next(s for s in summaries if s.subject == service)
         assert (mine.kind, mine.records) == (SubjectKind.SERVICE, 2)
         assert mine.updated_at == T0 + timedelta(hours=2)
+
+
+# ---- Memória com RAG: trechos e busca híbrida ----
+
+PARAPHRASES = {"timeout": "esgotamento", "aguardando": "rotina", "pool": "reconciliação"}
+OTHER_MODEL = "outro-modelo"
+
+
+def _passage(chunk: Chunk) -> str:
+    return f"{chunk.heading}\n{chunk.text}" if chunk.heading else chunk.text
+
+
+async def indexed(
+    memory: MemoryStore,
+    embedder: TextEmbedder,
+    record: Memory,
+    *,
+    model: str | None = None,
+    at: timedelta = timedelta(hours=1),
+) -> None:
+    """Indexa o registro como o job faria, com o modelo do embedder (ou `model`)."""
+    chunks = memory_chunks(record, 1200)
+    vectors = await embedder.embed([_passage(c) for c in chunks], "passage")
+    pairs = list(zip(chunks, vectors, strict=True))
+    await memory.replace_chunks(record.id, model or embedder.model, pairs, T0 + at)
+
+
+async def documented(
+    memory: MemoryStore,
+    embedder: TextEmbedder,
+    service: str,
+    sections: Sequence[tuple[str, str, str]],
+    *,
+    model: str | None = None,
+) -> None:
+    """Troca a documentação do serviço por estas (caminho, seção, texto)."""
+    chunks = [
+        Chunk(
+            ChunkOrigin.DOCUMENT,
+            service,
+            heading,
+            text,
+            path=path,
+            url=f"https://repositorio.interno/{service}/{path}",
+        )
+        for path, heading, text in sections
+    ]
+    vectors = await embedder.embed([_passage(c) for c in chunks], "passage")
+    pairs = list(zip(chunks, vectors, strict=True))
+    await memory.replace_documents(service, model or embedder.model, pairs, T0)
+
+
+async def vector_query(embedder: TextEmbedder, text: str) -> Query:
+    [vector] = await embedder.embed([text], "query")
+    return Query(text, vector, embedder.model)
+
+
+class MemoryChunksContract:
+    """Trechos indexados e busca híbrida (RRF de vetor e texto) do MemoryStore.
+
+    O adapter sobrescreve `memory`. `embedder` é o FakeTextEmbedder com PARAPHRASES, que deixa
+    o caso de paráfrase determinístico (o vetor acha o que o texto não acha). As buscas
+    textuais usam uma palavra só, para valer em qualquer busca textual. Em banco
+    compartilhado, `drop_stale_chunks` apaga também trechos velhos de outros testes.
+    """
+
+    @pytest.fixture
+    def memory(self) -> MemoryStore:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def embedder(self) -> TextEmbedder:
+        return FakeTextEmbedder(PARAPHRASES)
+
+    async def test_unindexed_lists_active_records_without_chunks_of_the_model(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject = unique("svc-")
+        first, second = record(subject), record(subject)
+        gone = replace(record(subject), active=False)
+        await memory.save([(r, None) for r in (first, second, gone)])
+
+        pending = {r.id for r in await memory.unindexed(embedder.model, 1000)}
+        assert {first.id, second.id} <= pending
+        assert gone.id not in pending
+
+        await indexed(memory, embedder, first)
+        pending = {r.id for r in await memory.unindexed(embedder.model, 1000)}
+        assert first.id not in pending
+        assert second.id in pending
+        assert first.id in {r.id for r in await memory.unindexed(OTHER_MODEL, 1000)}
+
+        edited, version = written(first, "texto novo", "Ana", "editado", T0 + timedelta(hours=2))
+        await memory.save([(edited, version)])
+        assert first.id in {r.id for r in await memory.unindexed(embedder.model, 1000)}
+
+    async def test_unindexed_respects_the_limit(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject = unique("svc-")
+        await memory.save([(record(subject), None) for _ in range(3)])
+
+        assert len(await memory.unindexed(embedder.model, 2)) == 2
+
+    async def test_search_chunks_finds_memory_and_document_chunks(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject, word = unique("svc-"), unique("pool")
+        note = record(subject, body=f"{word} explicado pelo time")
+        await memory.save([(note, None)])
+        await indexed(memory, embedder, note)
+        await documented(memory, embedder, subject, [("docs/runbook.md", "Pool", f"{word} preso")])
+
+        hits = await memory.search_chunks(subject, await vector_query(embedder, word), limit=10)
+
+        by_origin = {h.chunk.origin: h.chunk for h in hits}
+        mine = by_origin[ChunkOrigin.MEMORY]
+        assert (mine.memory_id, mine.kind, mine.subject) == (note.id, MemoryKind.NOTE, subject)
+        assert word in mine.text
+        doc = by_origin[ChunkOrigin.DOCUMENT]
+        assert (doc.path, doc.heading, doc.subject) == ("docs/runbook.md", "Pool", subject)
+        assert doc.url == f"https://repositorio.interno/{subject}/docs/runbook.md"
+        assert doc.text == f"{word} preso"
+        assert all(a.score >= b.score for a, b in itertools.pairwise(hits))
+        one = await memory.search_chunks(subject, await vector_query(embedder, word), limit=1)
+        assert len(one) == 1
+
+    async def test_search_chunks_without_vector_is_textual_and_filters_by_subject(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject, other, word = unique("svc-"), unique("svc-"), unique("fila")
+        mine, theirs = record(subject, body=f"{word} parada"), record(other, body=f"{word} cheia")
+        unrelated = record(subject, body=unique("nada"))
+        await memory.save([(r, None) for r in (mine, theirs, unrelated)])
+        for r in (mine, theirs, unrelated):
+            await indexed(memory, embedder, r)
+
+        textual = Query(word, None, embedder.model)
+        ids = {h.chunk.memory_id for h in await memory.search_chunks(subject, textual, 10)}
+        everywhere = {h.chunk.memory_id for h in await memory.search_chunks(None, textual, 10)}
+
+        assert ids == {mine.id}
+        assert {mine.id, theirs.id} <= everywhere
+
+    async def test_search_chunks_leaves_out_forgotten_records_and_other_models(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject, word = unique("svc-"), unique("lento")
+        kept = record(subject, body=f"{word} confirmado")
+        gone = record(subject, body=f"{word} esquecido")
+        old = record(subject, body=f"{word} de outro modelo")
+        await memory.save([(r, None) for r in (kept, gone, old)])
+        await indexed(memory, embedder, kept)
+        await indexed(memory, embedder, gone)
+        await indexed(memory, embedder, old, model=OTHER_MODEL)
+        await memory.save([forgotten(gone, "Ana", "errado", T0 + timedelta(hours=2))])
+
+        hits = await memory.search_chunks(subject, await vector_query(embedder, word), limit=10)
+
+        assert {h.chunk.memory_id for h in hits} == {kept.id}
+
+    async def test_replace_chunks_swaps_the_chunks_of_the_record(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject, before, after = unique("svc-"), unique("antes"), unique("depois")
+        note = record(subject, body=before)
+        await memory.save([(note, None)])
+        await indexed(memory, embedder, note)
+        edited, version = written(note, after, "Ana", "editado", T0 + timedelta(hours=2))
+        await memory.save([(edited, version)])
+        await indexed(memory, embedder, edited, at=timedelta(hours=3))
+
+        assert await memory.search_chunks(subject, Query(before, None, embedder.model), 10) == []
+        hits = await memory.search_chunks(subject, Query(after, None, embedder.model), 10)
+        assert [h.chunk.memory_id for h in hits] == [note.id]
+
+    async def test_replace_documents_swaps_every_document_of_the_service(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        service, other = unique("svc-"), unique("svc-")
+        kept, removed = unique("mantido"), unique("removido")
+        await documented(memory, embedder, service, [("a.md", "", kept), ("b.md", "", removed)])
+        await documented(memory, embedder, other, [("c.md", "", removed)])
+
+        await documented(memory, embedder, service, [("a.md", "", kept)])
+
+        assert await memory.search_chunks(service, Query(removed, None, embedder.model), 10) == []
+        found = await memory.search_chunks(service, Query(kept, None, embedder.model), 10)
+        assert [h.chunk.path for h in found] == ["a.md"]
+        theirs = await memory.search_chunks(other, Query(removed, None, embedder.model), 10)
+        assert [h.chunk.path for h in theirs] == ["c.md"]
+
+    async def test_drop_stale_chunks_removes_forgotten_records_and_other_models(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        subject, word = unique("svc-"), unique("velho")
+        kept = record(subject, body=f"{word} atual")
+        gone = record(subject, body=f"{word} esquecido")
+        old = record(subject, body=f"{word} de outro modelo")
+        await memory.save([(r, None) for r in (kept, gone, old)])
+        await indexed(memory, embedder, kept)
+        await indexed(memory, embedder, gone)
+        await indexed(memory, embedder, old, model=OTHER_MODEL)
+        await documented(memory, embedder, subject, [("a.md", "", word)], model=OTHER_MODEL)
+        await memory.save([forgotten(gone, "Ana", "errado", T0 + timedelta(hours=2))])
+
+        assert await memory.drop_stale_chunks(embedder.model) >= 3
+        assert await memory.drop_stale_chunks(embedder.model) == 0
+
+        current = await memory.search_chunks(subject, Query(word, None, embedder.model), 10)
+        assert [h.chunk.memory_id for h in current] == [kept.id]
+        assert await memory.search_chunks(subject, Query(word, None, OTHER_MODEL), 10) == []
+        assert old.id in {r.id for r in await memory.unindexed(embedder.model, 1000)}
+
+    async def test_context_for_finds_by_vector_the_episode_the_text_misses(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        service = unique("svc-")
+        paraphrase = record(
+            unique("svc-"),
+            MemoryKind.EPISODE,
+            body="esgotamento da rotina de reconciliação",
+            incident_id=uuid4(),
+        )
+        distractors = [
+            record(unique("svc-"), MemoryKind.EPISODE, body=body, incident_id=uuid4())
+            for body in ("fila parada no consumidor", "certificado vencido no gateway")
+        ]
+        await memory.save([(r, None) for r in (paraphrase, *distractors)])
+        for r in (paraphrase, *distractors):
+            await indexed(memory, embedder, r)
+        text = "timeout aguardando pool"
+
+        textual = await memory.context_for([service], [], text)
+        hybrid = await memory.context_for([service], [], text, await vector_query(embedder, text))
+
+        assert paraphrase.id not in {e.id for e in textual.episodes}
+        assert hybrid.episodes[0].id == paraphrase.id
+        assert len(hybrid.episodes) <= EPISODE_LIMIT
+
+    async def test_context_for_puts_the_same_service_and_rule_first(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        service, word = unique("svc-"), unique("timeout")
+        rule = f"Regra {unique('r')}"
+        same_rule = record(
+            service, MemoryKind.EPISODE, body=f"alerta {rule} disparou", incident_id=uuid4()
+        )
+        similar = record(
+            unique("svc-"), MemoryKind.EPISODE, body=f"{word} {word} no banco", incident_id=uuid4()
+        )
+        await memory.save([(same_rule, None), (similar, None)])
+        await indexed(memory, embedder, same_rule)
+        await indexed(memory, embedder, similar)
+
+        query = await vector_query(embedder, word)
+        context = await memory.context_for([service], [rule], word, query)
+
+        assert [e.id for e in context.episodes][:2] == [same_rule.id, similar.id]
+
+    async def test_context_for_brings_the_most_relevant_documents_of_the_services(
+        self, memory: MemoryStore, embedder: TextEmbedder
+    ) -> None:
+        service, other, word = unique("svc-"), unique("svc-"), unique("conexao")
+        sections = [
+            ("docs/runbook.md", "Pool de conexões esgotado", f"{word} presa no pool"),
+            *((f"docs/outro{n}.md", f"Seção {n}", unique("assunto")) for n in range(4)),
+        ]
+        await documented(memory, embedder, service, sections)
+        await documented(memory, embedder, other, [("docs/runbook.md", "Pool", word)])
+
+        hybrid = await memory.context_for([service], [], word, await vector_query(embedder, word))
+        textual = await memory.context_for([service], [], word)
+
+        assert 1 <= len(hybrid.documents) <= DOCUMENT_LIMIT
+        first = hybrid.documents[0].chunk
+        assert (first.subject, first.path, first.heading) == (
+            service,
+            "docs/runbook.md",
+            "Pool de conexões esgotado",
+        )
+        assert {h.chunk.subject for h in hybrid.documents} == {service}
+        assert textual.documents == ()

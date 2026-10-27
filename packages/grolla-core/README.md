@@ -50,7 +50,7 @@ os deployables só montam o processo.
 | **Outbox de notificações** | Fila de cards com retentativa; entrega e desistência viram evento no incidente | `grolla.adapters.postgres.PostgresNotificationOutbox` |
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
-| **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
+| **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; trechos com embedding (pgvector) e busca híbrida em SQL (vetor + texto com RRF) no `context_for` e no `search_chunks`; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Migrações** | Alembic sob advisory lock; idempotente e seguro em paralelo | `grolla.adapters.postgres.migrate` |
 | **Entrada de alertas (SigNoz)** | `AlertIngress`: HTTP Basic em tempo constante; payload do webhook (formato Alertmanager) vira `Alert` neutro com o bruto em `raw`; serviço do primeiro label de `service_labels` ou `desconhecido` | `grolla.adapters.signoz.SignozAlertIngress` |
 | **Cards no chat (Teams)** | `ChatNotifier`: Adaptive Card por tipo de notificação postado no Workflow do canal, timeout de 10 s; HTTP ≥ 400 ou erro de rede viram `NotificationFailedError` (sem expor a URL). O incidente novo é o card "Estou investigando", que lista o que vai ser checado. O card de análise traz o resumo e as seções "O que avaliei", "Hipóteses" (com confiança e evidência) e "Plano proposto", além dos botões "Abrir incidente" e "Ver no SigNoz". A análise parcial ("Análise parcial") diz o motivo logo abaixo do título; a com hipóteses avisa "Estou validando as hipóteses; a causa raiz vem em seguida.". O card da validação abre com "Causa raiz · P1", "Causa raiz não confirmada · P1" ou "Validação parcial · P1" (com "Motivo: …" logo abaixo) e traz as seções "Causa raiz", "Hipóteses" (`- <hipótese>: confirmada/rejeitada/inconclusiva — <justificativa>`), "Plano de ação" (`- <ação> (<alvo>) → <efeito>`, com link quando houver) e "O que faltou", só com o botão "Abrir incidente". O card "Incidente normalizado" fecha a história: duração ("Normalizado: durou 32 min") e o desfecho da validação (causa raiz e "Plano de ação sugerido", causa não confirmada com o que faltou, ou validação em andamento). As ações humanas do war room ganham cards curtos com o autor: "IC assumiu · P1", "Severidade alterada · P3" (com o motivo, se houver), "Incidente mitigado · P1", "Incidente descartado · P1" (com "Motivo: …") e "Incidente encerrado · P1", com "Encerrado por Ana · durou 35 min", o motivo, as ações registradas pelo time e a seção "Causa raiz" quando a validação a confirmou. As mensagens do chat não vão para o canal Com "já vi isso" na análise, o card de análise ganha, logo depois do resumo, a seção "Já vi isso: <título do episódio> (dd/mm)" com o motivo e o link "Abrir o incidente anterior" (a página deste incidente com o id trocado) | `grolla.adapters.teams.TeamsChatNotifier` |
@@ -84,6 +84,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0004`: fila e resultado da validação das hipóteses até a causa raiz (abaixo).
 - `0005`: war room: IC e horários do incidente e o chat com o agente (abaixo).
 - `0006`: memória viva: registros, versões, fila do aprendizado e rodadas de estudo (abaixo).
+- `0007`: memória com RAG: extensão `vector` (pgvector) e os trechos indexados (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -125,6 +126,12 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | `study_runs` | Rodadas de estudo (`inicial`, `diario`, `completo`, `reaprender`) e o estado | **uma rodada pendente só** (índice único parcial) |
 | `service_studies` | O último estudo de cada serviço: quando, se deu certo e o motivo | `service` é a chave |
 | `llm_usage` (coluna nova) | `study_run_id`: o uso do estudo aponta a rodada, não um incidente | índice para somar os tokens da rodada |
+
+### Memória com RAG (0007)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `memory_chunks` | Um trecho por seção de um registro (`origin = memoria`, com `memory_id` e `kind`) ou de um `.md` do repositório (`origin = documento`, com `path` e `url`, assunto = serviço); o `model` e o `embedding` (`vector` sem dimensão fixa: só se compara com o mesmo modelo), `indexed_at` e a coluna gerada `search` (`to_tsvector('portuguese', subject, heading, text)`) | índice GIN na busca e índices em `memory_id` e `(origin, subject)`; **sem índice ANN**: a distância é exata |
 
 ### Repositórios
 
@@ -180,6 +187,17 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `websearch_to_tsquery('portuguese')` (radicais: "bancos" acha "banco"), confirmados e recentes
   primeiro. `save` faz upsert pelo id e insere as versões numa transação: um dossiê duplicado
   desfaz tudo (`tests/integration/test_postgres_memory.py`).
+- Busca híbrida (`search_chunks`): trechos de documentos e de registros ativos do modelo da
+  consulta; a CTE `vec` pega os K mais próximos por `embedding <=> vetor` (cosseno), a `txt` os
+  K melhores por `ts_rank`, com K = max(4 × limite, 20), e a fusão é RRF
+  (`score = Σ 1/(60 + posição)`). Sem vetor, só a textual. O vetor vai como literal de texto
+  (`[0.1,0.2]`) com `CAST(... AS vector)`. Com vetor, `context_for` ordena os episódios depois do
+  determinístico pelo RRF do melhor trecho de cada episódio e da busca textual do registro
+  (episódio de outro serviço só entra no top K de um dos dois) e traz até `DOCUMENT_LIMIT`
+  trechos de documentação dos serviços. `unindexed` lista os ativos sem trecho do modelo ou com
+  `updated_at` depois do último `indexed_at`; `replace_chunks` e `replace_documents` apagam e
+  inserem numa transação (o documento troca todos os trechos do serviço); `drop_stale_chunks`
+  apaga os de outro modelo e os de registros esquecidos.
 - `request_learning` (na unidade de trabalho) volta o pedido a `pendente` com as tentativas
   zeradas. `PostgresLearningQueue.claim` conta a tentativa; `finish` só grava se em andamento,
   volta a pendente enquanto `attempts < LEARNING_ATTEMPTS` e grava o `llm_usage` com o

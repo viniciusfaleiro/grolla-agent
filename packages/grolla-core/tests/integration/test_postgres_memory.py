@@ -5,7 +5,7 @@ limpa as tabelas da memória antes de cada teste.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 import sqlalchemy as sa
 from contracts.learning_queue_contract import LearningQueueContract
-from contracts.memory_store_contract import MemoryStoreContract
+from contracts.memory_store_contract import MemoryChunksContract, MemoryStoreContract
 from contracts.study_queue_contract import StudyQueueContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
@@ -35,11 +35,14 @@ from grolla.application.memory import (
     StudyQueue,
     StudyStatus,
 )
-from grolla.application.memory_store import MemoryStore, SubjectSummary
+from grolla.application.memory_store import MemoryStore, Query, SubjectSummary
 from grolla.domain.memory import (
     AGENT_AUTHOR,
+    DOCUMENT_LIMIT,
     ENVIRONMENT,
     EPISODE_LIMIT,
+    Chunk,
+    ChunkOrigin,
     Confidence,
     Memory,
     MemoryKind,
@@ -146,6 +149,12 @@ def studies(database: PostgresDatabase) -> PostgresStudyQueue:
 
 
 class TestPostgresMemoryStoreContract(MemoryStoreContract):
+    @pytest.fixture
+    def memory(self, database: PostgresDatabase) -> MemoryStore:
+        return PostgresMemoryStore(database)
+
+
+class TestPostgresMemoryChunksContract(MemoryChunksContract):
     @pytest.fixture
     def memory(self, database: PostgresDatabase) -> MemoryStore:
         return PostgresMemoryStore(database)
@@ -422,6 +431,190 @@ async def test_subjects_environment_first_with_study_date(
         ),
         SubjectSummary("redis", SubjectKind.INTEGRATION, 1, T0 + timedelta(minutes=3), None),
     ]
+
+
+# ---- Trechos e busca híbrida (memória com RAG) ----
+
+MODEL = "modelo-a"
+# Vetores feitos à mão, normalizados: POOL e POOL_NEAR quase iguais, DISK ortogonal.
+POOL = (1.0, 0.0, 0.0)
+POOL_NEAR = (0.96, 0.28, 0.0)
+DISK = (0.0, 0.0, 1.0)
+
+
+def memory_chunk(memory: Memory, text: str, heading: str = "") -> Chunk:
+    return Chunk(
+        origin=ChunkOrigin.MEMORY,
+        subject=memory.subject,
+        heading=heading,
+        text=text,
+        memory_id=memory.id,
+        kind=memory.kind,
+    )
+
+
+def document_chunk(service: str, text: str, path: str = "docs/runbook.md") -> Chunk:
+    return Chunk(
+        origin=ChunkOrigin.DOCUMENT,
+        subject=service,
+        heading="Pool de conexões esgotado",
+        text=text,
+        path=path,
+        url=f"https://repos/{service}?path={path}",
+    )
+
+
+async def indexed(
+    store: PostgresMemoryStore, memory: Memory, vector: Sequence[float], text: str | None = None
+) -> Chunk:
+    chunk = memory_chunk(memory, memory.body if text is None else text)
+    await store.replace_chunks(memory.id, MODEL, [(chunk, vector)], T0 + timedelta(days=1))
+    return chunk
+
+
+def episode(subject: str, body: str, minutes: int) -> Memory:
+    return make_memory(
+        subject=subject,
+        kind=MemoryKind.EPISODE,
+        title=f"Episódio {minutes}",
+        body=body,
+        minutes=minutes,
+    )
+
+
+async def test_replace_chunks_round_trips_and_replaces(store: PostgresMemoryStore) -> None:
+    memory = make_memory(subject="pedidos-api", body="Pool de conexões esgotado.")
+    await saved(store, memory)
+    first = memory_chunk(memory, "Pool de conexões esgotado.", heading="Alertas")
+    await store.replace_chunks(memory.id, MODEL, [(first, POOL)], T0)
+
+    hits = await store.search_chunks(None, Query("conexões", POOL, MODEL), 5)
+    assert [hit.chunk for hit in hits] == [first]
+    assert hits[0].score > 0
+
+    second = memory_chunk(memory, "Disco cheio no nó.")
+    await store.replace_chunks(memory.id, MODEL, [(second, DISK)], T0)
+    assert await store.search_chunks(None, Query("conexões", None, MODEL), 5) == []
+    await store.replace_chunks(memory.id, MODEL, [], T0)
+    assert await store.search_chunks(None, Query("disco", None, MODEL), 5) == []
+
+
+async def test_unindexed_by_model_and_change(store: PostgresMemoryStore) -> None:
+    fresh = make_memory(subject="pedidos-api", minutes=1)
+    done = make_memory(subject="gateway", minutes=2)
+    changed = make_memory(subject="redis", subject_kind=SubjectKind.INTEGRATION, minutes=3)
+    forgotten = make_memory(subject="kafka", active=False)
+    await saved(store, fresh, done, changed, forgotten)
+    at = T0 + timedelta(hours=1)
+    await store.replace_chunks(done.id, MODEL, [(memory_chunk(done, "a"), POOL)], at)
+    await store.replace_chunks(changed.id, MODEL, [(memory_chunk(changed, "b"), POOL)], at)
+    await saved(store, replace(changed, body="novo", updated_at=at + timedelta(minutes=1)))
+
+    assert [m.id for m in await store.unindexed(MODEL, 10)] == [fresh.id, changed.id]
+    assert [m.id for m in await store.unindexed(MODEL, 1)] == [fresh.id]
+    assert [m.id for m in await store.unindexed("modelo-b", 10)] == [
+        fresh.id,
+        done.id,
+        changed.id,
+    ]
+
+
+async def test_replace_documents_swaps_only_the_service(store: PostgresMemoryStore) -> None:
+    old = document_chunk("pedidos-api", "Reinicie o pool de conexões.", path="docs/velho.md")
+    other = document_chunk("gateway", "Pool de conexões do gateway.")
+    await store.replace_documents("pedidos-api", MODEL, [(old, POOL)], T0)
+    await store.replace_documents("gateway", MODEL, [(other, POOL)], T0)
+    new = document_chunk("pedidos-api", "Aumente o pool de conexões.")
+    await store.replace_documents("pedidos-api", MODEL, [(new, POOL)], T0)
+
+    hits = await store.search_chunks(None, Query("pool", None, MODEL), 10)
+    assert {hit.chunk for hit in hits} == {new, other}
+    assert [h.chunk for h in await store.search_chunks("pedidos-api", Query("pool"), 10)] == [new]
+
+
+async def test_drop_stale_chunks_removes_other_models_and_forgotten(
+    store: PostgresMemoryStore,
+) -> None:
+    kept = make_memory(subject="pedidos-api")
+    forgotten = make_memory(subject="gateway")
+    await saved(store, kept, forgotten)
+    await indexed(store, kept, POOL)
+    await indexed(store, forgotten, POOL)
+    await store.replace_documents(
+        "pedidos-api", "modelo-b", [(document_chunk("pedidos-api", "pool"), (1.0, 0.0))], T0
+    )
+    await saved(store, replace(forgotten, active=False))
+
+    assert await store.drop_stale_chunks(MODEL) == 2
+    assert await store.drop_stale_chunks(MODEL) == 0
+    assert await store.unindexed(MODEL, 10) == []
+
+
+async def test_search_chunks_fuses_vector_and_text(store: PostgresMemoryStore) -> None:
+    near = make_memory(subject="pedidos-api", kind=MemoryKind.EPISODE)
+    words = make_memory(subject="gateway", kind=MemoryKind.EPISODE)
+    both = make_memory(subject="gateway", kind=MemoryKind.NOTE)
+    forgotten = make_memory(subject="pedidos-api", kind=MemoryKind.NOTE, active=False)
+    await saved(store, near, words, both, forgotten)
+    near_chunk = await indexed(store, near, POOL_NEAR, "Esgotamento pela reconciliação.")
+    words_chunk = await indexed(store, words, DISK, "Timeout aguardando conexão.")
+    both_chunk = await indexed(store, both, POOL, "Timeout de conexão do pool.")
+    await indexed(store, forgotten, POOL, "Timeout de conexão do pool.")
+    doc = document_chunk("pedidos-api", "Disco cheio no nó.")
+    await store.replace_documents("pedidos-api", MODEL, [(doc, DISK)], T0)
+    # Outro modelo, com outra dimensão: nunca é comparado com o vetor da consulta.
+    await store.replace_documents(
+        "gateway", "modelo-b", [(document_chunk("gateway", "timeout conexão"), (1.0, 0.0))], T0
+    )
+
+    query = Query("timeout conexão", POOL, MODEL)
+    hits = await store.search_chunks(None, query, 10)
+    assert [hit.chunk for hit in hits][:2] == [both_chunk, words_chunk]
+    assert {hit.chunk for hit in hits} == {both_chunk, words_chunk, near_chunk, doc}
+    scores = [hit.score for hit in hits]
+    assert scores == sorted(scores, reverse=True)
+    assert [h.chunk for h in await store.search_chunks("pedidos-api", query, 10)] == [
+        near_chunk,
+        doc,
+    ]
+    assert [h.chunk for h in await store.search_chunks(None, query, 1)] == [both_chunk]
+    # Sem vetor, só a textual; sem modelo, a textual em qualquer modelo.
+    text_only = await store.search_chunks("gateway", Query("timeout conexão", None, MODEL), 10)
+    assert {hit.chunk for hit in text_only} == {both_chunk, words_chunk}
+    assert len(await store.search_chunks("gateway", Query("timeout conexão"), 10)) == 3
+
+
+async def test_context_for_hybrid_ranks_episodes_and_brings_documents(
+    store: PostgresMemoryStore,
+) -> None:
+    same_rule = episode("pedidos-api", "Disparou Latência P99 alta.", 1)
+    paraphrase = episode("gateway", "Esgotamento pela rotina de reconciliação.", 2)
+    unrelated = episode("pedidos-api", "Sem relação.", 3)
+    await saved(store, same_rule, paraphrase, unrelated)
+    await indexed(store, same_rule, DISK)
+    await indexed(store, paraphrase, POOL_NEAR)
+    await indexed(store, unrelated, DISK)
+    docs = [
+        (document_chunk("pedidos-api", f"Pool de conexões {i}.", path=f"docs/{i}.md"), POOL)
+        for i in range(DOCUMENT_LIMIT + 1)
+    ]
+    await store.replace_documents("pedidos-api", MODEL, docs, T0)
+    await store.replace_documents(
+        "gateway", MODEL, [(document_chunk("gateway", "Pool de conexões."), POOL)], T0
+    )
+
+    query = Query("timeout aguardando conexão do pool", POOL, MODEL)
+    context = await store.context_for(["pedidos-api"], ["latência p99 alta"], query.text, query)
+
+    # O determinístico vem primeiro; o vetor traz a paráfrase de outro serviço antes do resto.
+    assert [m.id for m in context.episodes] == [same_rule.id, paraphrase.id, unrelated.id]
+    assert len(context.documents) == DOCUMENT_LIMIT
+    assert {hit.chunk.subject for hit in context.documents} == {"pedidos-api"}
+    assert {hit.chunk.origin for hit in context.documents} == {ChunkOrigin.DOCUMENT}
+
+    textual = await store.context_for(["pedidos-api"], ["latência p99 alta"], query.text)
+    assert [m.id for m in textual.episodes] == [same_rule.id, unrelated.id]
+    assert textual.documents == ()
 
 
 # ---- Aprendizado ----
