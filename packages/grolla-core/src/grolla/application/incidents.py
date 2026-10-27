@@ -181,6 +181,7 @@ class IntakePolicy:
     severity: SeverityPolicy
     window: timedelta
     page_url: Callable[[UUID], str]
+    triage: bool = False  # com `noise`: todo incidente aberto pede a triagem
 
 
 async def receive_alerts(
@@ -226,6 +227,8 @@ async def _receive(
     await uow.link_alert(alert, decision.incident.id)
     if decision.request_analysis:
         await uow.request_analysis(decision.incident.id, now)
+        if policy.triage:
+            await uow.request_triage(decision.incident.id, now)
     elif alert.status is AlertStatus.FIRING:  # alerta agrupado antecipa o próximo ciclo
         await uow.request_cycle(decision.incident.id, now)
     for notification in decision.notifications:
