@@ -34,6 +34,7 @@ do `sts:GetCallerIdentity`, renovado antes de 14 min; com `role_arn`, a role é 
 import asyncio
 import base64
 import json
+import os
 import tempfile
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -562,7 +563,10 @@ def _connect(target: ClusterTarget) -> Any:
         configuration = k8s.Configuration()
         _LOADER.load_incluster_config(client_configuration=configuration)
         return k8s.ApiClient(configuration)
-    return _LOADER.new_client_from_config(context=target.context)
+    # O KUBECONFIG é lido agora (o padrão do cliente é fixado quando ele é importado).
+    return _LOADER.new_client_from_config(
+        config_file=os.environ.get("KUBECONFIG"), context=target.context
+    )
 
 
 def connect_eks(target: ClusterTarget, session: Any) -> Any:
