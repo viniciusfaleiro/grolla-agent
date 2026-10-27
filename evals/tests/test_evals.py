@@ -1,12 +1,14 @@
 """Os casos e a correção dos evals, com o modelo roteirizado (sem rede, sem custo)."""
 
+from dataclasses import replace
+
 import pytest
-from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis
+from grolla.domain.analysis import AnalysisDraft, Evidence, Hypothesis, SeenBeforeDraft
 from grolla.testing.investigation import ScriptedLanguageModel
 
-from evals.run import CASES, Case, grade, run, toolbox
+from evals.run import CASES, PAST_INCIDENT, Case, grade, run, toolbox
 
-DEPLOY, SLOW, UNCLEAR = CASES
+DEPLOY, SLOW, UNCLEAR, REPEATED_ALONE, REPEATED_WITH_MEMORY = CASES
 
 
 def draft(*hypotheses: tuple[str, float, str]) -> AnalysisDraft:
@@ -63,7 +65,39 @@ async def test_run_grades_every_case() -> None:
     outcomes = await run(model)
 
     assert [case.name for case, _ in outcomes] == [case.name for case in CASES]
-    assert [failure is None for _, failure in outcomes] == [True, False, False]
+    assert [failure is None for _, failure in outcomes] == [True, False, False, False, False]
     assert [brief.incident.services for brief in model.briefs] == [
         (case.service,) for case in CASES
     ]
+
+
+def test_repeated_with_memory_needs_the_past_incident_and_its_cause() -> None:
+    seen = SeenBeforeDraft(PAST_INCIDENT, "mesmo pool esgotado de madrugada")
+    right = replace(
+        draft(("Job de conciliação esgota o pool", 0.7, "caso passado")), seen_before=seen
+    )
+
+    assert grade(REPEATED_WITH_MEMORY, right) is None
+    assert "já vi isso" in (grade(REPEATED_WITH_MEMORY, replace(right, seen_before=None)) or "")
+    assert "não cita" in (
+        grade(REPEATED_WITH_MEMORY, replace(draft(("Banco lento", 0.6, "p99")), seen_before=seen))
+        or ""
+    )
+
+
+def test_repeated_without_memory_must_not_claim_a_past_incident() -> None:
+    invented = SeenBeforeDraft(PAST_INCIDENT, "inventado")
+    analysis = draft(("Pool de conexões esgotado", 0.6, "logs do pool"))
+
+    assert grade(REPEATED_ALONE, analysis) is None
+    assert "já vi isso" in (grade(REPEATED_ALONE, replace(analysis, seen_before=invented)) or "")
+
+
+async def test_case_with_memory_hands_the_episode_to_the_model() -> None:
+    model = ScriptedLanguageModel(draft(("x", 0.1, "y")))
+
+    await run(model)
+
+    episodes = [brief.memory.episodes for brief in model.briefs]
+    assert episodes[3] == ()
+    assert [e.incident_id for e in episodes[4]] == [PAST_INCIDENT]

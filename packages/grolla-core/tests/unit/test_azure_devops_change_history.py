@@ -60,8 +60,12 @@ class FakeAzureDevOps:
         return httpx2.Response(200, json=self.builds)
 
     def _items(self, params: httpx2.QueryParams) -> httpx2.Response:
-        """Git Items: a listagem com `recursionLevel`, senão o arquivo do caminho (ou 404)."""
+        """Git Items: a listagem com `recursionLevel` (a pasta em `scopePath`; com `path` a API
+        real responde 400), senão o arquivo do caminho (ou 404).
+        """
         if "recursionLevel" in params:
+            if "scopePath" not in params:
+                return httpx2.Response(400, json={"message": "VS403403: scopePath obrigatório"})
             return httpx2.Response(200, json=self.listing)
         item = self.files.get(params["path"])
         if item is None:
@@ -340,6 +344,7 @@ async def test_empty_path_lists_the_root(path: str) -> None:
     result = await fake.history().read_file("authorizer-api", path)
 
     assert fake.requests[-1].url.params["recursionLevel"] == "OneLevel"
+    assert fake.requests[-1].url.params["scopePath"] == "/"
     assert result.summary == (
         "4 item(ns) em / de authorizer-api (pastas terminam em /): "
         "README.md, azure-pipelines.yml, docs/, src/"

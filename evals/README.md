@@ -4,7 +4,7 @@
 
 # evals
 
-**Casos roteirizados que medem se a investigação do agent-grolla chega à hipótese certa com o modelo de linguagem real.**
+**Casos roteirizados que medem se a investigação do agent-grolla chega à hipótese certa com o modelo de linguagem real — e o que a memória viva acrescenta.**
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Kind](https://img.shields.io/badge/tipo-eval-lightgrey)](#-o-que-é)
@@ -32,6 +32,8 @@ em `tests/` cobrem a correção e os casos com o modelo roteirizado, sem rede, e
 | **deploy ruim** | erro sobe de 0,2% para 8% dois minutos depois do deploy 2.4.1, com exceção nova nos logs | cita o deploy ou a versão 2.4.1 |
 | **dependência lenta** | p99 de 4,2 s, timeouts e traces gastando o tempo em `antifraude-api`, sem deploy | cita a `antifraude` |
 | **sem causa clara** | vazão em queda gradual, sem deploy, sem erro nem trace lento | não passa de 50% de confiança |
+| **repetido, sem memória** | erro de 0,3% para 6% às 03:02, logs de pool de conexões esgotado, sem deploy; nada diz quem esgota o pool | cita o pool de conexões e **não** inventa "já vi isso" |
+| **repetido, com memória** | o mesmo roteiro, mais o episódio de um incidente passado: o job de conciliação esgotou o pool às 03:00 | aponta "já vi isso" para aquele incidente e cita a conciliação |
 
 ## ⚡ Como rodar
 

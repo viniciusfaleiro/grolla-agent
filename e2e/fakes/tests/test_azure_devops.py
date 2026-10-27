@@ -112,7 +112,9 @@ def test_readme_comes_with_the_content() -> None:
 def test_root_listing_and_missing_file() -> None:
     client = TestClient(create_app())
 
-    listing = client.get(ITEMS, params={"path": "/", "recursionLevel": "OneLevel"}, headers=AUTH)
+    listing = client.get(
+        ITEMS, params={"scopePath": "/", "recursionLevel": "OneLevel"}, headers=AUTH
+    )
     missing = client.get(ITEMS, params={"path": "/nao-existe.md"}, headers=AUTH)
 
     paths = [item["path"] for item in listing.json()["value"]]
