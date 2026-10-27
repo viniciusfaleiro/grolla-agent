@@ -175,7 +175,16 @@
     {% set seen = analysis.seen_before %}
     <aside class="seen-before" aria-label="Caso parecido">
       <p class="seen-before-head">Já vi isso: <a href="/incidents/{{ seen.incident_id }}">{{ seen.title }}</a> <span class="muted">({{ seen.at.strftime("%d/%m") }})</span></p>
-      <p>{{ seen.reason }}</p>
+      <p class="seen-before-reason">{{ seen.reason }}</p>
+      {% if seen_answer %}<p class="seen-before-answer">{{ seen_answer_text(seen_answer) }}</p>{% endif %}
+      {% if author %}
+      <form class="seen-before-ask" hx-post="/incidents/{{ incident.id }}/ja-vi-isso">
+        <span>{{ "Mudou de ideia?" if seen_answer else "Era o mesmo problema?" }}</span>
+        <button name="mesmo" value="sim">Era o mesmo problema</button>
+        <button name="mesmo" value="nao" class="button-quiet">Não era</button>
+      </form>
+      {% endif %}
+      <div id="erro-ja-vi-isso" class="error" role="alert"></div>
     </aside>
     {% endif %}
 

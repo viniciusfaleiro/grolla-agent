@@ -6,6 +6,7 @@ from grolla.domain.incidents import Severity, SeverityPolicy
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import FakeAlertIngress, InMemoryIncidentRepository
 from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
+from grolla.testing.metrics import InMemoryMetricsReader
 from grolla.testing.post_mortem import FakeDocumentRenderer, InMemoryPostMortemStore
 from grolla_api.app import Services
 
@@ -22,6 +23,7 @@ async def no_heartbeat() -> datetime | None:
 def services() -> Services:
     """Services com os fakes; cada teste troca o que precisa com `dataclasses.replace`."""
     repository = InMemoryIncidentRepository()
+    post_mortems = InMemoryPostMortemStore(repository)
     return Services(
         database_is_up=database_up,
         latest_heartbeat=no_heartbeat,
@@ -38,6 +40,7 @@ def services() -> Services:
         studies=InMemoryStudyQueue(),
         learning_queue=InMemoryLearningQueue(),
         study_enabled=True,
-        post_mortems=InMemoryPostMortemStore(repository),
+        post_mortems=post_mortems,
         renderer=FakeDocumentRenderer(),
+        metrics=InMemoryMetricsReader(repository, post_mortems),
     )

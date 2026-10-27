@@ -86,6 +86,42 @@
 </div>
 {% endmacro %}
 
+{% macro yes_no(name, legend, value) %}
+<fieldset class="pm-yes-no">
+  <legend>{{ legend }}</legend>
+  {% for choice, label in (("sim", "sim"), ("nao", "não"), ("", "sem resposta")) %}
+  {% set checked = (value is none and choice == "") or (value is sameas true and choice == "sim") or (value is sameas false and choice == "nao") %}
+  <label><input type="radio" name="{{ name }}" value="{{ choice }}"{% if checked %} checked{% endif %}> {{ label }}</label>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
+
+{% macro agent_evaluation(evaluation, action, editable) %}
+<div class="pm-evaluation" id="avaliacao">
+  <h3>Avaliação do time</h3>
+  <dl class="pm-evaluation-facts">
+    <div><dt>Hipótese principal certa</dt><dd>{{ yes_no_label(evaluation.main_hypothesis_correct) }}</dd></div>
+    <div><dt>Minutos até a hipótese certa</dt><dd>{{ evaluation.minutes_to_right if evaluation.minutes_to_right is not none else "—" }}</dd></div>
+    <div><dt>Memória ajudou</dt><dd>{{ yes_no_label(evaluation.memory_helped) }}</dd></div>
+  </dl>
+  <p class="muted pm-evaluation-by">{% if evaluation.author %}Avaliado por {{ display_name(evaluation.author) }}{% if evaluation.at %} em {{ when(evaluation.at) }}{% endif %}{% else %}O time ainda não avaliou o agente. A avaliação entra nas <a href="/metricas">métricas</a>.{% endif %}</p>
+  {% if editable %}
+  <details class="pm-add">
+    <summary>{{ "Editar a avaliação" if evaluation.author else "Avaliar o agente" }}</summary>
+    <form class="edit-form pm-evaluation-form" hx-post="{{ action }}">
+      {{ yes_no("hipotese_certa", "A hipótese principal do Grolla estava certa?", evaluation.main_hypothesis_correct) }}
+      <label>Minutos até a hipótese certa
+        <input type="number" name="minutos" min="0" step="1" inputmode="numeric" value="{{ evaluation.minutes_to_right if evaluation.minutes_to_right is not none else '' }}" placeholder="ex.: 8">
+      </label>
+      {{ yes_no("memoria_ajudou", "A memória ajudou?", evaluation.memory_helped) }}
+      <div class="row"><button class="button-primary">Salvar avaliação</button></div>
+    </form>
+  </details>
+  {% endif %}
+  <div id="erro-avaliacao" class="error" role="alert"></div>
+</div>
+{% endmacro %}
+
 {% block content %}
 {% set url = "/postmortems/" ~ incident.id %}
 <nav class="crumbs" aria-label="Caminho"><a href="/postmortems">Post mortems</a> <span aria-hidden="true">/</span></nav>
@@ -158,6 +194,7 @@
     <div class="rich pm-body">{{ rich_text(section.body) }}</div>
 
     {% if key == "plano" %}{{ action_plan(pm, url ~ "/plano", author and pm.status != "encerrado") }}{% endif %}
+    {% if key == "avaliacao_agente" %}{{ agent_evaluation(pm.evaluation, url ~ "/avaliacao", author and pm.status != "encerrado") }}{% endif %}
 
     {% if author and (can_edit(pm.status) or can_regenerate(pm.status, key)) %}
     <div class="record-actions">
