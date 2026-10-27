@@ -1,0 +1,59 @@
+{# Acompanhamento da crise. Cada bloco existe sempre (vazio fica `hidden`): o polling da timeline
+   troca os três fora dela (hx-swap-oob) quando chega um ciclo ou uma proposta. #}
+{% from "_macros.html" import hhmm %}
+
+{% macro oob_attr(oob) %}{% if oob %} hx-swap-oob="true"{% endif %}{% endmacro %}
+
+{% macro impact_chip(impact, oob=False) %}
+<span id="impact" class="impact"{{ oob_attr(oob) }}{% if not impact %} hidden{% endif %} title="Valor por minuto do YAML × taxa de erro dos ciclos">{% if impact %}Impacto: {{ impact }}{% endif %}</span>
+{% endmacro %}
+
+{% macro proposal_notice(proposal, header, author, base, oob=False) %}
+<div id="proposal"{{ oob_attr(oob) }}{% if not proposal %} hidden{% endif %}>
+  {% if proposal %}
+  <aside class="proposal" aria-label="Sugestão do Grolla">
+    <span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>
+    <div class="proposal-text">
+      <p class="proposal-head">{{ proposal.label }}</p>
+      {% if proposal.reason %}<p class="muted">{{ proposal.reason }}</p>{% endif %}
+    </div>
+    {% if author and proposal.action in header.actions %}
+    {% if proposal.action == "resolve" %}
+    <button class="button-primary" popovertarget="encerrar">Encerrar</button>
+    {% else %}
+    <form hx-post="{{ base }}mitigate" hx-target="#war-room" hx-swap="outerHTML"><button class="button-primary">Marcar mitigado</button></form>
+    {% endif %}
+    {% endif %}
+  </aside>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro follow_up_section(cycles, oob=False) %}
+<section class="panel follow-up" id="acompanhamento"{{ oob_attr(oob) }}{% if not cycles %} hidden{% endif %}>
+  {% if cycles %}
+  <div class="panel-head">
+    <h2>Acompanhamento</h2>
+    <span class="muted">ciclo {{ cycles[0].number }}</span>
+  </div>
+  <ol class="cycles">
+    {% for cycle in cycles %}
+    {% set at = cycle.finished_at or cycle.requested_at %}
+    <li class="cycle{% if not loop.first %} cycle-old{% endif %}">
+      {{ hhmm(at) }}
+      {% if cycle.status == "parcial" %}
+      <span class="trend trend-parcial">parcial</span>
+      <div class="cycle-body muted">{{ partial_text(cycle.partial_reason) if cycle.partial_reason else "sem resultado" }}</div>
+      {% else %}
+      <span class="trend trend-{{ cycle.trend }}">{{ trend_label(cycle.trend) }}</span>
+      <div class="cycle-body">
+        {% if cycle.error_rate is not none %}<span class="rate">{{ percent(cycle.error_rate) }} de erro</span>{% endif %}
+        <div class="rich">{{ rich_text(cycle.summary) }}</div>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endmacro %}
