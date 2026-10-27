@@ -6,6 +6,11 @@ Os cards do acompanhamento da crise levam ao war room:
   `summary`;
 - "Grolla sugere…" (AGENT_PROPOSAL): a proposta no título (`summary`) e o motivo (`evidence`);
 - "Alerta voltou a disparar" (ALERT_REOPENED): o `summary` e o `evidence` do núcleo.
+
+Os cards de menos ruído também levam ao war room:
+- "Parece o mesmo problema que <outro>" (MERGE_SUGGESTED): a sugestão no título (`summary`) e o
+  motivo (`evidence`); juntar é decisão humana, no war room;
+- "Incidentes juntados" (INCIDENT_MERGED): o `summary` e o `evidence` do núcleo.
 """
 
 from typing import Any
@@ -43,8 +48,7 @@ _HEADLINES = {
     NotificationKind.FOLLOW_UP_UPDATE: "Atualização",
     NotificationKind.AGENT_PROPOSAL: "Grolla sugere",  # o `summary` traz a proposta inteira
     NotificationKind.ALERT_REOPENED: "Alerta voltou a disparar",
-    # Contrato de menos ruído: o grolla-integracoes desenha os cards.
-    NotificationKind.MERGE_SUGGESTED: "Parece o mesmo problema",
+    NotificationKind.MERGE_SUGGESTED: "Parece o mesmo problema",  # o `summary` traz o outro
     NotificationKind.INCIDENT_MERGED: "Incidentes juntados",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
@@ -85,11 +89,15 @@ NO_CHANGE = "Sem mudança"
 NOT_MEASURED = "não medida"
 PROPOSAL_NOTE = "O Grolla não muda o estado: confirme pelo botão no war room."
 _WAR_ROOM = "Abrir o war room"
-_FOLLOW_UP_KINDS = (
+_WAR_ROOM_KINDS = (
     NotificationKind.FOLLOW_UP_UPDATE,
     NotificationKind.AGENT_PROPOSAL,
     NotificationKind.ALERT_REOPENED,
+    NotificationKind.MERGE_SUGGESTED,
+    NotificationKind.INCIDENT_MERGED,
 )
+_TITLED_BY_SUMMARY = (NotificationKind.AGENT_PROPOSAL, NotificationKind.MERGE_SUGGESTED)
+MERGE_NOTE = "O Grolla não junta os incidentes: decida pelo botão Juntar no war room."
 
 _NOTHING = "- nenhuma consulta concluída"
 VERIFYING = "Estou validando as hipóteses; a causa raiz vem em seguida."
@@ -133,8 +141,8 @@ def adaptive_card(notification: Notification) -> dict[str, Any]:
     verification = notification.verification
     source_title: str | None = None  # o card da causa raiz só leva ao incidente
     page_title = "Abrir incidente"
-    if notification.kind in _FOLLOW_UP_KINDS:
-        body = _follow_up_body(notification)
+    if notification.kind in _WAR_ROOM_KINDS:
+        body = _war_room_body(notification)
         page_title = _WAR_ROOM
         if notification.kind is NotificationKind.ALERT_REOPENED:
             source_title = "Ver alerta na origem"
@@ -182,8 +190,8 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
     return body
 
 
-def _follow_up_body(notification: Notification) -> list[dict[str, Any]]:
-    """Cards do acompanhamento: o texto vem pronto do núcleo; o card só o organiza."""
+def _war_room_body(notification: Notification) -> list[dict[str, Any]]:
+    """Cards que levam ao war room: o texto vem pronto do núcleo; o card só o organiza."""
     kind = notification.kind
     cycle = notification.cycle
     if kind is NotificationKind.FOLLOW_UP_UPDATE and cycle is not None:
@@ -197,17 +205,20 @@ def _follow_up_body(notification: Notification) -> list[dict[str, Any]]:
         if notification.impact:
             body.append({"type": "FactSet", "facts": [_impact(notification.impact)]})
         return body
-    headline = notification.summary if kind is NotificationKind.AGENT_PROPOSAL else None
+    headline = notification.summary.strip() if kind in _TITLED_BY_SUMMARY else None
     body = [
         _headline(headline or _HEADLINES[kind], notification, _COLORS[kind]),
         *_identity(notification),
     ]
-    if kind is NotificationKind.ALERT_REOPENED and notification.summary.strip():
+    summarized = kind in (NotificationKind.ALERT_REOPENED, NotificationKind.INCIDENT_MERGED)
+    if summarized and notification.summary.strip():
         body.append(_text(notification.summary))
     if notification.evidence.strip():
         body.append(_text(notification.evidence))
     if kind is NotificationKind.AGENT_PROPOSAL:
         body.append({"type": "TextBlock", "text": PROPOSAL_NOTE, "wrap": True, "isSubtle": True})
+    if kind is NotificationKind.MERGE_SUGGESTED:
+        body.append({"type": "TextBlock", "text": MERGE_NOTE, "wrap": True, "isSubtle": True})
     return body
 
 

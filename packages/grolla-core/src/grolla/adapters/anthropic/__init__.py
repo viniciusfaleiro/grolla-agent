@@ -22,6 +22,10 @@ A memória usa mais três chamadas: o estudo de um serviço (`study_service`, et
 o mesmo laço, fechando no orçamento como o chat, e devolve o dossiê; o aprendizado ao encerrar
 (`learn`, etapa `learning`) e a síntese do ambiente (`synthesize`, etapa `study`) são uma
 chamada só, sem ferramentas, com saída estruturada.
+
+A triagem do incidente novo (`triage`, etapa `triage`) também é uma chamada só, sem ferramentas:
+o outro incidente aberto que é o mesmo problema (ou null) e a severidade sugerida (ou null), cada
+um com o motivo. Id que não é UUID vira "sem junção", sem invalidar a triagem.
 """
 
 import asyncio
@@ -53,11 +57,13 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     STUDY_PROMPT,
     SYNTHESIS_PROMPT,
     SYSTEM_PROMPT,
+    TRIAGE_PROMPT,
     VERIFICATION_PROMPT,
     InvalidAnalysisError,
     InvestigationBrief,
@@ -77,6 +83,7 @@ from grolla.application.investigation import (
     regeneration_text,
     study_text,
     synthesis_text,
+    triage_text,
     verification_text,
 )
 from grolla.domain.analysis import (
@@ -94,6 +101,7 @@ from grolla.domain.analysis import (
 )
 from grolla.domain.chat import ChatDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, Trend
+from grolla.domain.incidents import Severity
 from grolla.domain.memory import (
     ENVIRONMENT,
     DossierDraft,
@@ -287,6 +295,15 @@ POST_MORTEM_SCHEMA = _object(
 )
 SECTION_SCHEMA = _object(body=_TEXT)
 
+# Triagem: o id do outro incidente aberto que é o mesmo problema e a severidade sugerida, cada um
+# nulo quando não se aplica e com o motivo em texto.
+TRIAGE_SCHEMA = _object(
+    same_as={"type": ["string", "null"]},
+    same_reason=_TEXT,
+    severity={"anyOf": [{"type": "string", "enum": [s.value for s in Severity]}, {"type": "null"}]},
+    severity_reason=_TEXT,
+)
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -437,6 +454,26 @@ class _Section(_Strict):
     body: str
 
 
+class _Triage(_Strict):
+    same_as: str | None
+    same_reason: str
+    severity: Severity | None
+    severity_reason: str
+
+    def draft(self) -> TriageDraft:
+        """Id que não é UUID: sem junção, sem invalidar a triagem."""
+        try:
+            same_as = UUID(self.same_as) if self.same_as else None
+        except ValueError:
+            same_as = None
+        return TriageDraft(
+            same_as=same_as,
+            same_reason=self.same_reason.strip(),
+            severity=self.severity,
+            severity_reason=self.severity_reason.strip(),
+        )
+
+
 class ClaudeLanguageModel:
     def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
@@ -584,7 +621,13 @@ class ClaudeLanguageModel:
         return body
 
     async def triage(self, brief: TriageBrief, budget: TokenBudget) -> TriageDraft:
-        raise NotImplementedError  # contrato de menos ruído: do grolla-integracoes
+        phase = _Phase(TRIAGE_PROMPT, TRIAGE_SCHEMA, self._triage, STAGE_TRIAGE)
+        async with self._client() as client:
+            try:
+                response = await _once(client, phase, triage_text(brief), budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        return _parsed(_Triage, response, "da triagem").draft()
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)
