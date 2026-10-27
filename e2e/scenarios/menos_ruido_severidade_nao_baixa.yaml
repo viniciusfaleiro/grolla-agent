@@ -1,0 +1,98 @@
+# A severidade sugerida pelo agente nunca baixa: o baixa-api abre P2 por regra (`warning`) e o
+# agente sugere P3, e o incidente continua P2, sem mudança de severidade na timeline. O P3 é o
+# padrão e a severidade mais baixa, então a sugestão mais baixa só cabe num incidente acima dele.
+# Um incidente vizinho aberto antes (outro serviço, na janela) garante que a triagem do baixa-api
+# chama o modelo.
+name: sugestão de severidade mais baixa não baixa
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/llm
+      json:
+        triage:
+          severity: P3
+          severity_reason: o baixa-api só atende relatórios internos
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no baixa-vizinho-api
+              service_name: baixa-vizinho-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,5 s no baixa-vizinho-api
+              description: O p99 de latência do baixa-vizinho-api está em 1,5 s.
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=183
+            fingerprint: e2e-baixa-vizinho-1
+  - wait_for_db_row:
+      sql: SELECT count(*) FROM incidents WHERE 'baixa-vizinho-api' = ANY(services)
+      at_least: 1
+      timeout_seconds: 10
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no baixa-api
+              service_name: baixa-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 2 s no baixa-api
+              description: O p99 de latência do baixa-api está em 2 s.
+            startsAt: "2026-01-01T10:01:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=184
+            fingerprint: e2e-baixa-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'baixa-api' = ANY(services)
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'triage_completed'
+      at_least: 1
+      timeout_seconds: 60
+  # A triagem chamou o modelo (o schema da triagem traz `severity_reason`) e recebeu o P3.
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains: [severity_reason, baixa-api]
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE id = '{incidente}' AND severity = 'P2'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'severity_changed'
+      count: 0
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [baixa-api, Severidade elevada]
+      count: 0
