@@ -4,19 +4,31 @@
 <div id="timeline"
      hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
+{% if reading_transcript(events) %}
+<p class="typing reading-transcript" role="status">Grolla está lendo a transcrição <span class="dots"><i></i><i></i><i></i></span></p>
+{% endif %}
 {% set shown = visible_events(events) %}
 {% if shown %}
 <ol class="timeline">
   {% for event in shown %}
-  {% set human = event.author not in system_authors %}
+  {% set origin = from_transcript(event) %}
+  {% set human = event.author not in system_authors and not origin %}
   <li{% if is_quiet(event) %} class="quiet"{% endif %}>
     {{ hhmm(event.at) }}
-    <div class="event{% if human %} event-human{% endif %}">
+    <div class="event{% if human %} event-human{% endif %}{% if origin %} event-transcript{% endif %}">
       {% set ref = linked_incident(event) %}
       <span class="event-label">{{ event_label(event, event_labels) }}{% if ref %} <a href="/incidents/{{ ref }}">{{ linked[ref].title if ref in linked else "outro incidente" }}</a>{% endif %}</span>
-      {% if event.author != "sistema" %}<span class="event-author">por {{ display_name(event.author) }}</span>{% endif %}
+      {% if origin %}<span class="event-origin">origem: transcrição</span>
+      {% elif event.author != "sistema" and event.type != "transcript_received" %}<span class="event-author">por {{ display_name(event.author) }}</span>{% endif %}
       {% set detail = event_detail(event) %}
       {% if detail %}<div class="event-detail">{{ detail | truncate(180) }}</div>{% endif %}
+      {% set failed = failed_transcript(event) %}
+      {% if failed is not none and author %}
+      <form class="event-retry" method="post" action="/incidents/{{ incident.id }}/transcricao/{{ failed }}/reprocessar" hx-post="/incidents/{{ incident.id }}/transcricao/{{ failed }}/reprocessar">
+        <button class="button-quiet">Reprocessar</button>
+      </form>
+      <div id="erro-transcricao-{{ failed }}" class="error" role="alert"></div>
+      {% endif %}
     </div>
   </li>
   {% endfor %}
