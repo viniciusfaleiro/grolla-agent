@@ -1,0 +1,87 @@
+# Causa raiz fora do pipeline: alguém editou na mão (`kubectl edit`) o ConfigMap `cluster-config`
+# do `cluster-api` há poucos minutos, nos dois clusters do e2e, e o pipeline não tem deploy do
+# serviço. O agente consulta `cluster_state` e `cluster_changes`, a validação aponta a mudança no
+# ConfigMap como causa raiz (horário e ferramenta como evidência) e o plano é reverter a chave.
+# O cluster `pci` tem `show_values: false`: o valor dele (7) nunca chega ao LLM, só o nome da
+# chave com "(valor oculto)"; o `nao-pci` mostra o valor (2).
+name: ConfigMap editado no cluster vira a causa raiz
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: fakes
+      method: POST
+      path: /_control/k8s
+      json:
+        configmap_edit:
+          minutes_ago: 5
+          manager: kubectl-edit
+          key: DB_POOL_SIZE
+          values: { nao-pci: "2", pci: "7" }
+      status: 204
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no cluster-api
+              service_name: cluster-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 9,1% no cluster-api
+              description: A taxa de erro HTTP 5xx do cluster-api está em 9,1% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=140
+            fingerprint: e2e-cluster-configmap-1
+then:
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [cluster-api, Análise pronta, Estou validando as hipóteses]
+      then: [cluster-api, "Causa raiz · P1", Plano de ação]
+      timeout_seconds: 90
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM analyses a JOIN incidents i ON i.id = a.incident_id
+        WHERE 'cluster-api' = ANY(i.services) AND a.status = 'concluida'
+        AND a.evaluations @> '[{"tool": "cluster_state"}]'::jsonb
+        AND a.evaluations @> '[{"tool": "cluster_changes"}]'::jsonb
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM verifications v JOIN incidents i ON i.id = v.incident_id
+        WHERE 'cluster-api' = ANY(i.services) AND v.status = 'concluida'
+        AND v.partial_reason IS NULL
+        AND v.evaluations @> '[{"tool": "cluster_changes"}]'::jsonb
+        AND v.root_cause LIKE '%kubectl-edit%' AND v.root_cause LIKE '%DB_POOL_SIZE%'
+        AND v.root_cause LIKE '%no cluster nao-pci%' AND v.root_cause LIKE '%no cluster pci%'
+        AND v.actions::text LIKE '%Reverter DB_POOL_SIZE no ConfigMap cluster-config%'
+      count: 1
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [cluster-api, "Causa raiz · P1", Reverter DB_POOL_SIZE no ConfigMap cluster-config]
+      count: 1
+  # O que o adapter devolveu chegou ao LLM: o valor do não PCI e só o nome da chave no PCI.
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains: [no cluster nao-pci, DB_POOL_SIZE=2]
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains: [no cluster pci, DB_POOL_SIZE (valor oculto)]
+  # O valor do cluster PCI não sai do adapter: nenhuma requisição ao LLM o contém.
+  - expect_fake_requests:
+      path: /anthropic/v1/messages
+      contains: [DB_POOL_SIZE=7]
+      count: 0
+      timeout_seconds: 0
