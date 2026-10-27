@@ -45,6 +45,8 @@ class FakesState:
         self.llm_mode = DEFAULT_LLM_MODE  # modo da Messages API fake (grolla_fakes.llm)
         self.llm_verification_mode = DEFAULT_LLM_MODE  # o mesmo, na fase de validação
         self.llm_chat_mode = DEFAULT_LLM_MODE  # o mesmo, nas respostas do chat do war room
+        self.llm_follow_up_mode = DEFAULT_LLM_MODE  # o mesmo, nos ciclos de acompanhamento
+        self.llm_follow_up: dict[str, Any] = {}  # roteiro do ciclo; vazio = o padrão
 
     def reset(self) -> None:
         self.scenario = Scenario()
@@ -53,6 +55,8 @@ class FakesState:
         self.llm_mode = DEFAULT_LLM_MODE
         self.llm_verification_mode = DEFAULT_LLM_MODE
         self.llm_chat_mode = DEFAULT_LLM_MODE
+        self.llm_follow_up_mode = DEFAULT_LLM_MODE
+        self.llm_follow_up = {}
 
     def set_route(self, route: ScriptedRoute) -> None:
         """Troca (ou acrescenta) a rota de mesmo método e caminho no roteiro."""

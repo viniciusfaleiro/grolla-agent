@@ -123,6 +123,14 @@
         <button type="button" data-verification="inconclusiva">Inconclusiva</button>
       </div>
       <p class="hint">Vale para as próximas validações. Fora do ar e lenta geram a validação parcial; inconclusiva termina sem causa raiz.</p>
+      <h2 style="margin-top:14px">📈 Acompanhamento da crise</h2>
+      <div class="toggle llm" role="group" aria-label="Tendência dos ciclos no LLM fake">
+        <button type="button" data-follow-up="normalizado" data-rate="0">Normalizado (0%)</button>
+        <button type="button" data-follow-up="melhorando" data-rate="3">Melhorando (3%)</button>
+        <button type="button" data-follow-up="estavel" data-rate="7">Estável (7%)</button>
+        <button type="button" data-follow-up="piorando" data-rate="15">Piorando (15%)</button>
+      </div>
+      <p class="hint">Vale para os próximos ciclos dos P0/P1. Normalizado por 15 min gera a proposta de mitigar.</p>
     </section>
     <section style="margin-top:16px">
       <h2>📋 Alertas disparados</h2>
@@ -190,6 +198,14 @@ document.querySelectorAll("[data-verification]").forEach((b) => b.addEventListen
   catch (error) { feedback("não deu para trocar o roteiro da validação: " + error.message, true); }
 }));
 renderVerification();
+
+let followUpTrend = "normalizado";
+function renderFollowUp() { document.querySelectorAll("[data-follow-up]").forEach((b) => b.classList.toggle("on", b.dataset.followUp === followUpTrend)); }
+document.querySelectorAll("[data-follow-up]").forEach((b) => b.addEventListener("click", async () => {
+  try { await post("/_control/llm", { follow_up: { trend: b.dataset.followUp, error_rate: Number(b.dataset.rate) } }); followUpTrend = b.dataset.followUp; renderFollowUp(); feedback(`roteiro do acompanhamento: ${b.textContent}`); }
+  catch (error) { feedback("não deu para trocar o roteiro do acompanhamento: " + error.message, true); }
+}));
+renderFollowUp();
 
 document.querySelectorAll("[data-teams]").forEach((b) => b.addEventListener("click", async () => {
   await post("/_console/teams", { status: Number(b.dataset.teams) }); refresh();

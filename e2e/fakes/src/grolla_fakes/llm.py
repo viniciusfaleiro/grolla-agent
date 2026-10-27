@@ -25,6 +25,13 @@ Os modos `inconclusiva` na análise inicial e no chat se comportam como `complet
 Na análise, se a mensagem traz um bloco `<memoria>` com episódio ("### [episodio] ... incidente
 <id>"), o resultado aponta `seen_before` para o primeiro episódio; senão, `seen_before` é null.
 
+O acompanhamento da crise é reconhecido pela propriedade `trend` no schema e tem o próprio modo
+(`follow_up_mode`: `completa`, `fora_do_ar` ou `lenta`). No modo `completa`, pede `query_metric`
+do serviço e depois devolve o roteiro de `POST /_control/llm {"follow_up": {...}}` (`trend`,
+`error_rate`, `changed` e `summary`; o padrão é `normalizado`, 0% de erro, sem mudança e o resumo
+"Taxa de erro em <x>% no <serviço>."), com a métrica como evidência. O roteiro troca inteiro a
+cada controle e o `/_control/reset` volta ao padrão.
+
 As fases da memória são reconhecidas pelo schema (`episode_title`: aprendizado; `dossier`:
 estudo de um serviço; `environment`: síntese) e respondem sempre como `completa`, qualquer que
 seja o modo das outras fases:
@@ -45,7 +52,7 @@ import asyncio
 import json
 import re
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -57,6 +64,7 @@ MESSAGES_PATH = "/anthropic/v1/messages"
 FIRST_TOOLS = ("query_metric", "recent_deploys", "search_logs")
 VERIFICATION_TOOLS = ("query_metric", "recent_deploys")
 CHAT_TOOLS = ("search_logs",)
+FOLLOW_UP_TOOLS = ("query_metric",)
 SLOW_SECONDS = 60.0  # bem acima dos timeouts de análise e de validação do e2e
 UNKNOWN_SERVICE = "servico-desconhecido"
 FALLBACK_HYPOTHESIS = "Hipótese da análise inicial"
@@ -91,6 +99,16 @@ class Phase(StrEnum):
     LEARNING = "aprendizado"
     STUDY = "estudo"
     SYNTHESIS = "sintese"
+    FOLLOW_UP = "acompanhamento"
+
+
+class FollowUpScript(BaseModel):
+    """O que o ciclo de acompanhamento responde; `summary` vazio vira o resumo padrão."""
+
+    trend: Literal["piorando", "estavel", "melhorando", "normalizado"] = "normalizado"
+    error_rate: float | None = 0.0
+    changed: bool = False
+    summary: str = ""
 
 
 # Fases da memória, pela propriedade que só o schema delas tem; sempre no modo `completa`.
@@ -105,6 +123,8 @@ class LlmControl(BaseModel):
     mode: LlmMode | None = None  # campo ausente: a fase fica como está
     verification_mode: LlmMode | None = None
     chat_mode: LlmMode | None = None
+    follow_up_mode: LlmMode | None = None
+    follow_up: FollowUpScript | None = None  # troca o roteiro inteiro
 
 
 def llm_router(state: FakesState) -> APIRouter:
@@ -118,6 +138,10 @@ def llm_router(state: FakesState) -> APIRouter:
             state.llm_verification_mode = control.verification_mode
         if control.chat_mode is not None:
             state.llm_chat_mode = control.chat_mode
+        if control.follow_up_mode is not None:
+            state.llm_follow_up_mode = control.follow_up_mode
+        if control.follow_up is not None:
+            state.llm_follow_up = control.follow_up.model_dump()
 
     @router.post(MESSAGES_PATH)
     async def messages(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
@@ -132,6 +156,7 @@ def llm_router(state: FakesState) -> APIRouter:
             Phase.ANALYSIS: state.llm_mode,
             Phase.VERIFICATION: state.llm_verification_mode,
             Phase.CHAT: state.llm_chat_mode,
+            Phase.FOLLOW_UP: state.llm_follow_up_mode,
         }
         mode = LlmMode(modes[current])
         status = 529 if mode is LlmMode.DOWN else 200
@@ -149,17 +174,27 @@ def llm_router(state: FakesState) -> APIRouter:
             await asyncio.sleep(SLOW_SECONDS)
             if current is Phase.ANALYSIS:  # se ainda houver quem espere, sai sem hipóteses
                 return JSONResponse(_final(body, {**_draft({}), "hypotheses": []}))
-        if current is Phase.VERIFICATION:
-            return JSONResponse(verification_reply(body, mode is LlmMode.INCONCLUSIVE))
-        if current is Phase.CHAT:
-            return JSONResponse(chat_reply(body))
-        return JSONResponse(reply(body))
+        return JSONResponse(phase_reply(body, current, mode, state))
 
     return router
 
 
+def phase_reply(
+    body: dict[str, Any], current: Phase, mode: LlmMode, state: FakesState
+) -> dict[str, Any]:
+    """A resposta da fase no modo `completa` (ou `inconclusiva`, na validação)."""
+    if current is Phase.VERIFICATION:
+        return verification_reply(body, mode is LlmMode.INCONCLUSIVE)
+    if current is Phase.CHAT:
+        return chat_reply(body)
+    if current is Phase.FOLLOW_UP:
+        return follow_up_reply(body, FollowUpScript(**state.llm_follow_up))
+    return reply(body)
+
+
 def phase(body: dict[str, Any]) -> Phase:
-    """A validação pede o schema com `verdicts`; o chat, com `reply`; a análise, o do rascunho."""
+    """A validação pede o schema com `verdicts`; o chat, com `reply`; o acompanhamento, com
+    `trend`; a análise, o do rascunho."""
     output: dict[str, Any] = body.get("output_config") or {}
     output_format: dict[str, Any] = output.get("format") or {}
     schema: dict[str, Any] = output_format.get("schema") or {}
@@ -171,6 +206,8 @@ def phase(body: dict[str, Any]) -> Phase:
         return Phase.VERIFICATION
     if "reply" in properties:
         return Phase.CHAT
+    if "trend" in properties:
+        return Phase.FOLLOW_UP
     return Phase.ANALYSIS
 
 
@@ -188,6 +225,29 @@ def chat_reply(body: dict[str, Any]) -> dict[str, Any]:
         "se quiser, registre a ação no war room."
     )
     return _final(body, {"reply": text})
+
+
+def follow_up_reply(body: dict[str, Any], script: FollowUpScript) -> dict[str, Any]:
+    """Ciclo de acompanhamento: consulta a métrica do serviço e devolve o roteiro."""
+    results = _tool_results(body["messages"])
+    if not results:
+        return _message(body, _tool_calls(body, FOLLOW_UP_TOOLS), "tool_use")
+    service = _service(_first_text(body["messages"][0]))
+    rate = (
+        "não medida" if script.error_rate is None else f"{script.error_rate:g}%".replace(".", ",")
+    )
+    summary = script.summary or f"Taxa de erro em {rate} no {service}."
+    metric = results.get("query_metric", "sem dados de métrica")
+    return _final(
+        body,
+        {
+            "trend": script.trend,
+            "error_rate": script.error_rate,
+            "summary": summary,
+            "changed": script.changed,
+            "evidence": [{"text": _excerpt(metric), "url": None}],
+        },
+    )
 
 
 def reply(body: dict[str, Any]) -> dict[str, Any]:
