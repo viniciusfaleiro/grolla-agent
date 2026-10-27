@@ -241,9 +241,23 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   com os assuntos ao lado; métricas com o período atual em destaque e o gráfico.
 - **Ports:** nenhum.
 
-## Fase 2 (depois do S11)
+## S12 · Times, login e administração
 
-SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com
+- **Valor:** vários times usam o mesmo Grolla, cada um vendo e trabalhando só no que é seu.
+- **Escopo:**
+  - **Times:** criação de times e associação de cada time a um domínio de alarmes (labels ou
+    regras dos alertas). Cada time vê só os seus alarmes e incidentes e tem as suas métricas,
+    post mortems, memória e chat: tudo separado.
+  - **Login com Entra ID:** autenticação pelo Entra ID (OIDC) no lugar do nome digitado; o autor
+    das ações e do chat vem do login.
+  - **Painel admin:** times, membros e perfis (por exemplo admin, membro, leitor).
+  - **Troca de time:** quem participa de mais de um time escolhe o time ativo no topo da página
+    e passa a ver e trabalhar nele.
+- **Ports:** `Identity` (o login; Entra ID por trás).
+
+## Fase 2 (depois do S12)
+
+Thresholds calibrados com
 dados; action items como work items no Azure DevOps; painel de custo e orçamento de LLM; vigias
 criados pelo chat.
 

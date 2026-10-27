@@ -379,6 +379,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **Post mortem redesenhado** · totais e filtros na lista, próxima ação, índice com o que falta ✅
 - **Chat, memória e métricas redesenhados** · conversas ao lado, assuntos com o frescor, período atual em destaque ✅
 - **S4 — On-call acionado sozinho** · aguardando conta no Spike.sh
+- **S12 — Times, login e administração** · times ligados ao domínio de alarmes (cada um com os seus alarmes e métricas, tudo separado), login com Entra ID, painel admin com perfis e troca de time para quem participa de mais de um
 
 ## 📄 Licença
 
