@@ -1,0 +1,125 @@
+# Ciclo de vida do post mortem: a primeira edição humana move o rascunho para em revisão e guarda
+# a versão anterior; aprovar com item do plano sem dono é recusado; com dono e prazo em todos os
+# itens, aprova, e o PDF da versão aprovada sai como `application/pdf`.
+name: editar, aprovar e baixar o PDF do post mortem
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no pm-aprova-api
+              service_name: pm-aprova-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no pm-aprova-api
+              description: O p99 de latência do pm-aprova-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=162
+            fingerprint: e2e-pm-aprova-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'pm-aprova-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.1 }
+      status: 200
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'rascunho'
+      at_least: 1
+      timeout_seconds: 90
+  # Primeira edição humana: rascunho → em revisão, com a versão do agente no histórico.
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/secoes/resumo
+      cookies: { grolla_author: Ana }
+      form: { texto: "O pm-aprova-api ficou lento por 20 min depois do build 20261026.1." }
+      status: 200
+  # Um item sem dono nem prazo, para a recusa não depender do que o modelo propôs.
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/plano
+      cookies: { grolla_author: Ana }
+      form: { descricao: alarme de p99 no pm-aprova-api, tipo: detectar }
+      status: 200
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'em_revisao'
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortem_versions WHERE incident_id = '{incidente}'
+        AND section = 'resumo'
+      count: 1
+  - expect_page:
+      service: api
+      path: /postmortems/{incidente}
+      contains: [O pm-aprova-api ficou lento por 20 min, alarme de p99 no pm-aprova-api]
+  # Aprovar sem dono é recusado e o status não muda.
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/status
+      cookies: { grolla_author: Ana }
+      form: { para: aprovado }
+      status: 422
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'em_revisao'
+      count: 1
+  # Dono e prazo em todo item sem eles (os propostos pelo modelo e o adicionado acima).
+  - for_each:
+      sql: >-
+        SELECT item->>'id' AS item, item->>'description' AS descricao, item->>'kind' AS tipo
+        FROM post_mortems, jsonb_array_elements(actions) AS item
+        WHERE incident_id = '{incidente}'
+        AND (item->>'owner' IS NULL OR item->>'due' IS NULL)
+      do:
+        - http:
+            service: api
+            method: POST
+            path: /postmortems/{incidente}/plano/{item}
+            cookies: { grolla_author: Ana }
+            form: { descricao: "{descricao}", tipo: "{tipo}", dono: Bruno, prazo: "2026-12-31" }
+            status: 200
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/status
+      cookies: { grolla_author: Ana }
+      form: { para: aprovado }
+      status: 200
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'aprovado'
+      count: 1
+  - http:
+      service: api
+      path: /postmortems/{incidente}.pdf
+      status: 200
+      content_type: application/pdf
