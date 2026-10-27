@@ -81,6 +81,7 @@ class InMemoryIncidentRepository:
             dict(self.reply_started),
             dict(self.learning_requests),
             dict(self.cycle_requests),
+            dict(self.cycles),
         )
         try:
             yield InMemoryUnitOfWork(self)
@@ -98,6 +99,7 @@ class InMemoryIncidentRepository:
                 self.reply_started,
                 self.learning_requests,
                 self.cycle_requests,
+                self.cycles,
             ) = snapshot
             raise
 

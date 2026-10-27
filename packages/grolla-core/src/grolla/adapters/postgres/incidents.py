@@ -1,4 +1,4 @@
-"""Log de eventos, projeções (incidentes, análises, validações), alertas e outbox (0002 a 0004)."""
+"""Log de eventos, projeções (incidentes, análises, validações, ciclos), alertas e outbox."""
 
 import json
 from collections.abc import AsyncGenerator, Mapping, Sequence
@@ -27,7 +27,7 @@ from grolla.domain.analysis import (
     Verification,
 )
 from grolla.domain.chat import ChatMessage, ReplyStatus
-from grolla.domain.follow_up import Cycle
+from grolla.domain.follow_up import Cycle, CycleStatus, Trend
 from grolla.domain.incidents import (
     OPEN_STATES,
     Alert,
@@ -47,7 +47,7 @@ SERVICE_LOCK_NAMESPACE = 7042
 OPEN_STATE_VALUES = sorted(state.value for state in OPEN_STATES)
 
 
-def _incident(row: sa.Row[Any]) -> Incident:
+def incident_from_row(row: sa.Row[Any]) -> Incident:
     return Incident(
         id=row.id,
         title=row.title,
@@ -276,6 +276,47 @@ def _analysis(data: Mapping[str, Any]) -> Analysis:
     )
 
 
+def cycle_data(cycle: Cycle) -> dict[str, Any]:
+    return {
+        "incident_id": str(cycle.incident_id),
+        "number": cycle.number,
+        "status": cycle.status.value,
+        "requested_at": cycle.requested_at,
+        "started_at": cycle.started_at,
+        "finished_at": cycle.finished_at,
+        "trend": None if cycle.trend is None else cycle.trend.value,
+        "error_rate": cycle.error_rate,
+        "summary": cycle.summary,
+        "changed": cycle.changed,
+        "evidence": _evidence_data(cycle.evidence),
+        "evaluations": evaluations_data(cycle.evaluations),
+        "partial_reason": None if cycle.partial_reason is None else cycle.partial_reason.value,
+        "posted": cycle.posted,
+    }
+
+
+def read_cycle(data: Mapping[str, Any]) -> Cycle:
+    """Lê o ciclo do JSON da linha de `cycles` ou do card na outbox."""
+    trend = data["trend"]
+    reason = data["partial_reason"]
+    return Cycle(
+        incident_id=UUID(data["incident_id"]),
+        number=data["number"],
+        status=CycleStatus(data["status"]),
+        requested_at=datetime.fromisoformat(data["requested_at"]),
+        started_at=_optional_datetime(data["started_at"]),
+        finished_at=_optional_datetime(data["finished_at"]),
+        trend=None if trend is None else Trend(trend),
+        error_rate=data["error_rate"],
+        summary=data["summary"],
+        changed=data["changed"],
+        evidence=_evidence(data["evidence"]),
+        evaluations=_evaluations(data["evaluations"]),
+        partial_reason=None if reason is None else PartialReason(reason),
+        posted=data["posted"],
+    )
+
+
 def _optional_datetime(value: str | None) -> datetime | None:
     return None if value is None else datetime.fromisoformat(value)
 
@@ -283,6 +324,7 @@ def _optional_datetime(value: str | None) -> datetime | None:
 def _notification_json(notification: Notification) -> str:
     analysis = notification.analysis
     verification = notification.verification
+    cycle = notification.cycle
     return _json(
         {
             "kind": notification.kind.value,
@@ -296,6 +338,8 @@ def _notification_json(notification: Notification) -> str:
             "page_url": notification.page_url,
             "analysis": None if analysis is None else _analysis_data(analysis),
             "verification": None if verification is None else _verification_data(verification),
+            "cycle": None if cycle is None else cycle_data(cycle),
+            "impact": notification.impact,
         }
     )
 
@@ -303,6 +347,7 @@ def _notification_json(notification: Notification) -> str:
 def _notification(data: Mapping[str, Any]) -> Notification:
     analysis = data.get("analysis")  # cards gravados antes da 0003 não têm a chave
     verification = data.get("verification")  # nem antes da 0004
+    cycle = data.get("cycle")  # nem antes da 0008
     return Notification(
         kind=NotificationKind(data["kind"]),
         incident_id=UUID(data["incident_id"]),
@@ -315,6 +360,8 @@ def _notification(data: Mapping[str, Any]) -> Notification:
         page_url=data["page_url"],
         analysis=None if analysis is None else _analysis(analysis),
         verification=None if verification is None else _verification(verification),
+        cycle=None if cycle is None else read_cycle(cycle),
+        impact=data.get("impact"),
     )
 
 
@@ -417,7 +464,7 @@ class PostgresUnitOfWork:
             ),
             {"service": service, "since": since, "open_states": OPEN_STATE_VALUES},
         )
-        return [_incident(row) for row in result]
+        return [incident_from_row(row) for row in result]
 
     async def incident_firing(self, fingerprint: str) -> Incident | None:
         # FOR UPDATE aqui e em active_incidents: resolução e agrupamento simultâneos no mesmo
@@ -432,7 +479,7 @@ class PostgresUnitOfWork:
             {"fingerprint": fingerprint},
         )
         row = result.one_or_none()
-        return None if row is None else _incident(row)
+        return None if row is None else incident_from_row(row)
 
     async def save(self, incident: Incident) -> None:
         await self._connection.execute(
@@ -494,7 +541,7 @@ class PostgresUnitOfWork:
             {"id": incident_id},
         )
         row = result.one_or_none()
-        return None if row is None else _incident(row)
+        return None if row is None else incident_from_row(row)
 
     async def add_message(self, message: ChatMessage, wants_reply: bool) -> ChatMessage:
         return await insert_message(
@@ -514,7 +561,13 @@ class PostgresUnitOfWork:
         )
 
     async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
-        raise NotImplementedError  # contrato do acompanhamento: do grolla-persistencia
+        await self._connection.execute(
+            sa.text(
+                "INSERT INTO follow_ups (incident_id, requested_at) VALUES (:incident_id, :at)"
+                " ON CONFLICT (incident_id) DO UPDATE SET requested_at = excluded.requested_at"
+            ),
+            {"incident_id": incident_id, "at": at},
+        )
 
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
         await self._connection.execute(
@@ -563,7 +616,7 @@ class PostgresIncidentRepository:
                 ),
                 {"limit": limit},
             )
-            return [_incident(row) for row in result]
+            return [incident_from_row(row) for row in result]
 
     async def get_incident(self, incident_id: UUID) -> Incident | None:
         async with self._engine.connect() as connection:
@@ -576,7 +629,7 @@ class PostgresIncidentRepository:
                 {"id": incident_id},
             )
             row = result.one_or_none()
-            return None if row is None else _incident(row)
+            return None if row is None else incident_from_row(row)
 
     async def alerts_of(self, incident_id: UUID) -> list[Alert]:
         async with self._engine.connect() as connection:
@@ -626,7 +679,15 @@ class PostgresIncidentRepository:
             return None if data is None else _analysis(data)
 
     async def cycles_of(self, incident_id: UUID) -> list[Cycle]:
-        raise NotImplementedError  # contrato do acompanhamento: do grolla-persistencia
+        async with self._engine.connect() as connection:
+            result = await connection.execute(
+                # Como JSON, igual a `analysis_of`: o mesmo formato do ciclo no card da outbox.
+                sa.text(
+                    "SELECT to_jsonb(cycles) FROM cycles WHERE incident_id = :id ORDER BY number"
+                ),
+                {"id": incident_id},
+            )
+            return [read_cycle(data) for data in result.scalars()]
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         async with self._engine.connect() as connection:

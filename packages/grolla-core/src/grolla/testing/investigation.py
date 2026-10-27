@@ -14,6 +14,7 @@ from grolla.application.investigation import (
     NO_DEPENDENCIES,
     NO_REPOSITORY,
     READ_LIMIT,
+    STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
     STAGE_STUDY,
@@ -35,7 +36,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft
 from grolla.domain.chat import ChatDraft
-from grolla.domain.follow_up import Cycle, CycleDraft
+from grolla.domain.follow_up import Cycle, CycleDraft, Trend
 from grolla.domain.incidents import IncidentState
 from grolla.domain.memory import (
     ENVIRONMENT,
@@ -280,6 +281,10 @@ class ScriptedLanguageModel:
     resposta devolvida), gastando o uso com a etapa `warroom_chat`. Cada (contexto, pergunta)
     recebido fica em `questions`.
 
+    Em `follow_up`, o mesmo roteiro com `follow_up_calls`, `follow_up_error`, `follow_up_delay`
+    e `follow_up_draft` (o ciclo devolvido; por padrão, `normalizado` com 0% de erro), gastando
+    o uso com a etapa `follow_up`. Cada (contexto, ciclo anterior) recebido fica em `follow_ups`.
+
     Em `learn`, sem ferramentas: gasta um uso da etapa `learning` e levanta `learning_error` ou
     devolve `learning` (por padrão, um episódio e o dossiê de cada serviço do incidente). Em
     `study_service`, faz `study_calls`, gasta com a etapa `study` e levanta o erro de
@@ -311,7 +316,18 @@ class ScriptedLanguageModel:
         study_errors: Mapping[str, Exception] | None = None,
         synthesis: SynthesisDraft | None = None,
         synthesis_error: Exception | None = None,
+        follow_up_draft: CycleDraft | None = None,
+        follow_up_calls: ToolCalls = (),
+        follow_up_error: Exception | None = None,
+        follow_up_delay: float = 0.0,
     ) -> None:
+        self.follow_up_draft = follow_up_draft or CycleDraft(
+            Trend.NORMAL, 0.0, "Serviço normalizado: erro em 0%.", changed=False
+        )
+        self.follow_up_calls = list(follow_up_calls)
+        self.follow_up_error = follow_up_error
+        self.follow_up_delay = follow_up_delay
+        self.follow_ups: list[tuple[str, Cycle | None]] = []
         self.learning = learning
         self.learning_error = learning_error
         self.study_calls = list(study_calls)
@@ -387,7 +403,13 @@ class ScriptedLanguageModel:
         toolbox: Toolbox,
         budget: TokenBudget,
     ) -> CycleDraft:
-        raise NotImplementedError  # contrato do acompanhamento: implementado pelo grolla-dominio
+        self.briefs.append(brief)
+        self.follow_ups.append((context, previous))
+        usage = replace(self.usage, stage=STAGE_FOLLOW_UP)
+        await self._play(self.follow_up_delay, self.follow_up_calls, usage, toolbox, budget)
+        if self.follow_up_error is not None:
+            raise self.follow_up_error
+        return self.follow_up_draft
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         self.learning_briefs.append(brief)
