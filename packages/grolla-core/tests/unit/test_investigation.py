@@ -5,6 +5,9 @@ from typing import Any
 
 import pytest
 from grolla.application.investigation import (
+    CHAT_PROMPT,
+    CONSOLE_PROMPT,
+    HEALTH_UNAVAILABLE,
     NO_CLOUD,
     NO_CLOUD_RESOURCES,
     NO_REPOSITORY,
@@ -60,6 +63,8 @@ def test_specs_are_the_neutral_tools_with_closed_arguments() -> None:
         "cloud_resources": {"service"},
         "cloud_changes": {"service"},
         "cloud_alarms": {"service"},
+        "cloud_health": {"service"},
+        "cloud_quotas": {"service"},
         "read_file": {"service", "path"},
         "service_dependencies": {"service"},
         "cloud_overview": set(),
@@ -72,6 +77,8 @@ def test_specs_are_the_neutral_tools_with_closed_arguments() -> None:
         "cloud_resources": ["service"],
         "cloud_changes": ["service"],
         "cloud_alarms": ["service"],
+        "cloud_health": ["service"],
+        "cloud_quotas": ["service"],
         "read_file": ["service", "path"],
         "service_dependencies": ["service"],
         "cloud_overview": [],
@@ -265,6 +272,24 @@ def test_system_prompt_uses_the_cloud_and_relates_rollback_to_the_deploy_time() 
     assert "começou depois do deploy" in SYSTEM_PROMPT
 
 
+def test_prompts_say_when_to_look_at_provider_events_and_quotas() -> None:
+    for prompt in (SYSTEM_PROMPT, VERIFICATION_PROMPT):
+        for expected in ("`cloud_health`", "`cloud_quotas`", "região", "throttling", "escala"):
+            assert expected in prompt
+    for prompt in (CHAT_PROMPT, CONSOLE_PROMPT):
+        assert "`cloud_health`, `cloud_quotas`" in prompt
+
+
+async def test_health_without_the_plan_is_an_answer() -> None:
+    cloud = FakeCloudInventory(health={SERVICE: HEALTH_UNAVAILABLE})
+    tools = toolbox(cloud=cloud)
+
+    answer = await tools.call("cloud_health", {"service": SERVICE})
+
+    assert answer.startswith(HEALTH_UNAVAILABLE)
+    assert tools.evaluations[0].ok
+
+
 def test_verification_prompt_asks_verdicts_root_cause_and_a_concrete_plan() -> None:
     for expected in (
         "confirmada, rejeitada ou inconclusiva",
@@ -312,6 +337,8 @@ def test_verification_text_without_evaluations_says_so() -> None:
         ("cloud_resources", f"recursos de nuvem de {SERVICE}", "resources"),
         ("cloud_changes", f"mudanças na nuvem de {SERVICE}, últimos 60 min", "changes"),
         ("cloud_alarms", f"alarmes da nuvem de {SERVICE}", "alarms"),
+        ("cloud_health", f"eventos do provedor de nuvem para {SERVICE}", "health"),
+        ("cloud_quotas", f"cotas da nuvem de {SERVICE}", "quotas"),
     ],
 )
 async def test_cloud_tools_call_the_cloud_with_the_service(
@@ -321,6 +348,8 @@ async def test_cloud_tools_call_the_cloud_with_the_service(
         resources={SERVICE: "banco pedidos-db: stopped"},
         changes={SERVICE: "21:42 parada do banco"},
         alarms={SERVICE: "alarme de conexões"},
+        health={SERVICE: "evento aberto: banco de dados em sa-east-1"},
+        quotas={SERVICE: "instâncias de banco: 18 de 20 (90%)"},
     )
     tools = toolbox(cloud=cloud)
 
@@ -347,7 +376,9 @@ async def test_service_without_cloud_resources_is_an_answer() -> None:
     assert tools.evaluations[0].ok
 
 
-@pytest.mark.parametrize("name", ["cloud_resources", "cloud_changes", "cloud_alarms"])
+@pytest.mark.parametrize(
+    "name", ["cloud_resources", "cloud_changes", "cloud_alarms", "cloud_health", "cloud_quotas"]
+)
 async def test_without_cloud_the_tools_say_it_is_not_configured(name: str) -> None:
     tools = toolbox()
 
