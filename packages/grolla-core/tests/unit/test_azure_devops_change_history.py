@@ -8,7 +8,11 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.change_history_contract import ChangeHistoryContract, RepositoryFilesContract
+from contracts.change_history_contract import (
+    ChangeHistoryContract,
+    RepositoryDocumentsContract,
+    RepositoryFilesContract,
+)
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.application.investigation import (
     BINARY_FILE,
@@ -462,6 +466,18 @@ def documented() -> FakeAzureDevOps:
     }
     fake.files["/docs/ADR-001.MD"] = {"path": "/docs/ADR-001.MD", "content": "# ADR 1\n"}
     return fake
+
+
+class TestAzureDevOpsRepositoryDocumentsContract(RepositoryDocumentsContract):
+    @pytest.fixture
+    def changes(self) -> ChangeHistory:
+        return documented().history()
+
+    @pytest.fixture
+    def unavailable_changes(self) -> ChangeHistory:
+        fake = documented()
+        fake.status = 503
+        return fake.history()
 
 
 async def test_documents_are_the_md_files_smallest_first_with_their_links() -> None:

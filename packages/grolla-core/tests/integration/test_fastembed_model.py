@@ -13,8 +13,9 @@ from functools import cache
 from pathlib import Path
 
 import pytest
+from contracts.text_embedder_contract import TextEmbedderContract
 from grolla.adapters.fastembed import FastembedTextEmbedder
-from grolla.application.memory_store import EmbeddingError
+from grolla.application.memory_store import EmbeddingError, TextEmbedder
 
 pytestmark = pytest.mark.integration
 
@@ -37,6 +38,15 @@ def embedder() -> FastembedTextEmbedder:
     if model is None:
         pytest.skip("modelo small fora do cache (defina GROLLA_RAG_CACHE)")
     return model
+
+
+class TestFastembedTextEmbedderContract(TextEmbedderContract):
+    @pytest.fixture
+    def embedder(self) -> TextEmbedder:
+        model = small_model()
+        if model is None:
+            pytest.skip("modelo small fora do cache (defina GROLLA_RAG_CACHE)")
+        return model
 
 
 def similarity(a: list[float], b: list[float]) -> float:
