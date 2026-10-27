@@ -191,7 +191,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   `claim` pega o pendente mais antigo com `FOR UPDATE SKIP LOCKED`; `stuck` lista os em
   andamento desde antes do limite; `finish` grava numa transação, só se o ciclo ainda está
   `em_andamento`, o ciclo, os eventos, os cards na outbox, o `llm_usage` e apaga o pedido
-  antecipado (`tests/integration/test_postgres_follow_up.py`). `request_cycle` (na unidade de
+  antecipado (`CycleQueueContract` em `tests/integration/test_postgres_follow_up.py`). `request_cycle` (na unidade de
   trabalho) grava o pedido antecipado, e um pedido novo substitui o anterior; `cycles_of`
   devolve os ciclos em ordem de número. O card leva o ciclo e o impacto no JSON da outbox;
   cards anteriores à 0008 voltam sem eles.
@@ -237,7 +237,7 @@ uv run pytest packages/grolla-core/tests/unit           # só unitários (sem re
 |---|---|---|
 | `tests/unit/` | Unitários; inclui a prova de que a rede está bloqueada | bloqueada |
 | `tests/integration/` | Postgres real via Testcontainers (fixture `database_url`); o modelo `small` de embeddings real (`test_fastembed_model.py`, com paráfrase em português), que pula sem o modelo no cache de `GROLLA_RAG_CACHE` | liberada |
-| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`, `IncidentRepositoryContract`, `NotificationOutboxContract`, `ChatNotifierContract`, `AlertIngressContract`, `TelemetryContract`, `ChangeHistoryContract`, `LanguageModelContract`, `AnalysisQueueContract`, `VerificationQueueContract`, `CloudInventoryContract`, `ChatReplyContract`, `WarRoomRepositoryContract`, `ChatQueueContract`, `MemoryStoreContract`, `MemoryChunksContract`, `TextEmbedderContract`, `RepositoryDocumentsContract`) | — |
+| `tests/contracts/` | Suíte de contrato de cada port (`ClockContract`, `IncidentRepositoryContract`, `NotificationOutboxContract`, `ChatNotifierContract`, `AlertIngressContract`, `TelemetryContract`, `ChangeHistoryContract`, `LanguageModelContract`, `AnalysisQueueContract`, `VerificationQueueContract`, `CloudInventoryContract`, `ChatReplyContract`, `WarRoomRepositoryContract`, `ChatQueueContract`, `MemoryStoreContract`, `MemoryChunksContract`, `TextEmbedderContract`, `RepositoryDocumentsContract`, `CycleQueueContract`) | — |
 
 Para rodar o teste do modelo real, baixe-o uma vez (0,22 GB) fora do repositório:
 

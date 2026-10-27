@@ -13,7 +13,9 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.cycle_queue_contract import CycleQueueContract
 from grolla.adapters.postgres import (
+    PostgresAnalysisQueue,
     PostgresCycleQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -21,9 +23,11 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
-from grolla.application.follow_up import CycleCandidate
+from grolla.application.analysis import AnalysisQueue
+from grolla.application.follow_up import CycleCandidate, CycleQueue
+from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import STAGE_FOLLOW_UP, STAGE_INVESTIGATION, LlmUsage
-from grolla.domain.analysis import AnalysisStatus, Evaluation, Evidence, PartialReason
+from grolla.domain.analysis import AnalysisStatus, Evaluation, Evidence
 from grolla.domain.follow_up import Cycle, CycleStatus, Trend
 from grolla.domain.incidents import (
     EventType,
@@ -72,7 +76,27 @@ async def database(database_url: str) -> AsyncIterator[PostgresDatabase]:
 async def clean(database: PostgresDatabase) -> None:
     """Cada teste começa sem ciclos, pedidos, cards nem uso (o log de eventos não se apaga)."""
     async with database.engine.begin() as connection:
-        await connection.execute(sa.text("TRUNCATE cycles, follow_ups, outbox, llm_usage"))
+        await connection.execute(
+            sa.text("TRUNCATE cycles, follow_ups, analyses, verifications, outbox, llm_usage")
+        )
+
+
+class TestPostgresCycleQueueContract(CycleQueueContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def queue(self, database: PostgresDatabase) -> CycleQueue:
+        return PostgresCycleQueue(database)
+
+    @pytest.fixture
+    def analysis_queue(self, database: PostgresDatabase) -> AnalysisQueue:
+        return PostgresAnalysisQueue(database)
+
+    @pytest.fixture
+    def outbox(self, database: PostgresDatabase) -> NotificationOutbox:
+        return PostgresNotificationOutbox(database)
 
 
 @pytest.fixture
@@ -133,50 +157,6 @@ def finished(cycle: Cycle) -> Cycle:
     )
 
 
-async def test_enqueue_creates_a_pending_cycle_once(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    incident = await saved(repository)
-
-    assert await queue.enqueue(incident.id, 1, T0)
-    assert not await queue.enqueue(incident.id, 1, T0 + timedelta(seconds=1))
-
-    assert await repository.cycles_of(incident.id) == [
-        Cycle(incident_id=incident.id, number=1, status=CycleStatus.PENDING, requested_at=T0)
-    ]
-
-
-async def test_cycles_of_is_in_number_order(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    incident = await saved(repository)
-    for number in (2, 3, 1):
-        await queue.enqueue(incident.id, number, T0)
-
-    assert [c.number for c in await repository.cycles_of(incident.id)] == [1, 2, 3]
-    assert await repository.cycles_of(uuid4()) == []
-
-
-async def test_claim_takes_the_oldest_pending_and_marks_it_running(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    newer = await saved(repository)
-    older = await saved(repository)
-    await queue.enqueue(newer.id, 1, T0 + timedelta(seconds=10))
-    await queue.enqueue(older.id, 1, T0)
-
-    claimed = await queue.claim(STARTED)
-
-    assert claimed == Cycle(
-        incident_id=older.id,
-        number=1,
-        status=CycleStatus.RUNNING,
-        requested_at=T0,
-        started_at=STARTED,
-    )
-    assert await repository.cycles_of(older.id) == [claimed]
-
-
 async def test_claim_without_pending_is_none(queue: PostgresCycleQueue) -> None:
     assert await queue.claim(STARTED) is None
 
@@ -191,17 +171,6 @@ async def test_parallel_claims_take_different_cycles(
     claimed = await asyncio.gather(*(queue.claim(STARTED) for _ in range(PARALLEL_CLAIMS)))
 
     assert sorted(c.number for c in claimed if c is not None) == list(range(1, PARALLEL_CLAIMS + 1))
-
-
-async def test_stuck_lists_cycles_running_since_before(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    incident = await saved(repository)
-    cycle = await running(queue, incident.id)
-    await queue.enqueue(incident.id, 2, T0)  # pendente não está preso
-
-    assert await queue.stuck(STARTED + timedelta(seconds=1)) == [cycle]
-    assert await queue.stuck(STARTED) == []
 
 
 async def test_finish_records_cycle_events_cards_and_usage_and_clears_the_request(
@@ -234,68 +203,6 @@ async def test_finish_records_cycle_events_cards_and_usage_and_clears_the_reques
     candidate = await candidate_of(queue, incident.id)
     assert candidate.requested_at is None
     assert candidate.tokens == 116
-
-
-async def test_finish_of_a_cycle_no_longer_running_changes_nothing(
-    repository: PostgresIncidentRepository,
-    queue: PostgresCycleQueue,
-    database: PostgresDatabase,
-) -> None:
-    incident = await saved(repository)
-    cycle = await running(queue, incident.id)
-    interrupted = replace(
-        cycle,
-        status=CycleStatus.PARTIAL,
-        finished_at=FINISHED,
-        partial_reason=PartialReason.INTERRUPTED,
-    )
-    await queue.finish(interrupted, [], [], [], FINISHED)
-
-    await queue.finish(
-        finished(cycle),
-        [
-            IncidentEvent(
-                incident_id=incident.id, at=FINISHED, type=EventType.CYCLE_COMPLETED, data={}
-            )
-        ],
-        [make_notification(incident.id, NotificationKind.FOLLOW_UP_UPDATE)],
-        [usage(STAGE_FOLLOW_UP, 100)],
-        FINISHED,
-    )
-
-    assert await repository.cycles_of(incident.id) == [interrupted]
-    assert await repository.events_of(incident.id) == []
-    assert await PostgresNotificationOutbox(database).due(FINISHED, 10) == []
-    candidate = await candidate_of(queue, incident.id)
-    assert candidate.tokens == 0
-
-
-async def test_request_cycle_keeps_the_latest_request(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    incident = await saved(repository)
-    async with repository.transaction() as uow:
-        await uow.request_cycle(incident.id, T0)
-    async with repository.transaction() as uow:
-        await uow.request_cycle(incident.id, T0 + timedelta(minutes=1))
-
-    candidate = await candidate_of(queue, incident.id)
-    assert candidate.requested_at == T0 + timedelta(minutes=1)
-
-
-async def test_candidates_are_open_incidents_of_the_severities(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    followed = await saved(repository)
-    p0 = await saved(repository, severity=Severity.P0)
-    p2 = await saved(repository, severity=Severity.P2)
-    resolved = await saved(repository, state=IncidentState.RESOLVED)
-
-    candidates = await queue.candidates({Severity.P0, Severity.P1})
-
-    mine = {followed.id, p0.id, p2.id, resolved.id}
-    assert {c.incident for c in candidates if c.incident.id in mine} == {followed, p0}
-    assert await queue.candidates(set()) == []
 
 
 async def test_candidate_carries_analysis_end_cycles_request_and_follow_up_tokens(
@@ -336,19 +243,6 @@ async def test_candidate_carries_analysis_end_cycles_request_and_follow_up_token
     assert candidate.cycles[0] == finished(first)
     assert candidate.requested_at is None  # o ciclo terminado zerou o pedido
     assert candidate.tokens == 116
-
-
-async def test_candidate_without_analysis_cycles_or_request(
-    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
-) -> None:
-    incident = await saved(repository)
-
-    candidate = await candidate_of(queue, incident.id)
-
-    assert candidate.analysis_done_at is None
-    assert candidate.cycles == ()
-    assert candidate.requested_at is None
-    assert candidate.tokens == 0
 
 
 async def test_outbox_reads_cards_written_before_the_cycle_keys(
