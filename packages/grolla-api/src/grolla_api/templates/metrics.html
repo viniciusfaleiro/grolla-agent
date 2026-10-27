@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Métricas do agente{% endblock %}
+{% block content %}
+<div class="list-head">
+  <h1>Métricas do agente</h1>
+  <nav class="segmented" aria-label="Período">
+    {% for value, label in granularity_labels.items() %}
+    <a href="/metricas?por={{ value }}"{% if granularity == value %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+</div>
+<p class="muted metrics-intro">Os últimos {{ rows | length }} períodos, do mais recente ao mais antigo. Tudo sai das respostas do time e do log dos incidentes: o acerto vem da avaliação nos post mortems, e o "já vi isso" das respostas na página do incidente.</p>
+
+<section class="panel">
+  <div class="table-wrap">
+    <table class="metrics">
+      <thead>
+        <tr>
+          <th scope="col">Período</th>
+          <th scope="col">Incidentes resolvidos</th>
+          <th scope="col">Post mortems aprovados</th>
+          <th scope="col">Acerto da hipótese principal</th>
+          <th scope="col">Mediana até a hipótese certa</th>
+          <th scope="col">"Já vi isso" confirmados</th>
+          <th scope="col">"Já vi isso" recusados</th>
+          <th scope="col">Memória ajudou</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">{{ row.period.label }}</th>
+          <td>{{ row.resolved }}</td>
+          <td>{{ row.approved }}</td>
+          <td>{{ hit_rate(row) }}</td>
+          <td>{{ median_minutes(row) }}</td>
+          <td>{{ row.seen_before_confirmed }}</td>
+          <td>{{ row.seen_before_rejected }}</td>
+          <td>{{ row.memory_helped }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

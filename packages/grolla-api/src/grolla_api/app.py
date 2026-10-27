@@ -34,6 +34,12 @@ from grolla.application.memory import (
     restore_memory,
 )
 from grolla.application.memory_store import MemoryStore
+from grolla.application.metrics import (
+    MetricsReader,
+    agent_metrics,
+    answer_seen_before,
+    evaluate_agent,
+)
 from grolla.application.post_mortem import (
     DocumentRenderer,
     PostMortemFilters,
@@ -74,6 +80,14 @@ from grolla_api.memory_pages import (
     study_progress,
     subject_groups,
     subject_url,
+)
+from grolla_api.metrics_pages import (
+    GRANULARITY_LABELS,
+    evaluation_from,
+    granularity_of,
+    hit_rate,
+    median_minutes,
+    yes_no_label,
 )
 from grolla_api.post_mortem_pages import (
     ACTION_KIND_LABELS,
@@ -120,6 +134,9 @@ from grolla_api.war_room import (
     recent_cycles,
     rich_text,
     safe_redirect,
+    same_problem,
+    seen_answer_text,
+    seen_before_answer,
     trend_label,
     visible_events,
 )
@@ -159,6 +176,7 @@ EVENT_LABELS = {
     EventType.CYCLE_PARTIAL: "Acompanhamento parcial",
     EventType.FOLLOW_UP_STOPPED: "Acompanhamento parado",
     EventType.AGENT_PROPOSAL: "Proposta do Grolla",
+    EventType.SEEN_BEFORE_ANSWERED: "Resposta ao já vi isso",
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -217,6 +235,11 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "can_regenerate": can_regenerate,
     "has_pdf": has_pdf,
     "not_generated": not_generated,
+    "seen_answer_text": seen_answer_text,
+    "yes_no_label": yes_no_label,
+    "granularity_labels": GRANULARITY_LABELS,
+    "hit_rate": hit_rate,
+    "median_minutes": median_minutes,
 }
 templates.env.globals.update(TEMPLATE_GLOBALS)
 
@@ -230,6 +253,8 @@ RELEARN_UNCONFIRMED = "confirme que quer reaprender o ambiente do zero"
 STUDY_QUEUED = "já tem um estudo na fila ou em andamento; espere ele terminar"
 STATUS_ERROR = "#erro-status"
 PLAN_ERROR = "#erro-plano"
+EVALUATION_ERROR = "#erro-avaliacao"
+SEEN_BEFORE_ERROR = "#erro-ja-vi-isso"
 REGENERATION_ASKED = (
     "Pedido enviado: o Grolla está regenerando esta seção. Recarregue a página em instantes "
     "para ver o texto novo; o atual fica no histórico."
@@ -262,6 +287,7 @@ class Services:
     study_enabled: bool  # sem `memory.study` no YAML nenhum estudo roda
     post_mortems: PostMortemStore
     renderer: DocumentRenderer
+    metrics: MetricsReader
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
 
 
@@ -315,11 +341,15 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         }
 
     async def war_room_context(incident: Incident, author: str | None) -> dict[str, Any]:
+        analysis = await repository.analysis_of(incident.id)
+        events = await repository.events_of(incident.id)
+        seen = analysis.seen_before if analysis else None
         return {
             **await follow_up_context(incident, author),
-            "analysis": await repository.analysis_of(incident.id),
+            "analysis": analysis,
             "verification": await repository.verification_of(incident.id),
-            "discarded": discarded_hypotheses(await repository.events_of(incident.id)),
+            "discarded": discarded_hypotheses(events),
+            "seen_answer": seen_before_answer(events, seen.incident_id) if seen else None,
         }
 
     async def chat_context(incident: Incident, author: str | None) -> dict[str, Any]:
@@ -411,6 +441,28 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, WAR_ROOM_ERROR)
         context = await war_room_context(updated, author)
         return templates.TemplateResponse(request, "_war_room.html", context)
+
+    @app.post("/incidents/{incident_id}/ja-vi-isso")
+    async def seen_before(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, SEEN_BEFORE_ERROR)
+        found = await incident_or_404(incident_id)
+        try:
+            await answer_seen_before(
+                repository=repository,
+                incident_id=found.id,
+                same=same_problem(parse_form(await request.body())),
+                author=author,
+                clock=services.clock,
+            )
+        except IncidentNotFoundError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "incidente não encontrado") from error
+        except InvalidActionError as error:
+            return error_fragment(
+                str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, SEEN_BEFORE_ERROR
+            )
+        return reload_page(request, f"/incidents/{found.id}")
 
     @app.get("/incidents/{incident_id}/chat", response_class=HTMLResponse)
     async def chat(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]
@@ -753,9 +805,23 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
                 to=target_status(form),
                 author=author,
                 clock=clock,
+                repository=repository,  # aprovar pede o aprendizado com o post mortem
             )
 
         return await change_post_mortem(request, incident_id, STATUS_ERROR, moved)
+
+    @app.post("/postmortems/{incident_id}/avaliacao")
+    async def post_mortem_evaluation(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        async def evaluated(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            return await evaluate_agent(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                evaluation=evaluation_from(form),
+                author=author,
+                clock=clock,
+            )
+
+        return await change_post_mortem(request, incident_id, EVALUATION_ERROR, evaluated)
 
     @app.post("/postmortems/{incident_id}/plano")
     async def post_mortem_add_action(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
@@ -797,6 +863,18 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             )
 
         return await change_post_mortem(request, incident_id, PLAN_ERROR, updated)
+
+    @app.get("/metricas", response_class=HTMLResponse)
+    async def metrics(request: Request, por: str = "") -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        granularity = granularity_of(por)
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "metrics",
+            "back_to": f"/metricas?por={granularity}",
+            "granularity": granularity,
+            "rows": await agent_metrics(services.metrics, clock, granularity),
+        }
+        return templates.TemplateResponse(request, "metrics.html", context)
 
     @app.post("/author")
     async def set_author(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
