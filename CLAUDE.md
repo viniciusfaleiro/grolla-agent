@@ -42,7 +42,9 @@ com duração, causa raiz e plano. `war-room-com-o-agente`: ações humanas na p
 (IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat em que o
 agente investiga sob demanda. `memoria-viva` (S3.2): base de conhecimento do ambiente que o
 agente monta e mantém sozinho (estudo inicial e diário), episódios de cada incidente, aprendizado
-no chat, "já vi isso" na análise, página `/memoria` e reaprender do zero. Próximo: S4
+no chat, "já vi isso" na análise, página `/memoria` e reaprender do zero. `memoria-com-rag` (S3.3): embeddings locais (fastembed,
+`small`/`large`), pgvector, documentação dos repositórios indexada e busca híbrida (determinístico
+→ RRF de vetor e texto). Próximo: S4
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

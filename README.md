@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-mem%C3%B3ria%20viva%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-mem%C3%B3ria%20com%20RAG%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -347,7 +347,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S3.1 — Até a causa raiz** · validação de cada hipótese, causa raiz com plano de ação concreto e consulta somente leitura à AWS (o S11 adiantado com escopo mínimo) ✅
 - **War room com o agente** · ações humanas (IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat com o agente que investiga sob demanda ✅ (adiantado do S4/S5)
 - **S3.2 — Memória viva** · base de conhecimento do ambiente estudada pelo agente, estudo diário, episódios, aprendizado no chat, "já vi isso" e reaprender do zero ✅ (substitui o antigo S7)
-- **S3.3 — Memória com RAG** · embeddings locais, pgvector, documentação dos repositórios indexada e busca híbrida medida por eval
+- **S3.3 — Memória com RAG** · embeddings locais (`small`/`large`), pgvector, documentação dos repositórios indexada e busca híbrida medida por eval ✅
 - **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra)
 - **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, updates, impacto financeiro e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF

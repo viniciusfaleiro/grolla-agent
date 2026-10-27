@@ -264,6 +264,64 @@ O agente pai faz:
 - o eval de recuperação;
 - o laboratório e a integração.
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo:**
+- `query_for` fica em `memory_store`, para o `memory_for` usá-lo sem import circular, e
+  `memory_retrieval` o reexporta.
+- `query_for` sempre devolve uma `Query`: sem embedder, só o texto; se o embedder falha, a
+  consulta fica só textual.
+- `index_memory` grava `at = updated_at` da versão lida e sempre ao menos um trecho; o título do
+  episódio e da nota entra no texto.
+- O `recall` com RAG tem spec própria e formato de trecho (`chunks_text`).
+- Falha ao indexar a documentação no estudo fica no motivo do serviço, que continua `ok`.
+
+**Persistência:**
+- Depois do critério determinístico, o RRF vem antes de "mesmo serviço": um episódio de outro
+  serviço achado pelo vetor passa à frente de um do mesmo serviço sem relação.
+- `replace_*` apaga os trechos de qualquer modelo daquele registro ou serviço.
+
+**Integrações:**
+- Modelo ausente levanta `EmbeddingError`, e o bootstrap a converte em `ConfigError` apontando
+  `memory.rag.size`.
+- Só o `large` (e5) leva os prefixos `query:` e `passage:`.
+- `documents` devolve o caminho sem a barra inicial; repositório vazio (sem branch) não tem
+  documentação.
+
+**Code review do pai:** a busca textual usava `websearch_to_tsquery`, que exige todas as palavras.
+Com a frase inteira de um incidente como consulta, nada casava, e a perna textual da busca
+híbrida ficava vazia. Mudanças:
+- a busca passou a usar OU entre as palavras;
+- os nomes do serviço e das regras de alerta saem do texto da consulta, porque todos os episódios
+  do serviço os têm e o critério determinístico já cuida deles.
+
+Um teste de integração cobre frase longa.
+
+## Resultados (27/10)
+
+**Eval de recuperação** (15 episódios, top 5), com a posição do episódio certo:
+
+| Consulta | Textual | Híbrida, `small` | Híbrida, `large` |
+|---|---|---|---|
+| pool, com outras palavras | fora | #4 | fora |
+| disco, com outras palavras | fora | #2 | #1 |
+| tls, com outras palavras | fora | #4 | #5 |
+| desconto, termo exato | #1 | #1 | #1 |
+| rds, termo exato | #1 | #1 | #1 |
+
+O `small` passa no aceite; o `large` falha no pool.
+
+**Benchmark na memória real do laboratório** (cópia do banco, `recall` top 10): com o `small`,
+a híbrida põe os 7 casos no top 5, contra 5 da textual; com o `large`, só 4. O e5-large comprime
+as similaridades (0,86 a 0,90) e separa pior em português técnico. Por isso o `small` fica como
+padrão.
+
+**Incidente real no laboratório:** o RDS foi parado de verdade. A análise acertou a causa em 13 s,
+com 7 consultas; o plano e a validação usaram o runbook indexado ("5 a 10 minutos para ficar
+available", "a API se recupera sozinha") e o dossiê ("já ocorreu mais de uma vez"). O episódio
+foi aprendido no encerramento. No incidente equivalente de 25/10, sem memória e sem RAG, a
+análise fez 8 consultas e relatou "inconsistências na linha do tempo".
+
 ## Risks / Trade-offs
 
 - [Imagem do worker maior e build mais lento] → o modelo pequeno (cerca de 220 MB) é baixado
