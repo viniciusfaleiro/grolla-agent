@@ -1,7 +1,7 @@
 [project]
 name = "agent-grolla"
 # Fonte única da versão do produto. Bump do último dígito a cada feature entregue (ver CLAUDE.md).
-version = "0.0.14"
+version = "0.0.15"
 description = "Agente de SRE que detecta, investiga e conduz incidentes até o post mortem."
 requires-python = ">=3.12,<3.13"
 dependencies = []
