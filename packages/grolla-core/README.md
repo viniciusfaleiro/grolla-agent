@@ -59,6 +59,7 @@ os deployables só montam o processo.
 | **Fila dos ciclos de acompanhamento** | `CycleQueue`: candidatos (incidentes abertos com análise, ciclos, pedido antecipado e tokens), enfileiramento idempotente, reivindicação com `SKIP LOCKED`, ciclos presos e encerramento numa transação (ciclo, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresCycleQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
 | **Console de operação no banco** | `ConsoleStore`: sessões pela última atividade, mensagens com gráficos e avaliações em `jsonb`, a pergunta como fila (`SKIP LOCKED`), resposta numa transação (mensagem, desfecho e `llm_usage` sem incidente), tokens da etapa `console` desde um horário e o incidente aberto a partir da sessão | `grolla.adapters.postgres.PostgresConsoleStore` |
+| **Transcrições de call** | `TranscriptStore`: a transcrição pendente e o `transcript_received` (com o id) numa transação, a transcrição como fila (`SKIP LOCKED`), presas, desfecho numa transação (eventos, `llm_usage` na etapa `transcript` e `concluida`/`falhou` com o motivo) e reprocessar a que falhou | `grolla.adapters.postgres.PostgresTranscriptStore` |
 | **Post mortem** | `PostMortemStore`: documento com seções, plano de ação e avaliação do agente em `jsonb`, versões só inserção, lista com filtros e itens vencidos, fila de rascunho e regeneração com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresPostMortemStore` |
 | **Fila da triagem** | `TriageQueue`: reivindicação com `SKIP LOCKED`, triagens presas, incidentes abertos na janela e encerramento numa transação (incidente, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresTriageQueue` |
 | **Métricas do agente** | `MetricsReader.facts(since)`: uma consulta por parte (incidentes resolvidos, post mortems aprovados ou encerrados com a avaliação e a última resposta do "já vi isso" de cada incidente, lida do log de eventos) | `grolla.adapters.postgres.PostgresMetricsReader` |
@@ -107,6 +108,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0010`: métricas do agente: a avaliação estruturada no post mortem (`post_mortems.evaluation`).
 - `0011`: menos ruído: a fila de triagem dos incidentes novos (`triages`, abaixo).
 - `0012`: console de operação: sessões e mensagens fora de incidente (abaixo).
+- `0013`: transcrições de call e a fila de extração (`transcripts`, abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -168,6 +170,12 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | `console_sessions` | Uma conversa: título, autor, criação, última atividade (`updated_at`) e o incidente aberto a partir dela | índice em `updated_at DESC` |
 | `console_messages` | Mensagens da sessão, em ordem de `at` e `id`, com `charts` e `evaluations` em `jsonb`. Como no chat do war room, a pergunta leva `reply_status` e é a fila; a resposta aponta a pergunta em `reply_to`. O uso do modelo vai para `llm_usage` na etapa `console`, sem incidente | índice parcial nas pendentes |
 
+### Transcrições de call (0013)
+
+| Tabela | O que guarda | Regra imposta pelo banco |
+|---|---|---|
+| `transcripts` | O texto limpo da call, autor e recebimento. É a fila (`pendente` → `em_andamento` → `concluida`/`falhou`, com `reason`), na ordem de `queued_at`: o recebimento ou o pedido de reprocessar | `incident_id` referencia o incidente; índice parcial nas pendentes |
+
 ### Repositórios
 
 - `PostgresIncidentRepository.transaction()` abre **uma transação** e entrega a unidade de
@@ -200,6 +208,11 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   grava o uso com `incident_id` nulo. `tokens_since` soma
   todos os tokens da etapa `console` desde o horário pedido; `link_incident` liga a sessão ao
   incidente aberto a partir dela (`tests/integration/test_postgres_console.py`).
+- `PostgresTranscriptStore`: `add` grava a transcrição `pendente` e o `transcript_received`
+  (com o id em `data["transcript"]`) numa transação. `claim` e `stuck` seguem as outras filas
+  (`SKIP LOCKED`); `finish` só grava se a transcrição ainda está `em_andamento` (eventos,
+  `llm_usage` do incidente e o desfecho, uma vez só). `retry` devolve à fila, no fim dela, só a
+  que falhou (`tests/integration/test_postgres_transcript.py`).
 - `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
   esperando retentativa segura os seguintes do mesmo incidente, para a ordem por incidente;
   `delivered` e `give_up` gravam, na mesma transação, o evento `notification_delivered` ou
