@@ -12,7 +12,11 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
+from contracts.telemetry_contract import (
+    EnvironmentTelemetryContract,
+    TelemetryContract,
+    TelemetrySeriesContract,
+)
 from grolla.adapters.signoz.telemetry import READ_TOOLS, SignozTelemetry
 from grolla.application.investigation import NO_DEPENDENCIES, Telemetry, ToolUnavailableError
 from grolla.domain.incidents import UNKNOWN_SERVICE
@@ -125,6 +129,30 @@ def mcp() -> FakeSignozMcp:
 class TestSignozTelemetryContract(TelemetryContract):
     @pytest.fixture
     def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        return mcp.telemetry()
+
+    @pytest.fixture
+    def unavailable_telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.failing = True
+        return mcp.telemetry()
+
+
+def points_in_the_window(arguments: dict[str, Any]) -> Any:
+    """A fixture de contagem, com um ponto por minuto da janela pedida."""
+    answer = fixture("aggregate_traces_count")
+    start, end = int(arguments["start"]), int(arguments["end"])
+    values = [{"timestamp": ts, "value": 120} for ts in range(start, end, STEP_MS)]
+    answer["data"]["data"]["results"][0]["aggregations"][0]["series"][0]["values"] = values
+    return answer
+
+
+STEP_MS = 60_000
+
+
+class TestSignozTelemetrySeriesContract(TelemetrySeriesContract):
+    @pytest.fixture
+    def telemetry(self, mcp: FakeSignozMcp) -> Telemetry:
+        mcp.answers["signoz_aggregate_traces"] = points_in_the_window
         return mcp.telemetry()
 
     @pytest.fixture

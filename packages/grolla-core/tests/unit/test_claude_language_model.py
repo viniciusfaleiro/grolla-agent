@@ -11,6 +11,7 @@ import httpx2
 import pytest
 from contracts.language_model_contract import (
     ChatReplyContract,
+    ConsoleModelContract,
     FollowUpModelContract,
     LanguageModelContract,
     MemoryModelContract,
@@ -1579,6 +1580,19 @@ async def consult(
         toolbox or RecordingToolbox(),
         budget or RecordingBudget(),
     )
+
+
+class TestClaudeConsoleModelContract(ConsoleModelContract):
+    @pytest.fixture
+    def consulting_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return consultant(ScriptedApi(tool_use, ok(final(CONSOLE_ANSWER))))
+
+    @pytest.fixture
+    def failing_consultant(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return consultant(ScriptedApi(response, response, response))
 
 
 async def test_consult_runs_the_tools_and_returns_the_text_and_the_charts() -> None:
