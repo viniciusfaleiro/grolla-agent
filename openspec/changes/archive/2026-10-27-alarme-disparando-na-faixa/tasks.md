@@ -16,5 +16,5 @@
 
 - [x] 3.1 Verificação no laboratório com o navegador headless.
 - [x] 3.2 Registro de decisões e README da api.
-- [ ] 3.3 Rodar `make e2e` e garantir todos os cenários verdes.
+- [x] 3.3 Rodar `make e2e` e garantir todos os cenários verdes.
 - [x] 3.4 Rodar `make fmt && make check` e garantir tudo verde.
