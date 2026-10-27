@@ -1,0 +1,57 @@
+# Com `memory.rag`, o estudo inicial indexa os `.md` do repositório do estudo-api: o
+# `docs/runbook.md` do Azure DevOps fake vira trechos de documentação, com o caminho e o link do
+# arquivo. Um alerta de timeout aguardando conexão do pool no estudo-api leva o trecho "Pool de
+# conexões esgotado" ao bloco <documentacao> da análise inicial. Depende do estudo inicial e de o
+# `memoria_nota_e_reaprender` deixar encerrado o incidente do estudo-api (senão o alerta agrupa
+# nele, sem análise nova).
+name: runbook indexado no estudo chega à análise de um timeout de conexão
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  # O estudo indexa a documentação depois de estudar cada serviço; o primeiro embedding carrega
+  # o modelo.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memory_chunks WHERE origin = 'documento' AND subject = 'estudo-api'
+        AND path LIKE '%docs/runbook.md' AND url IS NOT NULL
+        AND heading LIKE '%Pool de conexões esgotado%'
+      at_least: 1
+      timeout_seconds: 240
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Timeout de conexão no estudo-api
+              service_name: estudo-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Timeout aguardando conexão do pool no estudo-api
+              description: >-
+                As requisições do estudo-api falham com timeout aguardando conexão do pool do
+                banco estudo-db.
+            startsAt: "2026-01-01T12:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=160
+            fingerprint: e2e-rag-runbook-1
+then:
+  # O trecho do runbook vai como dado, com o caminho, na análise inicial deste incidente.
+  - wait_for_fake_request:
+      path: /anthropic/v1/messages
+      contains:
+        - Timeout aguardando conexão do pool no estudo-api
+        - <documentacao>
+        - Pool de conexões esgotado
+        - docs/runbook.md
+      timeout_seconds: 90

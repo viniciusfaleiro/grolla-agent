@@ -93,3 +93,23 @@ then:
       contains:
         - o estudo-api depende do autorizador e do Redis de sessão
         - Taxa de erro alta no estudo-api
+  # Bia encerra o incidente: o próximo alerta do estudo-api (memoria_rag_runbook) abre outro,
+  # em vez de agrupar neste sem análise nova.
+  - capture:
+      name: incidente
+      sql: >-
+        SELECT i.id FROM incidents i JOIN alerts a ON a.incident_id = i.id
+        WHERE a.fingerprint = 'e2e-estudo-1'
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Bia }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Bia }
+      form: { motivo: nota registrada e ambiente reaprendido }
+      status: 200

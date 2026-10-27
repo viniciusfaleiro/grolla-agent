@@ -9,8 +9,9 @@ Ações: `http` (corpo em `json` ou em `form` urlencoded, e `cookies`), `expect_
 corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos),
 `expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da com
 `then`) e `capture` (guarda a primeira coluna da primeira linha de um SQL com um nome; o `{nome}`
-é trocado pelo valor no `path`, no `sql` e nos `contains` dos passos seguintes). O modo do LLM
-fake se troca com `http` em `POST /_control/llm`.
+é trocado pelo valor no `path`, no `sql` e nos `contains` dos passos seguintes; um
+`INSERT ... RETURNING id` semeia um registro e guarda o id, porque a conexão faz commit ao
+fechar). O modo do LLM fake se troca com `http` em `POST /_control/llm`.
 
 O banco não é limpo entre cenários (só o `make e2e` o recria, uma vez por rodada): cada cenário
 usa serviços e fingerprints próprios e filtra as consultas e os cards por eles. A memória do
