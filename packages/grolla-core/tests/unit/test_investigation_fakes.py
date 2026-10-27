@@ -9,15 +9,18 @@ from contracts.change_history_contract import (
 )
 from contracts.chat_queue_contract import ChatQueueContract, WarRoomRepositoryContract
 from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
+from contracts.cycle_queue_contract import CycleQueueContract
 from contracts.language_model_contract import (
     SERVICE,
     ChatReplyContract,
+    FollowUpModelContract,
     LanguageModelContract,
     MemoryModelContract,
 )
 from contracts.telemetry_contract import EnvironmentTelemetryContract, TelemetryContract
 from grolla.application.analysis import AnalysisQueue
 from grolla.application.chat import ChatQueue
+from grolla.application.follow_up import CycleQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
     READ_LIMIT,
@@ -29,6 +32,7 @@ from grolla.application.investigation import (
     LanguageModelError,
     Telemetry,
 )
+from grolla.testing.follow_up import InMemoryCycleQueue
 from grolla.testing.incidents import (
     InMemoryAnalysisQueue,
     InMemoryChatQueue,
@@ -118,6 +122,37 @@ class TestScriptedLanguageModelChatContract(ChatReplyContract):
     @pytest.fixture
     def failing_replier(self) -> LanguageModel:
         return ScriptedLanguageModel(chat_error=LanguageModelError("API fora do ar"))
+
+
+class TestScriptedLanguageModelFollowUpContract(FollowUpModelContract):
+    @pytest.fixture
+    def following_model(self) -> LanguageModel:
+        return ScriptedLanguageModel(follow_up_calls=TOOLS)
+
+    @pytest.fixture
+    def failing_follower(self) -> LanguageModel:
+        return ScriptedLanguageModel(follow_up_error=LanguageModelError("API fora do ar"))
+
+
+class TestInMemoryCycleQueueContract(CycleQueueContract):
+    @pytest.fixture
+    def repository(self) -> IncidentRepository:
+        return InMemoryIncidentRepository()
+
+    @pytest.fixture
+    def queue(self, repository: IncidentRepository) -> CycleQueue:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryCycleQueue(repository)
+
+    @pytest.fixture
+    def analysis_queue(self, repository: IncidentRepository) -> AnalysisQueue:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryAnalysisQueue(repository)
+
+    @pytest.fixture
+    def outbox(self, repository: IncidentRepository) -> NotificationOutbox:
+        assert isinstance(repository, InMemoryIncidentRepository)
+        return InMemoryNotificationOutbox(repository)
 
 
 class TestInMemoryWarRoomRepositoryContract(WarRoomRepositoryContract):
