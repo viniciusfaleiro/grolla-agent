@@ -230,6 +230,7 @@ class PostgresConsoleStore:
                 # Já respondida (ex.: o reaper respondeu "interrompida"): uma resposta só.
                 return
             await _insert_message(connection, reply, reply_status=None, reply_to=job.message_id)
+            await _touch(connection, job.session_id, reply.at)
             await record_usages(connection, None, usages, at)
 
     async def tokens_since(self, since: datetime) -> int:

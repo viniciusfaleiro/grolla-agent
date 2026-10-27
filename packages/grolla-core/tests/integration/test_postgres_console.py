@@ -9,12 +9,19 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
-from grolla.adapters.postgres import PostgresConsoleStore, PostgresDatabase, migrate
+from contracts.console_store_contract import ConsoleStoreContract
+from grolla.adapters.postgres import (
+    PostgresConsoleStore,
+    PostgresDatabase,
+    PostgresIncidentRepository,
+    migrate,
+)
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.console import ConsoleStore
 from grolla.application.investigation import STAGE_CONSOLE, STAGE_WARROOM_CHAT
 from grolla.domain.chat import AGENT_AUTHOR, ReplyStatus
 from grolla.domain.console import ChartRequest, ConsoleMessage, ConsoleSession
-from grolla.testing.builders import T0, make_evaluations
+from grolla.testing.builders import T0, make_evaluations, make_incident
 from grolla.testing.investigation import fake_usage
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -37,6 +44,19 @@ async def database(database_url: str) -> AsyncIterator[PostgresDatabase]:
     database = PostgresDatabase(url)
     yield database
     await database.dispose()
+
+
+class TestPostgresConsoleStoreContract(ConsoleStoreContract):
+    @pytest.fixture
+    def store(self, database: PostgresDatabase) -> ConsoleStore:
+        return PostgresConsoleStore(database)
+
+    @pytest.fixture
+    async def incident_id(self, database: PostgresDatabase) -> UUID:
+        incident = make_incident()
+        async with PostgresIncidentRepository(database).transaction() as uow:
+            await uow.save(incident)
+        return incident.id
 
 
 @pytest.fixture

@@ -79,6 +79,11 @@ class ConsoleStoreContract:
     def store(self) -> ConsoleStore:
         raise NotImplementedError
 
+    @pytest.fixture
+    async def incident_id(self) -> UUID:
+        """Um incidente para ligar à sessão; o adapter com banco grava um de verdade."""
+        return uuid4()
+
     async def test_new_session_keeps_the_first_question_pending(self, store: ConsoleStore) -> None:
         session, saved = await opened(store)
 
@@ -122,9 +127,8 @@ class ConsoleStoreContract:
         assert len(await store.sessions(1)) == 1
         await drain(store)
 
-    async def test_link_incident(self, store: ConsoleStore) -> None:
+    async def test_link_incident(self, store: ConsoleStore, incident_id: UUID) -> None:
         session, _ = await opened(store)
-        incident_id = uuid4()
 
         await store.link_incident(session.id, incident_id)
 

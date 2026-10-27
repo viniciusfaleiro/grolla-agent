@@ -194,7 +194,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `PostgresConsoleStore`: `create_session` e `add_question` gravam a pergunta `pendente` e
   levam o `updated_at` da sessão ao horário dela; `sessions` traz as mais recentes pela última
   atividade. `claim`, `stuck` e `answer` seguem o `PostgresChatQueue` (`SKIP LOCKED`, uma
-  resposta só por pergunta), e `answer` grava o uso com `incident_id` nulo. `tokens_since` soma
+  resposta só por pergunta), e `answer` também leva o `updated_at` ao horário da resposta e
+  grava o uso com `incident_id` nulo. `tokens_since` soma
   todos os tokens da etapa `console` desde o horário pedido; `link_incident` liga a sessão ao
   incidente aberto a partir dela (`tests/integration/test_postgres_console.py`).
 - `PostgresNotificationOutbox.due` devolve os pendentes vencidos em ordem de criação; um card
