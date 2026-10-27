@@ -121,3 +121,19 @@ def chart_svg(title: str, signal: str, points: Sequence[tuple[datetime, float]])
         f'<circle class="chart-dot" cx="{x(last_at):.1f}" cy="{y(last):.1f}" r="3.5"/></svg>'
     )
     return Markup("".join(parts))  # noqa: S704 — só números e texto escapado
+
+
+# Sugestões com os serviços que a memória conhece; sem nenhum, as genéricas.
+_SERVICE_SUGGESTIONS = (
+    "A {} está saudável?",
+    "O que mudou no {} hoje?",
+    "Mostra a taxa de erro da {} nas últimas 6 h",
+)
+
+
+def console_suggestions(services: Sequence[str]) -> tuple[str, ...]:
+    if not services:
+        return CONSOLE_SUGGESTIONS
+    return tuple(
+        text.format(services[n % len(services)]) for n, text in enumerate(_SERVICE_SUGGESTIONS)
+    )

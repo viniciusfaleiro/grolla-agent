@@ -619,25 +619,6 @@ a.button-primary:hover { color: var(--brand-ink); }
 .pm-add[open] > summary { margin-bottom: 0.5rem; }
 
 /* Console: conversa larga, o painel do incidente ao lado (embaixo no celular) */
-.console-home { display: grid; gap: 1.25rem; max-width: 60rem; }
-.console-new form { display: flex; gap: 0.5rem; align-items: flex-end; }
-.console-new textarea { flex: 1; resize: vertical; line-height: 1.4; }
-.console-suggestions { justify-content: flex-start; }
-.console-row { grid-template-columns: minmax(0, 1fr) auto; }
-.console-row .meta { grid-column: 1; }
-.console-row .when { grid-column: 2; }
-.console-head h1 { overflow-wrap: anywhere; }
-.console {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
-  gap: 1.25rem 1.5rem;
-  align-items: start;
-}
-.console-side { display: grid; gap: 0.75rem; justify-items: start; }
-.console-chat .message { max-width: min(92%, 46rem); }
-@media (max-width: 64rem) { .console { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 34rem) { .console-new form { flex-direction: column; align-items: stretch; } }
-
 /* Gráficos do console: SVG do servidor, cores pelos tokens (seguem o tema escuro) */
 .chart { margin: 0.6rem 0 0; padding: 0.6rem 0.7rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .chart figcaption { font-size: 0.86rem; font-weight: 650; margin-bottom: 0.35rem; }
@@ -930,3 +911,72 @@ html:has(script) .filters-apply { display: none; }
 @media (max-width: 64rem) { .pm-layout { grid-template-columns: minmax(0, 1fr); } .pm-outline { position: static; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); } .pm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pm-section .record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start; }
 .pm-section .record-actions > details[open] { flex-basis: 100%; }
+
+/* ---------- Console: conversas ao lado, conversa ou nova pergunta ocupando o resto ---------- */
+.console-layout { display: grid; grid-template-columns: 19rem minmax(0, 1fr); gap: 1.5rem; align-items: start; margin-top: 0.5rem; }
+.console-nav { position: sticky; top: 1rem; display: grid; gap: 0.75rem; }
+.console-new-link { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-height: 46px; text-decoration: none; }
+.console-new-link:hover { color: var(--brand-ink); }
+.console-nav-list { display: grid; gap: 0.15rem; max-height: calc(100dvh - 14rem); overflow-y: auto; }
+.console-nav-item { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius); border: 1px solid transparent; }
+.console-nav-item[hidden] { display: none; }
+.console-nav-item > a { color: var(--ink); text-decoration: none; font-weight: 650; font-size: 0.92rem; line-height: 1.35; }
+.console-nav-item > a:hover { color: var(--brand); }
+.console-nav-item .muted { font-size: 0.8rem; }
+.console-nav-current { background: var(--surface); border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
+.console-nav-incident { color: var(--danger); font-weight: 600; }
+.console-new { display: grid; justify-items: center; text-align: center; gap: 0.75rem; padding: 2.5rem 2rem; }
+.console-new .avatar-big { width: 64px; height: 64px; }
+.console-new > form { width: min(46rem, 100%); display: grid; gap: 0.6rem; }
+.console-layout .chat-panel { grid-area: auto; }
+.console-new textarea { resize: vertical; line-height: 1.45; font-size: 1rem; min-height: 6rem; }
+.console-new > form .button-big { justify-self: end; }
+.console-suggestions { justify-content: center; }
+.console-chat { position: static; height: calc(100dvh - 7rem); min-height: 34rem; }
+.console-chat-head { justify-content: space-between; flex-wrap: wrap; gap: 0.75rem 1rem; }
+.console-chat-title { display: grid; gap: 0.2rem; min-width: 0; }
+.console-chat-title h1 { font-size: 1.3rem; overflow-wrap: anywhere; }
+.console-chat-title p { font-size: 0.85rem; color: var(--muted); }
+.button-incident { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); min-height: 44px; }
+.console-chat .message { max-width: min(92%, 52rem); }
+@media (max-width: 64rem) {
+  .console-layout { grid-template-columns: minmax(0, 1fr); }
+  .console-nav { position: static; }
+  .console-nav-list { max-height: 16rem; }
+}
+
+/* ---------- Memória: assuntos ao lado, com o frescor de cada um ---------- */
+.memory-layout { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.memory-layout .memory-grid { margin-top: 0; }
+.memory-nav { position: sticky; top: 1rem; display: grid; gap: 0.6rem; }
+#lista-assuntos { display: grid; gap: 0.1rem; max-height: calc(100dvh - 16rem); overflow-y: auto; }
+.memory-nav-group { padding: 0.75rem 0.6rem 0.3rem; }
+.memory-nav a { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.6rem; border-radius: var(--radius-sm); color: var(--ink); text-decoration: none; font-size: 0.9rem; }
+.memory-nav a[hidden] { display: none; }
+.memory-nav a:hover { background: var(--surface-2); }
+.memory-nav a[aria-current] { background: var(--surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 35%, var(--line)); font-weight: 650; }
+.memory-nav a .muted { font-size: 0.78rem; white-space: nowrap; }
+.memory-nav-name { overflow-wrap: anywhere; }
+.memory-nav-new { font-size: 0.75rem; font-weight: 700; color: var(--warn); white-space: nowrap; }
+.memory-nav .open-subject { margin-top: 0.5rem; display: grid; gap: 0.35rem; font-size: 0.85rem; }
+.memory-head { justify-content: space-between; }
+.study-pill { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.9rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+.study-pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.study-pill-em_andamento .study-pill-dot, .study-pill-pendente .study-pill-dot { background: var(--brand); animation: dot-blink 1.2s ease-in-out infinite; }
+.study-pill-falhou .study-pill-dot, .study-pill-parcial .study-pill-dot { background: var(--warn); }
+@media (max-width: 64rem) { .memory-layout { grid-template-columns: minmax(0, 1fr); } .memory-nav { position: static; } #lista-assuntos { max-height: 14rem; } }
+
+/* ---------- Métricas: o período atual em destaque, gráfico e detalhe ---------- */
+.metrics-periods a { padding: 0.45rem 0.8rem; border-radius: calc(var(--radius) - 2px); color: var(--muted); font-weight: 600; text-decoration: none; font-size: 0.88rem; }
+.metrics-periods a[aria-current] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(20 30 50 / 8%); }
+.metrics-now .total { cursor: default; }
+.metrics-now .total:hover { box-shadow: none; }
+.metrics-now .total span { font-size: 0.82rem; }
+.metrics-hint { color: var(--warn); font-weight: 600; }
+.metrics-chart { margin-bottom: 1.25rem; }
+.bars { list-style: none; margin: 0; padding: 0.5rem 0 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1rem; height: 13rem; align-items: end; }
+.bars li { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 0.35rem; }
+.bar { width: min(4rem, 70%); border-radius: 6px 6px 2px 2px; background: var(--brand); max-height: calc(100% - 3rem); }
+.bar-value { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.bar-label { font-size: 0.82rem; color: var(--muted); }
+.metrics-empty th, .metrics-empty td { color: var(--muted); opacity: 0.7; }

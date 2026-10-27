@@ -165,3 +165,16 @@
     if (form && event.target.name !== "q") form.requestSubmit();
   });
 })();
+
+// Listas com busca no navegador (assuntos da memória, conversas do console): sem JS, tudo aparece.
+(() => {
+  document.addEventListener("input", (event) => {
+    const input = event.target instanceof HTMLInputElement ? event.target : null;
+    const list = input && input.dataset.filterList ? document.querySelector(input.dataset.filterList) : null;
+    if (!list) return;
+    const needle = input.value.trim().toLowerCase();
+    list.querySelectorAll("[data-filter-item]").forEach((item) => {
+      item.hidden = Boolean(needle) && !item.dataset.filterItem.toLowerCase().includes(needle);
+    });
+  });
+})();

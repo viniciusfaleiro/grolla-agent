@@ -1,17 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Métricas do agente{% endblock %}
 {% block content %}
+{% set now_row = rows[0] if rows else none %}
 <div class="list-head">
-  <h1>Métricas do agente</h1>
-  <nav class="segmented" aria-label="Período">
+  <div class="list-title">
+    <h1>Como o Grolla está indo</h1>
+    <p class="muted">Métricas do agente. Tudo sai das respostas do time e do log dos incidentes: o acerto vem da avaliação nos post mortems, e o "já vi isso" das respostas na página do incidente.</p>
+  </div>
+  <nav class="segmented metrics-periods" aria-label="Período">
     {% for value, label in granularity_labels.items() %}
     <a href="/metricas?por={{ value }}"{% if granularity == value %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>
 </div>
-<p class="muted metrics-intro">Os últimos {{ rows | length }} períodos, do mais recente ao mais antigo. Tudo sai das respostas do time e do log dos incidentes: o acerto vem da avaliação nos post mortems, e o "já vi isso" das respostas na página do incidente.</p>
+
+{% if now_row %}
+<dl class="totals metrics-now">
+  <div class="total"><dt>Incidentes resolvidos · {{ now_row.period.label }}</dt><dd>{{ now_row.resolved }}</dd>{% if rows | length > 1 %}<span class="muted">{{ rows[1].resolved }} em {{ rows[1].period.label }}</span>{% endif %}</div>
+  <div class="total"><dt>Acerto da hipótese principal</dt><dd{% if not now_row.evaluated %} class="muted"{% endif %}>{{ hit_rate(now_row) if now_row.evaluated else "—" }}</dd>
+    {% if not now_row.evaluated %}<span class="metrics-hint">{% if unevaluated %}0 avaliações: <a href="/postmortems?sem_avaliacao=1">avaliar {{ unevaluated }} {{ "post mortem" if unevaluated == 1 else "post mortems" }}</a>{% else %}sem avaliações no período{% endif %}</span>{% endif %}</div>
+  <div class="total"><dt>"Já vi isso" confirmados</dt><dd>{{ now_row.seen_before_confirmed }}</dd><span class="muted">{{ now_row.seen_before_rejected }} {{ "recusado" if now_row.seen_before_rejected == 1 else "recusados" }}</span></div>
+  <div class="total"><dt>Post mortems aprovados</dt><dd>{{ now_row.approved }}</dd><span class="muted">mediana até a hipótese certa: {{ median_minutes(now_row) }}</span></div>
+</dl>
+
+<section class="panel metrics-chart" aria-labelledby="grafico">
+  <div class="panel-head"><h2 id="grafico">Incidentes resolvidos</h2><span class="muted">últimos {{ rows | length }} períodos</span></div>
+  <ol class="bars" aria-label="Incidentes resolvidos por período">
+    {% for bar in bars %}
+    <li><span class="bar-value">{{ bar.value }}</span><span class="bar" style="height: {{ [bar.height, 2] | max }}%"></span><span class="bar-label">{{ bar.label }}</span></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
 
 <section class="panel">
+  <div class="panel-head"><h2>Detalhe por período</h2><span class="muted">do mais recente ao mais antigo</span></div>
   <div class="table-wrap">
     <table class="metrics">
       <thead>
@@ -28,7 +51,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr{% if is_empty(row) %} class="metrics-empty"{% endif %}>
           <th scope="row">{{ row.period.label }}</th>
           <td>{{ row.resolved }}</td>
           <td>{{ row.approved }}</td>

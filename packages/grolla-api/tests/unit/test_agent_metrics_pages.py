@@ -17,7 +17,14 @@ from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.metrics import InMemoryMetricsReader
 from grolla.testing.post_mortem import InMemoryPostMortemStore, make_action, make_post_mortem
 from grolla_api.app import Services, create_app
-from grolla_api.metrics_pages import evaluation_from, granularity_of, hit_rate, median_minutes
+from grolla_api.metrics_pages import (
+    evaluation_from,
+    granularity_of,
+    hit_rate,
+    is_empty,
+    median_minutes,
+    resolved_bars,
+)
 from grolla_api.war_room import AUTHOR_COOKIE
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -411,3 +418,22 @@ def test_metrics_formatting() -> None:
     assert median_minutes(period_row()) == "—"
     assert granularity_of("semana") is Granularity.WEEK
     assert granularity_of("ano") is Granularity.MONTH
+
+
+def test_metrics_highlight_the_current_period_and_draw_the_bars(ana: TestClient) -> None:
+    page = ana.get("/metricas").text
+
+    assert "Como o Grolla está indo" in page
+    assert "Incidentes resolvidos ·" in page
+    assert page.count('<span class="bar"') == 6
+    assert "sem avaliações no período" in page
+
+
+def test_bars_and_empty_periods() -> None:
+    rows = [period_row(resolved=7), period_row(resolved=0)]
+    bars = resolved_bars(rows)
+
+    assert [b.value for b in bars] == [0, 7]  # do mais antigo ao mais recente
+    assert bars[1].height == 100
+    assert is_empty(period_row())
+    assert not is_empty(period_row(approved=1))

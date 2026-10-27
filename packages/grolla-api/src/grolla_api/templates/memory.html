@@ -1,18 +1,23 @@
 {% extends "base.html" %}
 {% from "_macros.html" import when, join %}
+{% from "_memory_nav.html" import subjects_nav %}
 {% block title %}Memória{% endblock %}
 {% block content %}
-<div class="memory-intro">
-  <img class="avatar-big" src="/static/grolla-avatar.svg" alt="">
-  <div>
-    <h1>Memória do Grolla</h1>
-    <p class="muted">O que o Grolla sabe do ambiente que cuida. Ele aprende sozinho; o time corrige, confirma e ensina.</p>
+<div class="list-head memory-head">
+  <div class="list-title">
+    <h1>O que o Grolla sabe</h1>
+    <p class="muted">Memória do Grolla: o que ele sabe do ambiente que cuida. Ele aprende sozinho; o time corrige, confirma e ensina.</p>
   </div>
+  {% if study %}
+  <a class="study-pill study-pill-{{ study.status }}" href="#estudo"><span class="study-pill-dot" aria-hidden="true"></span>Estudo do ambiente: {{ study_statuses[study.status] }}{% if study.finished_at %} · {{ ago(now - study.finished_at) }}{% endif %}</a>
+  {% endif %}
 </div>
 
 {% if not author %}{{ join("/memoria", "Seu nome fica nas notas, nas correções e nos pedidos de estudo.") }}{% endif %}
 
-<div class="memory-grid">
+<div class="memory-layout">
+  {{ subjects_nav(groups, now) }}
+  <div class="memory-grid">
   <div class="memory-main">
     <section class="panel" id="ambiente">
       <div class="panel-head">
@@ -39,31 +44,6 @@
       {% endif %}
     </section>
 
-    <section class="panel" id="assuntos">
-      <h2>Assuntos</h2>
-      {% for group in groups %}
-      <div class="subject-group">
-        <h3>{{ group.label }} <span class="muted">{{ group.subjects | length }}</span></h3>
-        <ul class="subject-list">
-          {% for item in group.subjects %}
-          <li>
-            <a href="{{ subject_url(item.subject) }}">{{ item.subject }}</a>
-            <span class="muted">{{ item.records }} {{ "registro" if item.records == 1 else "registros" }} · atualizado {{ ago(now - item.updated_at) }}{% if item.studied_at %} · estudado {{ ago(now - item.studied_at) }}{% endif %}</span>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% else %}
-      <p class="muted">Nenhum assunto ainda. Os serviços e as integrações aparecem aqui conforme eu estudo e aprendo.</p>
-      {% endfor %}
-      <form class="open-subject" method="get" action="/memoria">
-        <label for="assunto">Ensinar sobre outro assunto</label>
-        <div class="row">
-          <input id="assunto" name="assunto" required maxlength="100" placeholder="ex.: captura-api">
-          <button>Abrir</button>
-        </div>
-      </form>
-    </section>
   </div>
 
   <aside class="memory-side">
@@ -144,5 +124,6 @@
     </section>
     {% endif %}
   </aside>
+  </div>
 </div>
 {% endblock %}

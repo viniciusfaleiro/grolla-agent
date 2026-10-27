@@ -1,6 +1,7 @@
 """Apresentação das métricas do agente e leitura do form da avaliação no post mortem."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from grolla.domain.metrics import Granularity, PeriodMetrics
 from grolla.domain.post_mortem import AgentEvaluation, InvalidPostMortemError
@@ -65,4 +66,33 @@ def evaluation_from(form: Mapping[str, str]) -> AgentEvaluation:
         main_hypothesis_correct=_yes_no(form, "hipotese_certa"),
         minutes_to_right=_minutes(form.get("minutos", "")),
         memory_helped=_yes_no(form, "memoria_ajudou"),
+    )
+
+
+def is_empty(metrics: PeriodMetrics) -> bool:
+    """Período sem nada: a tabela diz "sem incidentes" em vez de uma linha de zeros."""
+    return not any(
+        (
+            metrics.resolved,
+            metrics.approved,
+            metrics.evaluated,
+            metrics.seen_before_confirmed,
+            metrics.seen_before_rejected,
+            metrics.memory_helped,
+        )
+    )
+
+
+@dataclass(frozen=True)
+class Bar:
+    label: str
+    value: int
+    height: int  # % da maior barra
+
+
+def resolved_bars(rows: Sequence[PeriodMetrics]) -> tuple[Bar, ...]:
+    """Os resolvidos por período para o gráfico, do mais antigo ao mais recente."""
+    top = max((r.resolved for r in rows), default=0) or 1
+    return tuple(
+        Bar(r.period.label, r.resolved, round(100 * r.resolved / top)) for r in reversed(rows)
     )

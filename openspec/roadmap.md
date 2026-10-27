@@ -232,6 +232,15 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   veredito num lugar só, linha do tempo filtrável, celular com o próximo passo embaixo.
 - **Ports:** nenhum.
 
+## S11.4 · Todas as telas na mesma linguagem ✅
+
+- **Valor:** lista, post mortem, chat, memória e métricas dizem num relance o que precisa de
+  atenção, com filtros onde o time procura.
+- **Escopo:** lista com o que precisa de você agora e filtros; post mortem com totais, filtros,
+  próxima ação e índice com o que falta; chat ao lado das conversas e em primeiro no menu; memória
+  com os assuntos ao lado; métricas com o período atual em destaque e o gráfico.
+- **Ports:** nenhum.
+
 ## Fase 2 (depois do S11)
 
 SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com

@@ -1,0 +1,19 @@
+{# As conversas ao lado, em /console e numa sessão aberta. #}
+{% from "_macros.html" import icon %}
+{% macro sessions_nav(sessions, now, author, current=none) %}
+<nav class="console-nav" aria-label="Conversas">
+  <a class="button button-primary console-new-link" href="/console#pergunta">{{ icon("plus") }}Nova conversa</a>
+  <label class="visually-hidden" for="busca-conversa">Buscar conversas</label>
+  <span class="search">{{ icon("search") }}<input id="busca-conversa" placeholder="Buscar conversas" autocomplete="off" data-filter-list="#lista-conversas"></span>
+  <div id="lista-conversas" class="console-nav-list">
+    {% for session in sessions %}
+    <div class="console-nav-item{% if current and session.id == current.id %} console-nav-current{% endif %}" data-filter-item="{{ session.title }}">
+      <a href="/console/{{ session.id }}"{% if current and session.id == current.id %} aria-current="page"{% endif %}>{{ session.title }}</a>
+      <span class="muted">por {{ session.author }} · {{ ago(now - session.updated_at) }}{% if session.incident_id %} · <a class="console-nav-incident" href="/incidents/{{ session.incident_id }}">virou incidente</a>{% endif %}</span>
+    </div>
+    {% else %}
+    <p class="muted">Nenhuma conversa ainda.</p>
+    {% endfor %}
+  </div>
+</nav>
+{% endmacro %}

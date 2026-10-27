@@ -94,6 +94,7 @@ from grolla_api.console_pages import (
     CONSOLE_SUGGESTIONS,
     ChartView,
     chart_view,
+    console_suggestions,
     console_version,
 )
 from grolla_api.memory_pages import (
@@ -115,7 +116,9 @@ from grolla_api.metrics_pages import (
     evaluation_from,
     granularity_of,
     hit_rate,
+    is_empty,
     median_minutes,
+    resolved_bars,
     yes_no_label,
 )
 from grolla_api.post_mortem_pages import (
@@ -272,6 +275,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "verification_labels": VERIFICATION_STATUS_LABELS,
     "partial_reasons": PARTIAL_REASON_TEXT,  # mesmo texto do card
     "ago": ago,
+    "is_empty": is_empty,
     "alarm_normalized": alarm_normalized,
     "display_name": display_name,
     "event_detail": event_detail,
@@ -863,6 +867,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "page_url": url,
             "kind": kind_of(subject, records),
             "records": split_records(records),
+            "groups": subject_groups(await memory.subjects()),
+            "now": clock.now(),
         }
         return templates.TemplateResponse(request, "memory_subject.html", context)
 
@@ -1113,12 +1119,18 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
     @app.get("/metricas", response_class=HTMLResponse)
     async def metrics(request: Request, por: str = "") -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         granularity = granularity_of(por)
+        rows = await agent_metrics(services.metrics, clock, granularity)
+        summaries = await post_mortems.summaries(PostMortemFilters(), clock.now().date())
+        docs = [await post_mortems.get(s.incident.id) for s in summaries]
+        unevaluated = sum(1 for pm in docs if pm is not None and pm.evaluation.author is None)
         context = {
             "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
             "nav": "metrics",
             "back_to": f"/metricas?por={granularity}",
             "granularity": granularity,
-            "rows": await agent_metrics(services.metrics, clock, granularity),
+            "rows": rows,
+            "bars": resolved_bars(rows),
+            "unevaluated": unevaluated,
         }
         return templates.TemplateResponse(request, "metrics.html", context)
 
@@ -1162,6 +1174,12 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "console_version": console_version(messages),
         }
 
+    async def known_services() -> list[str]:
+        """Os serviços que a memória conhece, os atualizados mais recentemente primeiro."""
+        subjects = await memory.subjects()
+        found = [s for s in subjects if s.kind is SubjectKind.SERVICE]
+        return [s.subject for s in sorted(found, key=lambda s: s.updated_at, reverse=True)]
+
     @app.get("/console", response_class=HTMLResponse)
     async def console_home(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         store = services.console
@@ -1172,6 +1190,7 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "now": clock.now(),
             "enabled": store is not None,
             "sessions": await store.sessions(CONSOLE_SESSIONS_LIMIT) if store else [],
+            "console_suggestions": console_suggestions(await known_services()),
         }
         return templates.TemplateResponse(request, "console.html", context)
 
@@ -1202,6 +1221,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "nav": "console",
             "back_to": f"/console/{session.id}",
             "incident": incident,
+            "sessions": await console_or_404().sessions(CONSOLE_SESSIONS_LIMIT),
+            "now": clock.now(),
         }
         return templates.TemplateResponse(request, "console_session.html", context)
 
