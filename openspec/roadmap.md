@@ -241,6 +241,13 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   com os assuntos ao lado; métricas com o período atual em destaque e o gráfico.
 - **Ports:** nenhum.
 
+## S11.5 · Agente cercado ✅
+
+- **Valor:** o Grolla só investiga e só fala do domínio, mesmo diante de pedidos ou dados mal-intencionados.
+- **Escopo:** escopo na resposta com recusa fixa, dados externos marcados, nota do chat `aprendido` e nota-ordem
+  recusada, selo em comando destrutivo, limite por pessoa, teste de capacidade e evals de ataque.
+- **Ports:** `MessageCounter`.
+
 ## S12 · Times, login e administração
 
 - **Valor:** vários times usam o mesmo Grolla, cada um vendo e trabalhando só no que é seu.

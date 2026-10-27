@@ -26,6 +26,16 @@ ser manual.
 | [`credenciadora.yaml`](credenciadora.yaml) | Configuração do time: filtro, labels de serviço, janela, regras de severidade e a investigação (modelo, limites, SigNoz, Azure DevOps) |
 | [`.env.example`](.env.example) | Modelo do `.env` com os segredos (o `.env` nunca vai para o git) |
 
+## 🛡️ Segurança
+
+O Grolla só lê: as ferramentas do agente e as credenciais (IAM de leitura, RBAC de leitura no cluster, token de
+leitura no Azure DevOps) não deixam executar nada, e um teste no `make check` confere isso. Ele recusa pedidos fora do
+domínio e pedidos de execução, trata o que vem das ferramentas como dado (nunca como ordem) e limita cada pessoa a
+`investigation.chat_messages_per_hour` mensagens por hora no chat e no console.
+
+**Até o login pelo Entra ID (S12), publique a api só na rede interna** (VPN ou security group restrito): hoje o
+autor das mensagens é o nome informado na página, sem autenticação.
+
 ## 📋 Pré-requisitos
 
 - EC2 na rede interna com Docker e o plugin Compose, e acesso ao repositório.
