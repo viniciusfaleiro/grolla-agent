@@ -174,7 +174,12 @@ estruturada do agente no post mortem e a página `/metricas` por semana ou mês.
   vezes a memória ajudou).
 - **Evals:** investigação com e sem memória nos mesmos incidentes reais.
 
-## S8 · Menos ruído
+## S8 · Menos ruído ✅
+
+Change `menos-ruido`: triagem de todo incidente novo no worker, sugestão de junção com outro
+aberto na janela (juntar é humano, com "Juntar com…" no war room) e severidade sugerida pelo
+agente quando nenhuma regra casa (só sobe).
+
 
 - **Valor:** menos incidentes duplicados e menos alertas sem severidade.
 - **Escopo:** agrupamento pelo LLM quando a regra determinística não decide; sugestão de

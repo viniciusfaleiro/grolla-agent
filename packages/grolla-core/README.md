@@ -101,6 +101,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0008`: acompanhamento da crise: ciclos por incidente e o pedido de ciclo antecipado (abaixo).
 - `0009`: post mortem: o documento por incidente, as versões das seções e a fila de rascunhos e
   regenerações (abaixo).
+- `0010`: métricas do agente: a avaliação estruturada no post mortem (`post_mortems.evaluation`).
 - `0011`: menos ruído: a fila de triagem dos incidentes novos (`triages`, abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 

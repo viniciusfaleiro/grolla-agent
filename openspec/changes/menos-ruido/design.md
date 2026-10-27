@@ -117,6 +117,26 @@ webhook não precisa consultar os outros incidentes.
 | `grolla-web` | aviso "Parece o mesmo problema que…" com "Juntar" e o seletor "Juntar com…" no war room |
 | `grolla-e2e` | cenários: sugestão de junção e juntar; severidade sugerida sobe; sugestão mais baixa não baixa |
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo:**
+- `IntakePolicy.triage`: o pedido de triagem só sai com `noise` na config e quando o alerta abre o
+  incidente.
+- O juntado perde o `firing`, para a resolução de um alerta não cair no descartado.
+- `run_next_triage` relê o incidente depois da chamada ao modelo, para não perder um alerta
+  agrupado no meio.
+- A sugestão de junção fica no incidente novo, que é juntado no outro.
+- Não existe P4: a severidade sugerida vai de P0 a P3.
+
+**Integrações:** o LLM fake aceita `same_as` pelo nome do serviço, porque o banco do e2e não é
+limpo entre cenários.
+
+**Web:** juntar responde 303 para o principal; o botão só aparece para quem informou o nome.
+
+**Code review do pai:** a triagem foi ligada no intake pela config, com teste. O cenário e2e não
+confere o botão (a página é lida sem cookie). A spec foi ajustada: não há P4, e a sugestão fica
+no incidente novo.
+
 ## Risks / Trade-offs
 
 - [Sugestão errada] → só sugere; a pessoa ignora ou junta.
