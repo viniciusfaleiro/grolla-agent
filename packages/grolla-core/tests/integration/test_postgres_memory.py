@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 import sqlalchemy as sa
 from contracts.learning_queue_contract import LearningQueueContract
-from contracts.memory_store_contract import MemoryStoreContract
+from contracts.memory_store_contract import MemoryChunksContract, MemoryStoreContract
 from contracts.study_queue_contract import StudyQueueContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
@@ -149,6 +149,12 @@ def studies(database: PostgresDatabase) -> PostgresStudyQueue:
 
 
 class TestPostgresMemoryStoreContract(MemoryStoreContract):
+    @pytest.fixture
+    def memory(self, database: PostgresDatabase) -> MemoryStore:
+        return PostgresMemoryStore(database)
+
+
+class TestPostgresMemoryChunksContract(MemoryChunksContract):
     @pytest.fixture
     def memory(self, database: PostgresDatabase) -> MemoryStore:
         return PostgresMemoryStore(database)
