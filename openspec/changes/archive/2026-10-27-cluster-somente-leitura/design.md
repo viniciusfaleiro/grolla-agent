@@ -86,6 +86,20 @@ class ClusterConfig(_Section):
 
 Sem schema novo nem evento novo: as chamadas viram avaliações, como as outras ferramentas.
 
+### Ajustes combinados durante a implementação
+
+- `NO_CLUSTER_CHANGES` em `grolla.application.investigation`, usada pelo fake e pelo adapter.
+- `changes` de serviço sem workload responde `NO_WORKLOADS` no adapter (o fake responde
+  `NO_CLUSTER_CHANGES`; a suíte só exige resposta compacta).
+- O adapter lê o `KUBECONFIG` na hora de conectar (o cliente fixa o caminho no import).
+- Simplificações: seletor dos pods só por `matchLabels`; o gerenciador de uma revisão é a entrada
+  do `managedFields` do template mais próxima do horário do ReplicaSet.
+- O teste realista no EKS (várias aplicações e uma falha injetada por `kubectl`) saiu desta change
+  e roda numa rodada própria, depois do custo aprovado pelo usuário.
+- Os prompts dizem "edição manual" nos exemplos: `kubectl` é palavra proibida no núcleo.
+- e2e: kubeconfig com os dois clusters fake (`nao-pci`, `pci`) montado no worker; rota
+  `/_control/k8s` roteiriza o ConfigMap editado.
+
 ## Decisions
 
 **1. Port próprio `ClusterInventory`, não métodos novos no `CloudInventory`.** O cluster não é da
