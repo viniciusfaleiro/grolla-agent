@@ -1,0 +1,92 @@
+# Mitigado volta para em tratamento quando o alerta volta: Ana assume e marca mitigado; um
+# alerta novo do mesmo serviço dispara e o núcleo devolve o incidente a em tratamento, com o
+# motivo "alerta voltou a disparar" na timeline e o card no canal. O IC e o horário de TTM ficam.
+name: mitigado volta para em tratamento quando o alerta dispara
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Taxa de erro alta no volta-api
+              service_name: volta-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no volta-api
+              description: A taxa de erro HTTP 5xx do volta-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=142
+            fingerprint: e2e-volta-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'volta-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/mitigate
+      cookies: { grolla_author: Ana }
+      status: 200
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE id = '{incidente}' AND state = 'mitigado'
+      count: 1
+  # O mesmo fingerprint disparando seria deduplicado: o erro volta como um alerta novo, que
+  # agrupa no incidente mitigado do mesmo serviço.
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - <<: *alerta
+            startsAt: "2026-01-01T10:08:00Z"
+            fingerprint: e2e-volta-2
+then:
+  - expect_db_count:
+      sql: SELECT count(*) FROM incidents WHERE 'volta-api' = ANY(services)
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{incidente}' AND state = 'em_tratamento'
+        AND commander = 'Ana' AND handling_at IS NOT NULL AND mitigated_at IS NOT NULL
+      count: 1
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'state_changed' AND data->>'from' = 'mitigado'
+        AND data->>'to' = 'em_tratamento' AND data::text LIKE '%alerta voltou a disparar%'
+      count: 1
+  - expect_fake_request_order:
+      path: /teams/webhook
+      first: [volta-api, Incidente mitigado]
+      then: [volta-api, Alerta voltou a disparar]
+      timeout_seconds: 60
+  - expect_fake_requests:
+      path: /teams/webhook
+      contains: [volta-api, Alerta voltou a disparar]
+      count: 1

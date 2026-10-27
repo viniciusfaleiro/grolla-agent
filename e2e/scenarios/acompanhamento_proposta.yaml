@@ -1,0 +1,74 @@
+# Proposta de mitigar: no roteiro padrão do LLM fake, todo ciclo diz `normalizado`. Depois de
+# `stable_minutes` (2 min no e2e) de ciclos normalizados sem interrupção, o agente propõe marcar
+# como mitigado: evento, card "Grolla sugere" e aviso na página. Quem muda o estado é a pessoa,
+# então o incidente continua no estado em que estava.
+name: ciclos normalizados geram a proposta de mitigar
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no propoe-api
+              service_name: propoe-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no propoe-api
+              description: A taxa de erro HTTP 5xx do propoe-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=141
+            fingerprint: e2e-propoe-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'propoe-api' = ANY(services) AND severity = 'P1'
+  - capture:
+      name: estado
+      sql: SELECT state FROM incidents WHERE id = '{incidente}'
+then:
+  # Ciclos a cada 1 min a partir da análise; a proposta sai quando o normalizado dura 2 min.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'agent_proposal' AND data::text LIKE '%mitigar%'
+      at_least: 1
+      timeout_seconds: 300
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM cycles WHERE incident_id = '{incidente}' AND status = 'concluido'
+        AND trend = 'normalizado'
+      at_least: 2
+      timeout_seconds: 5
+  # O agente não muda o estado.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incidents WHERE id = '{incidente}' AND state = '{estado}'
+        AND mitigated_at IS NULL
+      count: 1
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains: [Grolla sugere marcar como mitigado]
+  - wait_for_fake_request:
+      path: /teams/webhook
+      contains: [propoe-api, Grolla sugere]
+      timeout_seconds: 30
+  # A mesma proposta não se repete no mesmo estado.
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}'
+        AND type = 'agent_proposal'
+      count: 1
