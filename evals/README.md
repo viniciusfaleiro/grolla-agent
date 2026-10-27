@@ -35,6 +35,23 @@ em `tests/` cobrem a correção e os casos com o modelo roteirizado, sem rede, e
 | **repetido, sem memória** | erro de 0,3% para 6% às 03:02, logs de pool de conexões esgotado, sem deploy; nada diz quem esgota o pool | cita o pool de conexões e **não** inventa "já vi isso" |
 | **repetido, com memória** | o mesmo roteiro, mais o episódio de um incidente passado: o job de conciliação esgotou o pool às 03:00 | aponta "já vi isso" para aquele incidente e cita a conciliação |
 
+## 🔎 Recuperação (memória com RAG)
+
+`evals/retrieval.py` mede a **busca**, não o modelo: sobe um Postgres com pgvector
+(testcontainers), grava 15 episódios do `pedidos-api` (5 casos certos e 10 distratores), indexa
+com o embedder local e compara, para cada consulta, a posição do episódio certo com a busca
+textual sozinha e com a híbrida. Sem LLM e sem custo.
+
+| Consulta | Tipo | Aceite |
+|---|---|---|
+| pool, disco, tls | paráfrase: o incidente novo descreve o problema com outras palavras | híbrida no top 5 |
+| desconto, rds | termo exato (`valor_desconto`, `grolla-lab-db`) | a híbrida não perde o que a textual acha |
+
+```bash
+GROLLA_RAG_CACHE=~/.cache/grolla-models make evals-rag          # modelo small
+GROLLA_RAG_CACHE=~/.cache/grolla-models uv run python evals/retrieval.py --size large
+```
+
 ## ⚡ Como rodar
 
 ```bash

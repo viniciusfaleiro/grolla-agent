@@ -9,8 +9,14 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/uv-workspace-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-api-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![HTMX](https://img.shields.io/badge/HTMX-war%20room-3366CC?logo=htmx&logoColor=white)](https://htmx.org/)
+
+[![Claude](https://img.shields.io/badge/LLM-Claude%20(Anthropic)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Memória viva](https://img.shields.io/badge/mem%C3%B3ria-viva-8A2BE2)](#-a-memória-viva-do-grolla)
+[![RAG](https://img.shields.io/badge/RAG-h%C3%ADbrido%20%C2%B7%20embeddings%20locais-FF6F00?logo=onnx&logoColor=white)](#-como-funciona-o-rag)
+[![MCP](https://img.shields.io/badge/MCP-SigNoz-6E56CF)](#-features)
 
 [![Architecture](https://img.shields.io/badge/arquitetura-hexagonal-blueviolet)](#-arquitetura)
 [![Boundaries](https://img.shields.io/badge/fronteiras-import--linter-informational)](#-gates-de-qualidade--o-harness)
@@ -70,6 +76,57 @@ escreve, consulta e reorganiza sozinho:
 
 A memória é tratada como dado, nunca como instrução, e nunca muda severidade nem aciona ninguém.
 
+### 🔎 Como funciona o RAG
+
+Para lembrar, o Grolla usa **RAG** (*retrieval-augmented generation*): antes de investigar ou
+responder, ele **recupera** da memória o que importa e entrega isso ao modelo junto com o
+incidente. A diferença para um RAG de livro é que a base não é uma pilha de documentos: é a
+memória que o próprio Grolla escreve, mais a documentação dos repositórios.
+
+```mermaid
+flowchart LR
+  subgraph indexar["Indexar (worker, a cada 30 s)"]
+    reg["dossiês · episódios · notas"] --> rec["recorte por seção"]
+    md[".md dos repositórios<br/>(no estudo)"] --> rec
+    rec --> emb["embeddings locais<br/>(modelo small ou large)"]
+    emb --> pg[("Postgres + pgvector<br/>trechos: vetor + texto")]
+  end
+  subgraph lembrar["Lembrar (cada análise, validação e chat)"]
+    inc["alerta + incidente"] --> q["consulta"]
+    q --> det["1. determinístico<br/>mesmo serviço e regra"]
+    q --> vet["2. vetor<br/>por significado"]
+    q --> txt["3. texto<br/>palavras exatas"]
+    det --> rrf["fusão de rankings (RRF)"]
+    vet --> rrf
+    txt --> rrf
+    rrf --> ctx["contexto do modelo<br/>dossiês, casos parecidos e trechos da doc"]
+  end
+  pg --> vet
+  pg --> txt
+```
+
+1. **Recorte.** Cada dossiê vira um trecho por seção ("Alertas", "Fragilidades conhecidas",
+   "Como investigar"…). Cada episódio e cada nota viram um trecho só. Os `.md` dos repositórios
+   (READMEs, runbooks) são recortados do mesmo jeito, com o link do arquivo.
+2. **Embeddings locais.** Um modelo multilíngue roda **dentro do worker**, com ONNX: o texto não
+   sai da máquina e não há fornecedor nem custo por token. O YAML escolhe o tamanho
+   (`memory.rag.size: small | large`), e os dois vêm embutidos na imagem.
+3. **Índice no Postgres.** Os trechos ficam no mesmo banco, com o vetor (pgvector) e o índice de
+   texto em português. Quando um registro muda ou é esquecido, o job reindexa ou tira do índice.
+4. **Busca híbrida.** A consulta é o próprio incidente. Primeiro vem o critério determinístico
+   (mesmo serviço e mesma regra de alerta, que num incidente é o sinal mais forte). Depois, dois
+   rankings: o **vetorial**, que acha o mesmo problema escrito com outras palavras ("timeout
+   aguardando conexão" × "esgotamento do pool pela rotina de reconciliação"), e o **textual**,
+   que acha nomes exatos (`valor_desconto`, `grolla-lab-db`). Eles são juntados por
+   *Reciprocal Rank Fusion*.
+5. **Contexto.** O modelo recebe os dossiês do serviço, até 5 casos parecidos e até 3 trechos de
+   documentação, num bloco marcado como dado. A ferramenta `recall` faz a mesma busca quando ele
+   precisa de mais.
+
+O ganho é medido: o eval de recuperação (`make evals-rag`, sem custo) compara a busca textual
+sozinha com a híbrida num corpus com distratores. Sem `memory.rag` no YAML, tudo funciona só com
+a busca textual.
+
 Duas decisões atravessam o projeto inteiro:
 
 - **Somente leitura.** O agente sugere ações; quem executa e quem encerra o incidente é uma pessoa.
@@ -94,6 +151,7 @@ por capacidade ficam em [`openspec/`](openspec/).
 | **War room** | Na página do incidente: assumir como IC, mudar severidade, registrar ação, descartar hipótese, mitigar, reabrir e encerrar ou descartar com motivo. Mostra duração, TTA/TTM/TTR e o autor de cada ação; cada ação vira evento e card no Teams | `POST /incidents/{id}/actions/{acao}` |
 | **Chat com o agente** | Perguntas e pedidos ao agente durante o incidente; ele responde com evidência usando as mesmas ferramentas da investigação, sem executar nada, com teto de tokens por incidente | `POST /incidents/{id}/chat` · job `run_replies` |
 | **🧠 Memória viva** | Base de conhecimento do ambiente montada pelo próprio agente (alertas do domínio → serviços → repositórios → pipelines → AWS → integrações nos traces), estudo diário, episódio de cada incidente encerrado, notas ensinadas no chat, "Já vi isso" na análise e reaprender do zero | `GET /memoria` · jobs `run_studies` e `run_learnings` |
+| **🔎 RAG da memória** | Trechos de dossiês, episódios, notas e dos `.md` dos repositórios com embeddings locais (`small` ou `large`) no pgvector; busca híbrida (determinístico → vetor + texto por RRF) no contexto da análise e no `recall` | job `index_memory` · `make evals-rag` |
 | **Ferramentas da memória** | `recall` (busca na memória), `read_file` (lê o repositório do serviço), `service_dependencies` (integrações vistas nos traces), `cloud_overview` (arquitetura na nuvem) e `remember` (só no chat) | `grolla.application.investigation.Toolbox` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
@@ -120,7 +178,7 @@ flowchart LR
   worker["grolla-worker<br/>jobs + timers"] --> boot
   boot["bootstrap<br/>liga port → adapter"] --> adapters
   boot --> app
-  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · signoz · teams · anthropic · azure_devops · aws · system_clock"] --> app
+  adapters["adapters/&lt;fornecedor&gt;<br/>postgres · signoz · teams · anthropic · azure_devops · aws · fastembed · system_clock"] --> app
   app["application<br/>casos de uso + ports"] --> dom["domain<br/>regras puras"]
   adapters --> dom
 ```
@@ -140,13 +198,14 @@ flowchart LR
 usa, com suíte de contrato, fake e adapter real. Hoje existem `Clock`, `AlertIngress` e `Telemetry`
 (SigNoz), `ChatNotifier` (Teams), `LanguageModel` (Anthropic), `ChangeHistory` (Azure DevOps),
 `CloudInventory` (AWS), `IncidentRepository`, `NotificationOutbox`, `AnalysisQueue`,
-`ChatQueue`, `MemoryStore`, `LearningQueue` e `StudyQueue` (Postgres).
+`ChatQueue`, `MemoryStore`, `LearningQueue` e `StudyQueue` (Postgres) e `TextEmbedder` (fastembed).
 
 ## 🧰 Stack
 
 - **Python 3.12** em **uv workspace** (um lock para tudo).
 - **FastAPI** + uvicorn na api; **procrastinate** (fila no próprio Postgres) no worker.
-- **PostgreSQL 16** via **SQLAlchemy Core** + **psycopg 3**, migrações **Alembic**.
+- **PostgreSQL 16** com **pgvector** via **SQLAlchemy Core** + **psycopg 3**, migrações **Alembic**.
+- **fastembed** (ONNX Runtime) para os embeddings da memória com RAG, rodando no worker sem rede.
 - **pydantic** / **pydantic-settings** para contratos e configuração (`GROLLA_*`).
 - **Jinja2** para as páginas server-side; **httpx2** como cliente HTTP dos adapters.
 - **Anthropic SDK** (Claude) com laço de ferramentas manual e structured outputs; **mcp** como
@@ -288,6 +347,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S3.1 — Até a causa raiz** · validação de cada hipótese, causa raiz com plano de ação concreto e consulta somente leitura à AWS (o S11 adiantado com escopo mínimo) ✅
 - **War room com o agente** · ações humanas (IC, severidade, mitigar, encerrar com motivo), TTA/TTM/TTR, cards no Teams e chat com o agente que investiga sob demanda ✅ (adiantado do S4/S5)
 - **S3.2 — Memória viva** · base de conhecimento do ambiente estudada pelo agente, estudo diário, episódios, aprendizado no chat, "já vi isso" e reaprender do zero ✅ (substitui o antigo S7)
+- **S3.3 — Memória com RAG** · embeddings locais, pgvector, documentação dos repositórios indexada e busca híbrida medida por eval
 - **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra)
 - **S5 — Agente acompanha a crise** · investigação profunda de P0/P1, updates, impacto financeiro e proposta de encerramento
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF
