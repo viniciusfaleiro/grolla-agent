@@ -745,6 +745,19 @@ async def test_memory_for_asks_the_store_with_services_rules_and_text() -> None:
     assert await memory_for(None, incident, alerts) == MemoryContext()
 
 
+async def test_memory_for_leaves_out_the_incident_own_episode() -> None:
+    memory = InMemoryMemoryStore()
+    incident = make_incident(services=(SERVICE,))
+    own = replace(record(kind=MemoryKind.EPISODE, body="alerta Erro alto"), incident_id=incident.id)
+    await memory.save([(own, None)])
+
+    context = await memory_for(
+        memory, incident, [make_alert(service=SERVICE, rule_name="Erro alto")]
+    )
+
+    assert context.episodes == ()
+
+
 # ---- Página da memória
 
 

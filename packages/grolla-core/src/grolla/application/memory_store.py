@@ -6,7 +6,7 @@ o chat a usarem sem import circular com `grolla.application.memory` (que reexpor
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal, Protocol
 from uuid import UUID
@@ -172,4 +172,7 @@ async def memory_for(
     names = list(dict.fromkeys(alert.rule_name for alert in alerts))
     text = " ".join([incident.title, *(alert.summary for alert in alerts)])
     query = await query_for(embedder, text)
-    return await memory.context_for(incident.services, names, text, query)
+    context = await memory.context_for(incident.services, names, text, query)
+    # Uma análise atrasada pode rodar depois do episódio do próprio incidente: ele não é "já vi".
+    episodes = tuple(e for e in context.episodes if e.incident_id != incident.id)
+    return replace(context, episodes=episodes)

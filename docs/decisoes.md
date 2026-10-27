@@ -37,3 +37,7 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 30 | 27/10 | S8 | Triagem no worker, não no webhook | O caminho do alerta continua determinístico e rápido; a sugestão chega segundos depois |
 | 31 | 27/10 | S8 | O agente sugere juntar; quem junta é uma pessoa. O juntado vira descartado com motivo | Mexe no war room de duas pessoas; reaproveita estado e páginas sem um estado novo |
 | 32 | 27/10 | S8 | Severidade sugerida só quando nenhuma regra casou, e só sobe | Segue as regras do time ("só sobe", "na dúvida, o mais alto"); nunca baixa |
+| 33 | 27/10 | S9 | Console fora de incidente numa fila própria do worker (`console`, concorrência 1) | Uma pergunta de exploração nunca atrasa a investigação de um incidente real |
+| 34 | 27/10 | S9 | Nos gráficos, o modelo só pede serviço, sinal e janela; o servidor busca a série e desenha o SVG | Os números vêm do dado, nunca do modelo; SVG no servidor dispensa biblioteca de gráficos |
+| 35 | 27/10 | S9 | Incidente aberto pelo console passa pelo mesmo núcleo (`decide_manual`): estado pela severidade, card e análise | Um caminho só para incidente; o console não ganha regras próprias |
+| 36 | 27/10 | S9 | Teto diário de tokens do console, além do teto por resposta | Conversa livre é o uso mais fácil de estourar o crédito; custo previsível |
