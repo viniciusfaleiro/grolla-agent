@@ -58,7 +58,9 @@ cotas e várias contas por role somente leitura. `cluster-somente-leitura`: esta
 serviço no Kubernetes, em vários clusters, com `enabled` e `show_values` por cluster.
 `alarme-normalizado-na-tela`: faixa ao vivo do alarme normalizado ou de volta no war room, aviso
 e título piscando, selo na lista. `war-room-redesenhado`: barra fixa, cartão "Agora", hipóteses com
-o veredito e linha do tempo filtrável. Pendente: S4 (on-call), que espera a conta no
+o veredito e linha do tempo filtrável. `lista-de-incidentes-com-filtros`, `post-mortem-redesenhado` e
+`console-memoria-metricas-redesenhados`: as outras telas na mesma linguagem, com filtros na lista e
+nos post mortems e o console como "Chat", em primeiro no menu. Pendente: S4 (on-call), que espera a conta no
 Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

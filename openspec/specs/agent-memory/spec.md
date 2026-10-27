@@ -158,6 +158,8 @@ A api SHALL servir `/memoria`, com o dossiê do ambiente, a lista de assuntos po
 
 Cada registro SHALL mostrar a confiança, a fonte com link e a data.
 
+As duas páginas SHALL mostrar a lista de assuntos ao lado, cada um com a data do último registro, ou "sem estudo" quando é um serviço que o estudo do ambiente ainda não cobriu, e um campo para achar um assunto pelo nome.
+
 #### Scenario: Semear conhecimento
 - **WHEN** alguém adiciona em `/memoria/captura-api` a nota "depende do autorizador e do Redis de sessão"
 - **THEN** a nota fica confirmada, com essa pessoa como fonte, e entra na próxima investigação de `captura-api`
@@ -169,6 +171,10 @@ Cada registro SHALL mostrar a confiança, a fonte com link e a data.
 #### Scenario: Estudar de novo
 - **WHEN** alguém pede um novo estudo completo na página
 - **THEN** o próximo ciclo do worker refaz o estudo de todos os serviços, respeitando o limite de tokens da rodada
+
+#### Scenario: Assunto sem estudo
+- **WHEN** a memória tem o serviço `checkout-api` só com episódios, sem estudo
+- **THEN** a lista de assuntos mostra `checkout-api` como "sem estudo"
 
 ### Requirement: Post mortem aprovado alimenta a memória
 Quando um post mortem é aprovado, o aprendizado do incidente SHALL rodar de novo, com o texto do post mortem aprovado (fatores contribuintes, lições e plano de ação) como fonte. O episódio do incidente SHALL ser reescrito com confiança `confirmado` e a pessoa que aprovou como fonte, e os dossiês dos serviços e integrações SHALL incorporar o que o post mortem ensinou.
