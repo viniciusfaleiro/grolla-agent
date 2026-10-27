@@ -1,0 +1,79 @@
+# Regenerar uma seção: a pessoa pede, com uma instrução, que o agente reescreva "fatores
+# contribuintes". O pedido entra na fila, o worker reescreve só essa seção e a versão anterior
+# fica no histórico com o autor "Grolla".
+name: regenerar uma seção do post mortem
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no pm-regenera-api
+              service_name: pm-regenera-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,8 s no pm-regenera-api
+              description: O p99 de latência do pm-regenera-api está em 1,8 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=163
+            fingerprint: e2e-pm-regenera-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'pm-regenera-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.1 }
+      status: 200
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'rascunho'
+      at_least: 1
+      timeout_seconds: 90
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/secoes/fatores/regenerar
+      cookies: { grolla_author: Ana }
+      form: { instrucao: incluir a falta de alarme no RDS }
+      status: 200
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortem_jobs WHERE incident_id = '{incidente}'
+        AND section = 'fatores' AND status = 'feito'
+        AND instruction = 'incluir a falta de alarme no RDS' AND author = 'Ana'
+      at_least: 1
+      timeout_seconds: 90
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortem_versions WHERE incident_id = '{incidente}'
+        AND section = 'fatores' AND author = 'Grolla'
+      count: 1
+  # Só a seção pedida é reescrita pelo modelo (métricas e timeline podem ser recalculadas).
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortem_versions WHERE incident_id = '{incidente}'
+        AND section NOT IN ('fatores', 'metricas', 'timeline')
+      count: 0
+  - expect_page:
+      service: api
+      path: /postmortems/{incidente}
+      contains: [Fatores contribuintes]
