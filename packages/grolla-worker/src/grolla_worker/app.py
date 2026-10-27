@@ -23,6 +23,11 @@ from grolla.application.memory import (
     run_next_study,
 )
 from grolla.application.memory_retrieval import index_memory
+from grolla.application.post_mortem import (
+    PostMortemStore,
+    reap_stuck_post_mortems,
+    run_next_post_mortem,
+)
 from grolla.bootstrap import WorkerContainer
 from grolla.domain.follow_up import FollowUpPolicy
 
@@ -44,6 +49,7 @@ STUDIES_CRON = "* * * * *"
 INDEX_CRON = "* * * * * */30"
 SCHEDULE_CYCLES_CRON = "* * * * * */30"
 CYCLES_CRON = "* * * * * */10"
+POST_MORTEMS_CRON = "* * * * * */10"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -238,6 +244,9 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     if cycles is not None and follow_up is not None:
         _follow_up_jobs(app, container, cycles, follow_up)
 
+    if container.post_mortems is not None:
+        _post_mortem_jobs(app, container, container.post_mortems)
+
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:
         # O estudo diário só pede a rodada; quem estuda é o `run_studies`.
@@ -304,3 +313,40 @@ def _follow_up_jobs(
     )
     async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await reap_stuck_cycles(cycles, container.repository, container.clock, policy, limits)
+
+
+def _post_mortem_jobs(
+    app: procrastinate.App, container: WorkerContainer, store: PostMortemStore
+) -> None:
+    """O rascunho de cada incidente resolvido e as regenerações pedidas na página."""
+
+    # Uma rodada por vez (lock): os pedidos da fila até ela esvaziar.
+    @app.periodic(cron=POST_MORTEMS_CRON)
+    @app.task(
+        name="run_post_mortems",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="run_post_mortems",
+        lock="run_post_mortems",
+    )
+    async def run(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_post_mortem(
+            store=store,
+            repository=container.repository,
+            model=container.model,
+            clock=container.clock,
+            policy=container.post_mortem_policy,
+            impact=container.impact_policy,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_post_mortems",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_post_mortems",
+        lock="reap_stuck_post_mortems",
+    )
+    async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_post_mortems(
+            store, container.repository, container.clock, container.post_mortem_policy
+        )
