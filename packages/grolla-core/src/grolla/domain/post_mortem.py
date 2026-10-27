@@ -176,4 +176,8 @@ def moved(pm: PostMortem, to: PostMortemStatus, author: str, now: datetime) -> P
 
 def overdue(pm: PostMortem, today: date) -> tuple[ActionItem, ...]:
     """Itens abertos com prazo antes de `today`."""
-    raise NotImplementedError
+    return tuple(
+        a
+        for a in pm.actions
+        if a.status is ActionStatus.OPEN and a.due is not None and a.due < today
+    )
