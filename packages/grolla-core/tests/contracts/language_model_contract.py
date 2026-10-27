@@ -14,6 +14,10 @@ A resposta no chat do war room (`reply`) tem a suíte própria, `ChatReplyContra
 fixtures `replying_model` (chama ao menos uma ferramenta e responde em texto) e
 `failing_replier` (a API responde erro).
 
+O ciclo de acompanhamento (`follow_up`) tem a suíte `FollowUpModelContract`, com as fixtures
+`following_model` (chama ao menos uma ferramenta e devolve o ciclo) e `failing_follower` (a API
+responde erro).
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -21,6 +25,7 @@ from datetime import timedelta
 
 import pytest
 from grolla.application.investigation import (
+    STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
     STAGE_STUDY,
@@ -40,6 +45,7 @@ from grolla.application.investigation import (
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
 from grolla.domain.memory import DossierDraft, LearningDraft, MemoryContext, SynthesisDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
@@ -292,6 +298,78 @@ class ChatReplyContract(LanguageModelFixtures):
     ) -> None:
         with pytest.raises(LanguageModelError):
             await failing_replier.reply(brief, CONTEXT, QUESTION, toolbox, budget)
+
+
+MAX_EVIDENCE = 3
+
+
+class FollowUpModelContract(LanguageModelFixtures):
+    @pytest.fixture
+    def following_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_follower(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def previous(self, brief: InvestigationBrief) -> Cycle:
+        return Cycle(
+            brief.incident.id,
+            1,
+            CycleStatus.COMPLETED,
+            T0,
+            started_at=T0,
+            finished_at=T0,
+            trend=Trend.STABLE,
+            error_rate=12.0,
+            summary="Erro estável em 12%.",
+        )
+
+    async def test_follow_up_returns_a_valid_cycle(
+        self,
+        following_model: LanguageModel,
+        brief: InvestigationBrief,
+        previous: Cycle,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        draft = await following_model.follow_up(brief, CONTEXT, previous, toolbox, budget)
+
+        assert isinstance(draft, CycleDraft)
+        assert isinstance(draft.trend, Trend)
+        assert draft.error_rate is None or 0 <= draft.error_rate <= 100
+        assert draft.summary.strip()
+        assert len(draft.evidence) <= MAX_EVIDENCE
+
+    async def test_follow_up_calls_tools_and_spends_with_its_stage(
+        self,
+        following_model: LanguageModel,
+        brief: InvestigationBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        await following_model.follow_up(brief, CONTEXT, None, toolbox, budget)
+
+        assert toolbox.evaluations
+        assert len(budget.usages) >= 2
+        assert {usage.stage for usage in budget.usages} == {STAGE_FOLLOW_UP}
+
+    async def test_exhausted_budget_stops_the_follow_up(
+        self, following_model: LanguageModel, brief: InvestigationBrief, toolbox: Toolbox
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await following_model.follow_up(brief, CONTEXT, None, toolbox, TokenBudget(limit=1))
+
+    async def test_follow_up_api_failure_raises_language_model_error(
+        self,
+        failing_follower: LanguageModel,
+        brief: InvestigationBrief,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_follower.follow_up(brief, CONTEXT, None, toolbox, budget)
 
 
 class MemoryModelContract(LanguageModelFixtures):
