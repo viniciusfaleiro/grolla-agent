@@ -61,6 +61,7 @@ from grolla.application.post_mortem import (
     request_regeneration,
     update_action,
 )
+from grolla.application.safety import MessageCounter
 from grolla.application.transcript import (
     TranscriptPolicy,
     TranscriptStore,
@@ -372,11 +373,13 @@ class Services:
     post_mortems: PostMortemStore
     renderer: DocumentRenderer
     metrics: MetricsReader
+    messages: MessageCounter  # limite de mensagens por pessoa no chat e no console
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
     console: ConsoleStore | None = None  # None: console desligado (sem a seção `console`)
     telemetry: Telemetry | None = None  # gráficos do console; sem ela, "gráfico indisponível"
     transcripts: TranscriptStore | None = None  # None: envio de transcrição dá 404
     transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
+    chat_messages_per_hour: int = 30  # por autor, chat e console juntos
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.

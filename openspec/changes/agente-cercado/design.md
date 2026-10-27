@@ -44,8 +44,11 @@ outro modelo; bloquear o comando destrutivo (o time precisa poder rodá-lo, só 
     para isso.
 - **Selo destrutivo na api.** `is_destructive(command)` fica em `grolla.domain.safety` (regra pura) e a api usa a
   função ao montar `Step` e ao renderizar código nas mensagens. Copiar pede `confirm()` só nos destrutivos.
-- **Limite por pessoa conta mensagens já guardadas.** `ChatQueue.count_by_author_since` e
-  `ConsoleStore.count_by_author_since` somam as duas tabelas, então não precisa de tabela nova.
+- **Limite por pessoa na borda, contando o que já está guardado.** Um port pequeno, `MessageCounter.sent_since`,
+  lê as duas tabelas (chat e console) de uma vez, sem tabela nova. A api chama `ensure_under_limit` antes de gravar a
+  pergunta; `ask` e `ask_console` não mudam de assinatura.
+  - *Alternativa descartada:* um método de contagem em `ChatQueue` e outro em `ConsoleStore`. O limite é um só para
+    as duas telas, e cada caso de uso precisaria dos dois ports.
 - **Teste de capacidade lendo o código.** Um teste em `packages/grolla-core/tests/architecture/` lista as ferramentas
   do `Toolbox` contra uma lista fixa. Ele também varre com `ast` os adapters `aws` e `kubernetes`: chamadas boto3 só com
   prefixo de leitura e `httpx` só com `get`. É simples, roda sem rede e falha no PR que tentar escrever.
@@ -58,50 +61,30 @@ outro modelo; bloquear o comando destrutivo (o time precisa poder rodá-lo, só 
 
 ```python
 # grolla.domain.safety
-class Scope(StrEnum):
-    DOMAIN = "dominio"
-    OFF_TOPIC = "fora_do_escopo"
-    EXECUTION = "pedido_de_execucao"
+class Scope(StrEnum): DOMAIN = "dominio"; OFF_TOPIC = "fora_do_escopo"; EXECUTION = "pedido_de_execucao"
+REFUSALS: Mapping[Scope, str]   # texto fixo de OFF_TOPIC e EXECUTION
+NOT_REMEMBERED: str             # resultado do `remember` recusado
+def is_destructive(command: str) -> bool
+def looks_like_order(text: str) -> bool
+def untrusted(source: str, text: str) -> str   # <dados_externos fonte="..."> ... </dados_externos>
 
+# grolla.domain.chat / console
+ChatDraft.scope / ConsoleDraft.scope: Scope = Scope.DOMAIN
+ChatMessage.refusal / ConsoleMessage.refusal: Scope | None = None
+# grolla.domain.metrics
+MetricsFacts.refusals: tuple[datetime, ...]; PeriodMetrics.refused: int
 
-REFUSALS: Mapping[Scope, str]  # OFF_TOPIC e EXECUTION; texto fixo da recusa
+# grolla.application.safety
+class MessageCounter(Protocol):
+    async def sent_since(self, author: str, since: datetime) -> list[datetime]
+class RateLimitedError(Exception): limit: int; retry_at: datetime
+async def ensure_under_limit(counter, author, now, per_hour) -> None
+# AnalysisPolicy.chat_messages_per_hour = 30  (YAML: investigation.chat_messages_per_hour)
 
-
-def is_destructive(command: str) -> bool: ...
-def looks_like_order(text: str) -> bool: ...
-def untrusted(
-    source: str, text: str
-) -> str: ...  # <dados_externos fonte="..."> ... </dados_externos>
-
-
-# grolla.domain.chat / grolla.domain.console
-@dataclass(frozen=True)
-class ChatDraft:  # e ConsoleDraft
-    text: str
-    scope: Scope = Scope.DOMAIN
-
-
-ChatMessage.refusal: Scope | None = None  # e ConsoleMessage.refusal
-
-
-# grolla.application.chat / console
-class ChatQueue(Protocol):
-    async def count_by_author_since(self, author: str, since: datetime) -> int: ...
-
-
-class ConsoleStore(Protocol):
-    async def count_by_author_since(self, author: str, since: datetime) -> int: ...
-
-
-class RateLimitedError(Exception):
-    retry_at: datetime
-
-
-# grolla.application.metrics: PeriodMetrics.refused: int
-
-# migração 00NN: chat_messages.refusal text null; console_messages.refusal text null
-# team-config: chat.max_messages_per_hour: int = 30
-# schema da resposta (adapter do LLM): campo "scope" enum [dominio, fora_do_escopo, pedido_de_execucao]
+# grolla.adapters.postgres.PostgresMessageCounter; grolla.testing.messages.FakeMessageCounter
+# ApiContainer.messages, Services.messages e Services.chat_messages_per_hour na api
+# migração 0014: refusal em chat_messages e console_messages; índices (author, at)
+# schema da resposta do chat e do console (adapter do LLM): "scope" enum [dominio, fora_do_escopo, pedido_de_execucao]
 ```
 
 ## Risks / Trade-offs

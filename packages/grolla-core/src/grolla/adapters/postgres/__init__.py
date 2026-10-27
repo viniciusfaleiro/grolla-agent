@@ -14,6 +14,7 @@ from grolla.adapters.postgres.memory import (
     PostgresMemoryStore,
     PostgresStudyQueue,
 )
+from grolla.adapters.postgres.messages import PostgresMessageCounter
 from grolla.adapters.postgres.metrics import PostgresMetricsReader
 from grolla.adapters.postgres.migrate import migrate
 from grolla.adapters.postgres.post_mortem import PostgresPostMortemStore
@@ -29,6 +30,7 @@ __all__ = [
     "PostgresIncidentRepository",
     "PostgresLearningQueue",
     "PostgresMemoryStore",
+    "PostgresMessageCounter",
     "PostgresMetricsReader",
     "PostgresNotificationOutbox",
     "PostgresPostMortemStore",

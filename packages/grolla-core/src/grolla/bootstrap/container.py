@@ -15,6 +15,7 @@ from grolla.adapters.postgres import (
     PostgresIncidentRepository,
     PostgresLearningQueue,
     PostgresMemoryStore,
+    PostgresMessageCounter,
     PostgresMetricsReader,
     PostgresNotificationOutbox,
     PostgresPostMortemStore,
@@ -62,6 +63,7 @@ from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
 from grolla.application.metrics import MetricsReader
 from grolla.application.post_mortem import DocumentRenderer, PostMortemPolicy, PostMortemStore
+from grolla.application.safety import MessageCounter
 from grolla.application.transcript import TranscriptPolicy, TranscriptStore
 from grolla.application.triage import TriagePolicy, TriageQueue
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
@@ -88,6 +90,7 @@ class ApiContainer:
     renderer: DocumentRenderer
     metrics: MetricsReader
     console: ConsoleStore
+    messages: MessageCounter  # limite de mensagens por pessoa no chat e no console
     console_policy: ConsolePolicy | None = None  # None: console desligado
     transcripts: TranscriptStore | None = None
     transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
@@ -156,6 +159,7 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         renderer=FpdfDocumentRenderer(),
         metrics=PostgresMetricsReader(database),
         console=PostgresConsoleStore(database),
+        messages=PostgresMessageCounter(database),
         console_policy=config.console_policy(),
         transcripts=PostgresTranscriptStore(database),
         transcript_policy=config.transcript_policy(),

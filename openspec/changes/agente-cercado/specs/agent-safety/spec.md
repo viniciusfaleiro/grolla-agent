@@ -41,7 +41,7 @@ o botão de copiar SHALL pedir uma confirmação antes de copiar. O agente nunca
 - **THEN** o passo mostra o selo "destrutivo, confira antes" e copiar pede uma confirmação
 
 ### Requirement: Limite de mensagens por pessoa
-O chat do war room e o console juntos SHALL aceitar no máximo `chat.max_messages_per_hour` mensagens por autor na última
+O chat do war room e o console juntos SHALL aceitar no máximo `investigation.chat_messages_per_hour` mensagens por autor na última
 hora (padrão 30). Acima disso, a mensagem SHALL ser recusada na hora, sem chamar o modelo, com o aviso de quando o autor
 pode escrever de novo.
 

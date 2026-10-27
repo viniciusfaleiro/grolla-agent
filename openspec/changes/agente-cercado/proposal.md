@@ -53,4 +53,4 @@ O usuário pediu para cercar o agente contra uso mal-intencionado: ele só inves
 - Adapter da Anthropic: o campo `scope` no schema das respostas do chat e do console.
 - `grolla-api`: selo de comando destrutivo, recusa no chat e no console, limite por pessoa, recusas em `/metricas`.
 - `evals/seguranca.py` e `make evals-seguranca`; cenário e2e de recusa com o LLM fake.
-- `team-config`: `chat.max_messages_per_hour`.
+- `team-config`: `investigation.chat_messages_per_hour`.

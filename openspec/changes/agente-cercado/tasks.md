@@ -4,8 +4,8 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `grolla.domain.safety` com `Scope`, `REFUSALS` e as assinaturas; `scope` em `ChatDraft`/`ConsoleDraft`; `refusal` nas mensagens; `count_by_author_since` nos ports; `RateLimitedError`; `PeriodMetrics.refused`; `chat.max_messages_per_hour` no config; migração das colunas `refusal`.
-- [ ] 0.2 Commit de contrato.
+- [x] 0.1 `grolla.domain.safety` com `Scope`, `REFUSALS` e as assinaturas; `scope` em `ChatDraft`/`ConsoleDraft`; `refusal` nas mensagens; `MessageCounter` e `ensure_under_limit`; `RateLimitedError`; `PeriodMetrics.refused`; `investigation.chat_messages_per_hour` no config; migração das colunas `refusal`.
+- [x] 0.2 Commit de contrato.
 
 ## 1. grolla-dominio
 
@@ -13,13 +13,13 @@
 - [ ] 1.2 Toolbox embrulha todo resultado com `untrusted`; `_DATA_RULES` em todos os prompts; prompts neutros de domínio ("o ambiente em produção do time").
 - [ ] 1.3 Regra de escopo nos prompts do chat e do console; `run_next_reply` e `run_next_console_reply` trocam o texto pela recusa fixa e guardam `refusal`.
 - [ ] 1.4 `remember` grava `aprendido` e recusa `looks_like_order`.
-- [ ] 1.5 Limite por autor em `ask_chat`/`ask_console` com `RateLimitedError`.
+- [ ] 1.5 `ensure_under_limit` com `RateLimitedError`.
 - [ ] 1.6 `refused` nas métricas por período.
 - [ ] 1.7 Fakes atualizados (`grolla.testing`) e testes do caso de uso.
 
 ## 2. grolla-persistencia
 
-- [ ] 2.1 Colunas `refusal` lidas e gravadas; `count_by_author_since` nas duas tabelas; contagem de recusas por período; suítes de contrato.
+- [ ] 2.1 Colunas `refusal` lidas e gravadas; `PostgresMessageCounter.sent_since` nas duas tabelas; contagem de recusas por período; suítes de contrato.
 
 ## 3. grolla-integracoes
 
