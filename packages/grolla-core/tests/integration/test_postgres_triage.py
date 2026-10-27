@@ -1,7 +1,8 @@
 """Fila da triagem sobre Postgres real.
 
-A fila pega o pedido pendente mais antigo de todo o banco, então este módulo usa um banco
-próprio dentro do container da sessão: pedidos deixados por outros testes não interferem.
+Herda `TriageQueueContract`; os testes daqui cobrem o que o port não lê: o status e o motivo
+gravados, o `llm_usage`, a concorrência do `claim` e a atomicidade do `finish`. A fila pega o
+pedido pendente mais antigo de todo o banco, então o módulo usa um banco próprio.
 """
 
 import asyncio
@@ -13,6 +14,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from contracts.triage_queue_contract import TriageQueueContract
 from grolla.adapters.postgres import (
     PostgresDatabase,
     PostgresIncidentRepository,
@@ -21,12 +23,12 @@ from grolla.adapters.postgres import (
     migrate,
 )
 from grolla.adapters.postgres.urls import sqlalchemy_url
+from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import STAGE_TRIAGE, LlmUsage
-from grolla.application.triage import TriageJob
+from grolla.application.triage import TriageJob, TriageQueue
 from grolla.domain.incidents import (
     EventType,
     IncidentEvent,
-    IncidentState,
     NotificationKind,
     Severity,
 )
@@ -68,6 +70,20 @@ async def clean(database: PostgresDatabase) -> None:
     """Cada teste começa sem pedidos na fila."""
     async with database.engine.begin() as connection:
         await connection.execute(sa.text("DELETE FROM triages"))
+
+
+class TestPostgresTriageQueueContract(TriageQueueContract):
+    @pytest.fixture
+    def repository(self, database: PostgresDatabase) -> IncidentRepository:
+        return PostgresIncidentRepository(database)
+
+    @pytest.fixture
+    def queue(self, database: PostgresDatabase) -> TriageQueue:
+        return PostgresTriageQueue(database)
+
+    @pytest.fixture
+    def outbox(self, database: PostgresDatabase) -> NotificationOutbox:
+        return PostgresNotificationOutbox(database)
 
 
 @pytest.fixture
@@ -126,25 +142,6 @@ async def test_request_is_pending_and_a_second_request_keeps_the_first(
 
 
 @pytest.mark.usefixtures("clean")
-async def test_claim_takes_the_oldest_pending_and_marks_it_running(
-    repository: PostgresIncidentRepository,
-    queue: PostgresTriageQueue,
-    database: PostgresDatabase,
-) -> None:
-    newer = await requested(repository, offset_seconds=10)
-    older = await requested(repository, offset_seconds=0)
-
-    first = await queue.claim(STARTED)
-    second = await queue.claim(STARTED)
-
-    assert first == TriageJob(older, T0, STARTED)
-    assert second is not None
-    assert second.incident_id == newer
-    assert await queue.claim(STARTED) is None
-    assert (await triage_row(database, older))[:3] == ("em_andamento", T0, STARTED)
-
-
-@pytest.mark.usefixtures("clean")
 async def test_simultaneous_claims_never_take_the_same_request(
     repository: PostgresIncidentRepository, queue: PostgresTriageQueue
 ) -> None:
@@ -154,36 +151,6 @@ async def test_simultaneous_claims_never_take_the_same_request(
 
     taken = [job.incident_id for job in jobs if job is not None]
     assert sorted(taken) == sorted(pending)  # cada pedido uma vez, e nenhum perdido
-
-
-@pytest.mark.usefixtures("clean")
-async def test_stuck_lists_only_running_started_before_the_limit(
-    repository: PostgresIncidentRepository, queue: PostgresTriageQueue
-) -> None:
-    old = await requested(repository, offset_seconds=0)
-    await queue.claim(T0)
-    await requested(repository, offset_seconds=1)
-    await queue.claim(T0 + timedelta(minutes=6))
-    await requested(repository, offset_seconds=2)  # pendente: não está presa
-
-    stuck = await queue.stuck(T0 + timedelta(minutes=5))
-
-    assert [job.incident_id for job in stuck] == [old]
-
-
-async def test_open_since_lists_open_incidents_with_a_recent_alert(
-    repository: PostgresIncidentRepository, queue: PostgresTriageQueue
-) -> None:
-    since = T0 + timedelta(days=30)  # longe dos incidentes dos outros testes
-    recent = make_incident(last_alert_at=since + timedelta(minutes=5))
-    exact = make_incident(state=IncidentState.HANDLING, last_alert_at=since)
-    old = make_incident(last_alert_at=since - timedelta(seconds=1))
-    resolved = make_incident(state=IncidentState.RESOLVED, last_alert_at=since)
-    async with repository.transaction() as uow:
-        for incident in (recent, exact, old, resolved):
-            await uow.save(incident)
-
-    assert await queue.open_since(since) == [recent, exact]
 
 
 @pytest.mark.usefixtures("clean")
@@ -290,38 +257,6 @@ async def test_finish_is_all_or_nothing(
 
     assert (await triage_row(database, incident_id))[0] == "em_andamento"
     assert await counts(database, incident_id) == (0, 0)
-
-
-@pytest.mark.usefixtures("clean")
-async def test_finish_of_a_triage_no_longer_running_does_nothing(
-    repository: PostgresIncidentRepository,
-    queue: PostgresTriageQueue,
-    database: PostgresDatabase,
-) -> None:
-    incident_id = await requested(repository)
-    job = await queue.claim(STARTED)
-    assert job is not None
-    await queue.finish(
-        job, None, events=[], notifications=[], usages=[], reason="interrompida", at=FINISHED
-    )
-    stored = await repository.get_incident(incident_id)
-    assert stored is not None
-    late = IncidentEvent(incident_id, FINISHED, EventType.TRIAGE_COMPLETED, {})
-
-    await queue.finish(
-        job,
-        replace(stored, severity=Severity.P1),
-        events=[late],
-        notifications=[make_notification(incident_id, NotificationKind.SEVERITY_RAISED)],
-        usages=[USAGE],
-        reason=None,
-        at=FINISHED + timedelta(minutes=1),
-    )
-
-    assert await repository.get_incident(incident_id) == stored
-    assert await repository.events_of(incident_id) == []
-    assert await counts(database, incident_id) == (0, 0)
-    assert (await triage_row(database, incident_id))[4] == "interrompida"
 
 
 @pytest.mark.usefixtures("clean")
