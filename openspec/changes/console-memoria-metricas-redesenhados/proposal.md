@@ -7,6 +7,8 @@ Grolla — proposta de redesenho".
 
 ## What Changes
 
+- **No menu, o console vira "Chat" e passa a ser o primeiro item**, a pedido do usuário. A URL
+  continua `/console`.
 - **Console:** duas colunas, com as conversas à esquerda (nova conversa, busca, "virou incidente") e
   a conversa ocupando o resto; o gráfico dentro da resposta; "Abrir incidente com esta conversa" no
   topo; sugestões com os serviços reais. Sem o vazio da tela antiga.

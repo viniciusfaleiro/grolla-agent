@@ -77,3 +77,4 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 70 | 27/10 | console | Sugestões com os serviços que a memória conhece | No lab, o console sugeria o autorizador e o pedidos-api, que nem existiam mais |
 | 71 | 27/10 | memória | Assuntos ao lado nas duas páginas da memória; "sem estudo" só no serviço que o estudo não cobriu | Integrações e o ambiente não entram no estudo por serviço; marcá-los confundiria |
 | 72 | 27/10 | métricas | Período atual em destaque e gráfico dos resolvidos; período vazio continua com "—", só apagado | A spec já pede "—" sem dado; o destaque e o gráfico respondem "como estamos" num relance |
+| 73 | 27/10 | console | No menu, "Console" vira "Chat" e fica em primeiro; a URL segue `/console` | Pedido do usuário; mudar a URL quebraria links salvos e cenários sem ganho |
