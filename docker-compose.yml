@@ -63,8 +63,10 @@ services:
       GROLLA_ANTHROPIC_API_KEY: chave-do-e2e
       GROLLA_ANTHROPIC_BASE_URL: http://fakes:9000/anthropic
       GROLLA_AZURE_DEVOPS_TOKEN: token-do-e2e
+      KUBECONFIG: /etc/grolla/kubeconfig.yaml  # os clusters do e2e são a API fake do grolla-fakes
     volumes:
       - ./e2e/config.yaml:/etc/grolla/grolla.yaml:ro
+      - ./e2e/kubeconfig.yaml:/etc/grolla/kubeconfig.yaml:ro
 
   fakes:
     build:

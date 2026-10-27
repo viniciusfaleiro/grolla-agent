@@ -3,8 +3,8 @@
 
 ## 0. Contratos (agente pai)
 
-- [ ] 0.1 `ClusterInventory`, `NoCluster`, `NO_CLUSTER`, `NO_WORKLOADS`; stubs de `FakeClusterInventory` e do `KubernetesClusterInventory`; `ClusterConfig`/`clusters` e o bootstrap (só os ligados); dependência `kubernetes`.
-- [ ] 0.2 `make check` verde e commit de contrato.
+- [x] 0.1 `ClusterInventory`, `NoCluster`, `NO_CLUSTER`, `NO_WORKLOADS`; stubs de `FakeClusterInventory` e do `KubernetesClusterInventory`; `ClusterConfig`/`clusters` e o bootstrap (só os ligados); dependência `kubernetes`.
+- [x] 0.2 `make check` verde e commit de contrato.
 
 ## 1. grolla-dominio
 

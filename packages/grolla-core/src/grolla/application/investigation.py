@@ -55,6 +55,8 @@ STAGE_CONSOLE = "console"
 STAGE_TRANSCRIPT = "transcript"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 HEALTH_UNAVAILABLE = "eventos da nuvem indisponíveis no plano de suporte desta conta"
+NO_CLUSTER = "consulta ao cluster não configurada nesta instância"
+NO_WORKLOADS = "nenhum workload encontrado no cluster para o serviço"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
@@ -243,6 +245,37 @@ class NoCloudInventory:
 
     async def quotas(self, service: str) -> ToolResult:  # noqa: ARG002
         return ToolResult(NO_CLOUD, None)
+
+
+class ClusterInventory(Protocol):
+    """Estado e mudanças do serviço no orquestrador de contêineres, só leitura, em todos os
+    clusters ligados. Os dois levantam ToolUnavailableError só quando todos os clusters falham
+    (credencial, permissão, rede); a falha de um vira uma linha do resumo. Serviço sem workload
+    não é erro: o resumo diz NO_WORKLOADS.
+    """
+
+    async def state(self, service: str, since: datetime) -> ToolResult:
+        """Workloads do serviço: réplicas, pods (fase, reinícios, último término, espera,
+        probes, limites), o autoescalonador e os eventos de aviso desde `since`.
+        """
+        ...
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        """O que mudou desde `since`, do mais recente ao mais antigo, com horário e a
+        ferramenta: revisões do workload (imagem, variáveis, recursos), réplicas, configurações
+        usadas pelos pods, o autoescalonador e as políticas de rede do namespace.
+        """
+        ...
+
+
+class NoCluster:
+    """Instância sem clusters ligados: as ferramentas do cluster respondem NO_CLUSTER."""
+
+    async def state(self, service: str, since: datetime) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLUSTER, None)
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLUSTER, None)
 
 
 @dataclass(frozen=True)
@@ -462,9 +495,12 @@ class Toolbox:
         memory: MemoryStore | None = None,
         remember_as: Source | None = None,
         embedder: TextEmbedder | None = None,
+        cluster: ClusterInventory | None = None,
     ) -> None:
-        """`memory` liga `recall`; `remember_as` (só no chat) liga `remember`, gravando notas
-        com essa fonte; `embedder` faz o `recall` usar a busca híbrida nos trechos.
+        """`cluster` liga `cluster_state` e `cluster_changes` (contrato do cluster: as
+        ferramentas são do grolla-dominio); `memory` liga `recall`; `remember_as` (só no chat)
+        liga `remember`, gravando notas com essa fonte; `embedder` faz o `recall` usar a busca
+        híbrida nos trechos.
         """
         self._embedder = embedder
         self._memory = memory
@@ -472,6 +508,7 @@ class Toolbox:
         self._telemetry = telemetry
         self._changes = changes
         self._cloud = cloud or NoCloudInventory()
+        self._cluster = cluster or NoCluster()
         self._clock = clock
         self._lookback = lookback
         self._evaluations: list[Evaluation] = []

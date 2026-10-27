@@ -663,3 +663,17 @@ class ScriptedLanguageModel:
             budget.spend(usage)
             self.tool_answers.append(await toolbox.call(name, arguments))
         budget.spend(usage)
+
+
+class FakeClusterInventory:
+    """Cluster roteirizado: `state` e `changes` mapeiam serviço → resumo, com `failing` e
+    `calls` como no FakeCloudInventory.
+
+    Contrato do cluster somente leitura: o corpo é do grolla-dominio.
+    """
+
+    async def state(self, service: str, since: datetime) -> ToolResult:
+        raise NotImplementedError
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        raise NotImplementedError
