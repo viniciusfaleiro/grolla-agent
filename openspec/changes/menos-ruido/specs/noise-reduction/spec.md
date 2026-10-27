@@ -12,7 +12,7 @@ Falha do modelo SHALL ser registrada e SHALL NOT afetar o incidente.
 - **THEN** a triagem termina sem chamar o modelo
 
 ### Requirement: Sugestão de junção
-Quando o modelo diz que o incidente novo é o mesmo problema de outro aberto, a triagem SHALL registrar o evento de sugestão (com o outro incidente e o motivo) e enviar o card "Parece o mesmo problema que <outro>", e o war room dos dois SHALL mostrar a sugestão com o botão "Juntar". O agente SHALL NOT juntar.
+Quando o modelo diz que o incidente novo é o mesmo problema de outro aberto, a triagem SHALL registrar o evento de sugestão (com o outro incidente e o motivo) e enviar o card "Parece o mesmo problema que <outro>", e o war room do incidente novo SHALL mostrar a sugestão com o botão "Juntar" (o novo é juntado no outro). O agente SHALL NOT juntar.
 
 #### Scenario: Banco caiu para dois serviços
 - **WHEN** `pedidos-api` e `captura-api` abrem incidentes com 2 min de diferença e o dossiê diz que os dois usam `grolla-lab-db`
