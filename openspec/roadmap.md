@@ -146,7 +146,12 @@ estimado. Ficaram de fora a investigação profunda separada (os ciclos cumprem 
   alerta agrupado; proposta de Mitigado e de encerramento após 15 min estáveis, com confirmação
   humana; Monitorando volta para Em tratamento se piorar.
 
-## S6 · Post mortem em minutos
+## S6 · Post mortem em minutos ✅
+
+Change `post-mortem`: rascunho ao resolver (métricas e timeline do log, demais seções pelo modelo,
+blameless), edição por seção com versões, regenerar seção, plano de ação estruturado, ciclo de
+vida rascunho → em revisão → aprovado → encerrado, PDF e lista com filtros e itens vencidos.
+
 
 - **Valor:** post mortem blameless no mesmo dia, com a timeline real.
 - **Escopo:** rascunho gerado do log de eventos com o template da spec; edição por seção com

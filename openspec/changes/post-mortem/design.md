@@ -210,6 +210,35 @@ são funções puras com erro de domínio, e a página só exibe a mensagem.
 | `grolla-web` | `/postmortems` com filtros, `/postmortems/{id}` com edição, versões, regenerar, plano de ação, status e PDF; link na página do incidente |
 | `grolla-e2e` | cenários: resolver gera o rascunho; editar move para em revisão; aprovar sem dono é recusado; aprovar com dono e baixar o PDF; regenerar uma seção |
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo:**
+- `run_next_post_mortem` recebe `impact=`.
+- `reap_stuck_post_mortems` recebe o repositório: um rascunho interrompido é gravado com as
+  seções do modelo "não gerada: interrompida".
+- Funções `list_post_mortems` e `post_mortem_brief`; `SYSTEM_AUTHOR` vira o autor padrão dos
+  eventos.
+- Uma mudança humana em seção ou no plano passa o rascunho a em revisão.
+- No aprovado, o plano continua editável; no encerrado, nada muda.
+- A regeneração aplica a versão ao documento relido logo antes de gravar, para não perder
+  edições feitas no meio.
+
+**Persistência:** seções e itens em `jsonb` com as chaves do dataclass; rascunho único pelo
+índice parcial.
+
+**Integrações:**
+- O PDF converte o texto para latin-1, com troca de caracteres, e nunca falha por causa de um
+  caractere.
+- O LLM fake lê a instrução na linha "Instrução:".
+
+**Web:**
+- PDF fora de aprovado ou encerrado responde 409; falha do renderer, 503.
+- Escritas respondem 303 em formulário comum e 204 com `HX-Redirect` no HTMX.
+- Regenerar fica escondido em métricas e timeline, que são recalculadas do log.
+
+**Code review do pai:** os cenários e2e esperam o 303 das escritas, porque o runner não segue
+redirect.
+
 ## Risks / Trade-offs
 
 - [Texto culpando pessoas] → o prompt pede blameless e fatores contribuintes, e o time edita.

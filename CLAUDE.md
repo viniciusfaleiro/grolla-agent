@@ -46,7 +46,8 @@ no chat, "já vi isso" na análise, página `/memoria` e reaprender do zero. `me
 `small`/`large`), pgvector, documentação dos repositórios indexada e busca híbrida (determinístico
 → RRF de vetor e texto). `acompanha-a-crise` (S5): ciclos de acompanhamento em P0/P1, card só
 quando muda, propostas de mitigar e encerrar, volta de mitigado com o alerta e impacto estimado.
-S4 (on-call) adiado até haver conta no Spike.sh. Próximo: S6
+`post-mortem` (S6): rascunho ao resolver, seções versionadas, regenerar, plano de ação, ciclo de
+vida e PDF. S4 (on-call) adiado até haver conta no Spike.sh. Próximo: S7
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
