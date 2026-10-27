@@ -58,7 +58,10 @@ prioridade menor, nunca atrasa os incidentes. Análises,
 validações, respostas do chat e o estudo recebem a memória (`container.memory`), o modelo de embeddings
 (`container.embedder`, só com `memory.rag`: busca híbrida, trechos de documentação e o estudo indexando os
 `.md` de cada serviço estudado) e os mesmos ports do container, inclusive a nuvem (`container.cloud`): sem a
-seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. O `main.py`
+seção `cloud` no YAML, as ferramentas de nuvem respondem que a consulta não está configurada. Análises,
+validações, chat, acompanhamento e console recebem também o cluster (`container.cluster`, para
+`cluster_state` e `cluster_changes`); sem clusters ligados em `clusters`, as duas respondem que a
+consulta ao cluster não está configurada. O estudo da memória fica sem o cluster. O `main.py`
 trata SIGINT/SIGTERM e encerra os três laços com graça, porque com vários laços os handlers de
 sinal do procrastinate brigariam.
 

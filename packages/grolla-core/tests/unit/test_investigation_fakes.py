@@ -13,6 +13,7 @@ from contracts.cloud_inventory_contract import (
     CloudInventoryContract,
     CloudOverviewContract,
 )
+from contracts.cluster_inventory_contract import ClusterInventoryContract
 from contracts.cycle_queue_contract import CycleQueueContract
 from contracts.language_model_contract import (
     SERVICE,
@@ -28,15 +29,18 @@ from grolla.application.follow_up import CycleQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
     HEALTH_UNAVAILABLE,
+    NO_CLUSTER_CHANGES,
     READ_LIMIT,
     AlertRule,
     ChangeHistory,
     CloudInventory,
+    ClusterInventory,
     InvalidAnalysisError,
     LanguageModel,
     LanguageModelError,
     Telemetry,
 )
+from grolla.testing.builders import T0
 from grolla.testing.follow_up import InMemoryCycleQueue
 from grolla.testing.incidents import (
     InMemoryAnalysisQueue,
@@ -48,6 +52,7 @@ from grolla.testing.investigation import (
     CLOUD_TOOLS,
     FakeChangeHistory,
     FakeCloudInventory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
 )
@@ -117,6 +122,29 @@ async def test_fake_cloud_answers_no_events_and_no_quota_near_the_limit_by_defau
     assert health.summary == "nenhum evento aberto do provedor para pedidos-api"
     assert quotas.summary == "nenhuma cota perto do limite"
     assert cloud.calls == [("health", "pedidos-api"), ("quotas", "pedidos-api")]
+
+
+class TestFakeClusterInventoryContract(ClusterInventoryContract):
+    @pytest.fixture
+    def cluster(self, service: str) -> ClusterInventory:
+        return FakeClusterInventory(
+            state={service: "deployment pedidos-api: 2 de 3 prontas; pod pedidos-api-1 OOMKilled"},
+            changes={service: "03:10 ConfigMap pedidos-config alterado por kubectl-edit"},
+        )
+
+    @pytest.fixture
+    def unavailable_cluster(self) -> ClusterInventory:
+        return FakeClusterInventory(failing={"state", "changes"})
+
+
+async def test_fake_cluster_records_the_calls_and_answers_no_changes_by_default() -> None:
+    cluster = FakeClusterInventory()
+
+    changes = await cluster.changes("pedidos-api", T0)
+
+    assert changes.summary == NO_CLUSTER_CHANGES
+    assert cluster.calls == [("changes", "pedidos-api")]
+    assert cluster.since == [T0]
 
 
 class TestScriptedLanguageModelContract(LanguageModelContract):

@@ -43,6 +43,7 @@ from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.investigation import (
     FakeChangeHistory,
     FakeCloudInventory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
     fake_usage,
@@ -65,6 +66,7 @@ class World:
         self.memory = InMemoryMemoryStore()
         self.clock = FakeClock(T0)
         self.telemetry = FakeTelemetry()
+        self.cluster = FakeClusterInventory()
         self.model = model or ScriptedLanguageModel(console_calls=CALLS)
 
     async def ask(self, text: str = "o pedidos-api está com erro agora?", author: str = "Ana"):
@@ -81,6 +83,7 @@ class World:
             cloud=FakeCloudInventory(),
             clock=self.clock,
             policy=POLICY,
+            cluster=self.cluster,
             memory=self.memory if memory else None,
         )
 
@@ -370,3 +373,14 @@ def test_console_prompt_has_the_short_format_the_memory_and_the_chart_rule() -> 
         assert expected in CONSOLE_PROMPT or expected.lower() in CONSOLE_PROMPT.lower()
     assert "taxa_de_erro" in CONSOLE_PROMPT
     assert console_text("Agora: x", "tudo bem?") == "Agora: x\n\nPergunta: tudo bem?"
+
+
+async def test_reply_can_look_at_the_cluster() -> None:
+    world = World(ScriptedLanguageModel(console_calls=[("cluster_state", {"service": SERVICE})]))
+    session = await world.ask("o pedidos-api está reiniciando?")
+
+    assert await world.reply()
+
+    _, answer = await world.store.messages(session.id)
+    assert [e.tool for e in answer.evaluations] == ["cluster_state"]
+    assert world.cluster.calls == [("state", SERVICE)]

@@ -15,6 +15,7 @@ from grolla.application.investigation import (
     BudgetExceededError,
     ChangeHistory,
     CloudInventory,
+    ClusterInventory,
     InvalidAnalysisError,
     InvestigationBrief,
     LanguageModel,
@@ -127,6 +128,7 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     clock: Clock,
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
+    cluster: ClusterInventory | None = None,
     memory: MemoryStore | None = None,
     embedder: TextEmbedder | None = None,
 ) -> bool:
@@ -141,7 +143,14 @@ async def run_next_analysis(  # noqa: PLR0913 — o caso de uso liga os ports da
     incident = await _incident(repository, job.incident_id)
     brief = await investigation_brief(repository, memory, incident, clock, embedder)
     toolbox = Toolbox(
-        telemetry, changes, clock, policy.lookback, cloud, memory=memory, embedder=embedder
+        telemetry,
+        changes,
+        clock,
+        policy.lookback,
+        cloud,
+        cluster=cluster,
+        memory=memory,
+        embedder=embedder,
     )
     budget = TokenBudget(policy.max_tokens)
     deadline = asyncio.timeout(policy.timeout.total_seconds())
@@ -278,6 +287,7 @@ async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os port
     clock: Clock,
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
+    cluster: ClusterInventory | None = None,
     memory: MemoryStore | None = None,
     embedder: TextEmbedder | None = None,
 ) -> bool:
@@ -295,7 +305,14 @@ async def run_next_verification(  # noqa: PLR0913 — o caso de uso liga os port
         raise LookupError(f"incidente {incident.id} tem validação sem análise inicial")
     brief = await investigation_brief(repository, memory, incident, clock, embedder)
     toolbox = Toolbox(
-        telemetry, changes, clock, policy.lookback, cloud, memory=memory, embedder=embedder
+        telemetry,
+        changes,
+        clock,
+        policy.lookback,
+        cloud,
+        cluster=cluster,
+        memory=memory,
+        embedder=embedder,
     )
     budget = TokenBudget(policy.verification_max_tokens)
     deadline = asyncio.timeout(policy.verification_timeout.total_seconds())
