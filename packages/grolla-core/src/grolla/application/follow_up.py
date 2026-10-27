@@ -16,6 +16,7 @@ from grolla.application.incidents import IncidentRepository
 from grolla.application.investigation import (
     ChangeHistory,
     CloudInventory,
+    ClusterInventory,
     LanguageModel,
     LlmUsage,
     Telemetry,
@@ -161,6 +162,7 @@ async def run_next_cycle(  # noqa: PLR0913 — o caso de uso liga os ports da in
     limits: FollowUpLimits,
     impact: ImpactPolicy,
     page_url: Callable[[UUID], str],
+    cluster: ClusterInventory | None = None,
     memory: MemoryStore | None = None,
     embedder: TextEmbedder | None = None,
 ) -> bool:
@@ -187,7 +189,16 @@ async def run_next_cycle(  # noqa: PLR0913 — o caso de uso liga os ports da in
         await repository.chat_of(incident.id),
         memory=brief.memory,
     )
-    toolbox = Toolbox(telemetry, changes, clock, LOOKBACK, cloud, memory=memory, embedder=embedder)
+    toolbox = Toolbox(
+        telemetry,
+        changes,
+        clock,
+        LOOKBACK,
+        cloud,
+        cluster=cluster,
+        memory=memory,
+        embedder=embedder,
+    )
     budget = TokenBudget(limits.max_tokens)
     deadline = asyncio.timeout(limits.timeout.total_seconds())
     try:

@@ -360,6 +360,20 @@ TOOL_SPECS = (
         "Uso contra o limite das cotas da nuvem que costumam derrubar serviço (instâncias de "
         "banco, vCPUs de máquinas, balanceadores), destacando as que passam de 80%.",
     ),
+    _tool(
+        "cluster_state",
+        "Estado do serviço no cluster de contêineres: por workload, réplicas desejadas e "
+        "prontas, rollout em andamento, cada pod com fase, reinícios, último término (motivo e "
+        "código de saída), espera, probes falhando e limites de CPU e memória; o "
+        "autoescalonador (atual, desejado, máximo) e os eventos de aviso na janela.",
+    ),
+    _tool(
+        "cluster_changes",
+        "Mudanças no cluster de contêineres para o serviço na janela, da mais recente para a "
+        "mais antiga, com horário e a ferramenta que mudou: revisões do workload (imagem, "
+        "variáveis, recursos), réplicas, configurações usadas pelos pods, o autoescalonador e "
+        "as políticas de rede do namespace. Pega mudança feita fora do pipeline.",
+    ),
 )
 
 
@@ -498,8 +512,8 @@ class Toolbox:
         embedder: TextEmbedder | None = None,
         cluster: ClusterInventory | None = None,
     ) -> None:
-        """`cluster` liga `cluster_state` e `cluster_changes` (contrato do cluster: as
-        ferramentas são do grolla-dominio); `memory` liga `recall`; `remember_as` (só no chat)
+        """`cluster` responde `cluster_state` e `cluster_changes` (sem ele, NO_CLUSTER);
+        `memory` liga `recall`; `remember_as` (só no chat)
         liga `remember`, gravando notas com essa fonte; `embedder` faz o `recall` usar a busca
         híbrida nos trechos.
         """
@@ -623,6 +637,14 @@ class Toolbox:
             "cloud_quotas": (
                 f"cotas da nuvem de {service}",
                 lambda: self._cloud.quotas(service),
+            ),
+            "cluster_state": (
+                f"estado no cluster de {service}",
+                lambda: self._cluster.state(service, start),
+            ),
+            "cluster_changes": (
+                f"mudanças no cluster de {service}",
+                lambda: self._cluster.changes(service, start),
             ),
         }
         return only_service[name]
@@ -936,10 +958,19 @@ dos recursos de nuvem e quem mudou o quê; `cloud_alarms` mostra os alarmes ativ
 várias coisas caem juntas ou a região parece afetada, consulte `cloud_health` (eventos do \
 próprio provedor). Quando o erro fala em limite, throttling ou capacidade, ou o serviço não \
 escala, consulte `cloud_quotas`.
+6. Cluster: quando há erro, reinício ou lentidão num serviço que roda no cluster de \
+contêineres, consulte `cluster_state` (pods reiniciando, mortos por memória, probes falhando, \
+autoescalonador no máximo, eventos de aviso). Quando o problema começou sem deploy no \
+pipeline, consulte `cluster_changes`: mostra o que mudou direto no cluster (configuração, \
+variáveis, recursos, réplicas, autoescalonador, políticas de rede), com o horário e a \
+ferramenta que mudou.
 
 Só proponha rollback quando o problema começou depois do deploy, e diga a relação de horário \
 (por exemplo, "erros a partir de 10:02, deploy às 09:58"). Deploy depois do início do problema \
-não é a causa.
+não é a causa. Uma mudança no cluster pouco antes do início do problema que explica o sintoma \
+pode ser a causa, com o horário e a ferramenta como evidência (por exemplo, "configuração \
+pedidos-config alterada às 03:10 por edição manual, erros a partir de 03:11"); o plano sugere \
+reverter a mudança, nunca a executa.
 
 Se uma ferramenta responder "não foi possível consultar", siga com as outras e leve isso em \
 conta na confiança.
@@ -986,11 +1017,15 @@ prometa executar, nenhuma ação no ambiente; quem decide e age é o time.
 Para cada hipótese da análise inicial:
 1. Busque evidência específica que a confirme ou a rejeite, com as ferramentas \
 (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, `cloud_resources`, \
-`cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`). Compare horários: o início do \
-problema, cada deploy e cada mudança nos recursos. `cloud_health` confirma ou descarta um \
-evento do provedor quando várias coisas caem juntas ou a região parece afetada; `cloud_quotas`, \
-uma cota estourada quando o erro fala em limite, throttling ou capacidade, ou o serviço não \
-escala.
+`cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`, `cluster_state`, \
+`cluster_changes`). Compare horários: o início do problema, cada deploy e cada mudança nos \
+recursos e no cluster. `cloud_health` confirma ou descarta um evento do provedor quando várias \
+coisas caem juntas ou a região parece afetada; `cloud_quotas`, uma cota estourada quando o erro \
+fala em limite, throttling ou capacidade, ou o serviço não escala. `cluster_state` mostra o \
+estado no cluster de contêineres quando há erro, reinício ou lentidão num serviço que roda nele \
+(reinícios, término por memória, probes, autoescalonador no máximo); `cluster_changes`, o que \
+mudou direto no cluster quando o problema começou sem deploy no pipeline, com o horário e a \
+ferramenta que mudou.
 2. Dê o veredito: confirmada, rejeitada ou inconclusiva, com a justificativa em uma ou duas \
 frases e ao menos uma evidência que uma ferramenta mostrou (números, horários, versões, \
 mensagens), com o link que a ferramenta devolveu quando houver.
@@ -1002,11 +1037,14 @@ também valem aqui.
 
 Com uma hipótese confirmada:
 - root_cause: a causa raiz numa frase, dizendo o quê, quando e onde (por exemplo, "banco \
-pedidos-db parado manualmente às 21:42").
+pedidos-db parado manualmente às 21:42"). Uma mudança no cluster que explica o sintoma pode \
+ser a causa raiz, com o horário e a ferramenta como evidência (por exemplo, "configuração \
+pedidos-config alterada às 03:10 por edição manual, DB_POOL_SIZE=2").
 - actions: o plano de ações concretas para o humano executar, em ordem, começando pelo que \
 reduz o impacto mais rápido. Cada ação diz o que fazer (action), onde (target) e o efeito \
 esperado (expected), por exemplo "fazer rollback para o build X", "religar o recurso Y" ou \
-"escalar Z". Use o link de uma ferramenta quando houver.
+"escalar Z"; para uma mudança no cluster, reverter o valor ou a revisão anterior (o time \
+executa, você nunca). Use o link de uma ferramenta quando houver.
 - Nunca coloque passos de investigação no plano (investigar, verificar, checar, analisar, \
 consultar, confirmar, avaliar, revisar, examinar, observar, acompanhar, monitorar): isso você \
 já fez. Plano assim é recusado.
@@ -1046,8 +1084,13 @@ Não escreva:
 Consultas:
 - Quando a pergunta pede um dado (estado atual, se algo voltou, o que os logs mostram), \
 consulte as ferramentas (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, \
-`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`) antes de \
-responder. Não responda de memória o que uma consulta pode mostrar agora.
+`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`, \
+`cluster_state`, `cluster_changes`) antes de responder. Não responda de memória o que uma \
+consulta pode mostrar agora.
+- Cluster de contêineres: `cluster_state` quando há erro, reinício ou lentidão num serviço que \
+roda nele; `cluster_changes` quando o problema começou sem deploy no pipeline. Uma mudança no \
+cluster que explica o sintoma pode ser a causa, com o horário e a ferramenta como evidência; \
+sugira reverter, nunca execute.
 - Faça só as consultas necessárias para responder, em geral de 1 a 3.
 - Nunca afirme sem evidência. Não invente dados, links nem consultas que você não fez.
 - Se uma ferramenta responder "não foi possível consultar", siga com as outras.
@@ -1554,8 +1597,13 @@ parágrafos longos.
 Consultas:
 - Quando a pergunta pede um dado (estado atual, o que mudou, o que os logs mostram), consulte \
 as ferramentas (`query_metric`, `search_logs`, `find_traces`, `recent_deploys`, `read_file`, \
-`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`) antes de \
-responder. Não responda de memória o que uma consulta pode mostrar agora.
+`cloud_resources`, `cloud_changes`, `cloud_alarms`, `cloud_health`, `cloud_quotas`, \
+`cluster_state`, `cluster_changes`) antes de responder. Não responda de memória o que uma \
+consulta pode mostrar agora.
+- Cluster de contêineres: `cluster_state` quando há erro, reinício ou lentidão num serviço que \
+roda nele; `cluster_changes` quando o problema começou sem deploy no pipeline. Uma mudança no \
+cluster que explica o sintoma pode ser a causa, com o horário e a ferramenta como evidência; \
+sugira reverter, nunca execute.
 - Faça só as consultas necessárias para responder, em geral de 1 a 3.
 - Nunca afirme sem evidência. Não invente dados, links nem consultas que você não fez.
 - Se uma ferramenta responder "não foi possível consultar", siga com as outras.

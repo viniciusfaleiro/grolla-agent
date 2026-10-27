@@ -48,6 +48,7 @@ from grolla.testing.follow_up import InMemoryCycleQueue
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla.testing.investigation import (
     FakeChangeHistory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
     fake_usage,
@@ -72,6 +73,7 @@ class World:
         self.queue = InMemoryCycleQueue(self.repository)
         self.clock = FakeClock(T0)
         self.telemetry = FakeTelemetry()
+        self.cluster = FakeClusterInventory()
 
     async def open(
         self,
@@ -109,6 +111,7 @@ class World:
             limits=LIMITS,
             impact=IMPACT,
             page_url=page_url,
+            cluster=self.cluster,
             memory=memory,
             embedder=FakeTextEmbedder() if memory else None,
         )
@@ -412,3 +415,17 @@ def test_follow_up_text_has_the_context_and_the_previous_cycle() -> None:
     assert "taxa de erro não medida" in unmeasured
     assert "query_metric" in FOLLOW_UP_PROMPT
     assert "taxa_de_erro" in FOLLOW_UP_PROMPT
+
+
+async def test_cycle_can_look_at_the_cluster(world: World) -> None:
+    incident = await world.open()
+    draft = CycleDraft(Trend.STABLE, 12.0, "Erro estável em 12%.", False)
+    model = ScriptedLanguageModel(
+        follow_up_draft=draft, follow_up_calls=[("cluster_state", {"service": SERVICE})]
+    )
+
+    await world.cycle_at(6, model)
+
+    [cycle] = await world.repository.cycles_of(incident.id)
+    assert [e.tool for e in cycle.evaluations] == ["cluster_state"]
+    assert world.cluster.calls == [("state", SERVICE)]

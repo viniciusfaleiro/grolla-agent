@@ -10,12 +10,16 @@ from grolla.application.investigation import (
     HEALTH_UNAVAILABLE,
     NO_CLOUD,
     NO_CLOUD_RESOURCES,
+    NO_CLUSTER,
+    NO_CLUSTER_CHANGES,
     NO_REPOSITORY,
+    NO_WORKLOADS,
     SYSTEM_PROMPT,
     UNAVAILABLE,
     VERIFICATION_PROMPT,
     BudgetExceededError,
     CloudInventory,
+    ClusterInventory,
     InvestigationBrief,
     TokenBudget,
     Toolbox,
@@ -30,6 +34,7 @@ from grolla.testing.investigation import (
     FAKE_SOURCE_URL,
     FakeChangeHistory,
     FakeCloudInventory,
+    FakeClusterInventory,
     FakeTelemetry,
     fake_usage,
 )
@@ -42,6 +47,7 @@ def toolbox(
     telemetry: FakeTelemetry | None = None,
     changes: FakeChangeHistory | None = None,
     cloud: CloudInventory | None = None,
+    cluster: ClusterInventory | None = None,
 ) -> Toolbox:
     return Toolbox(
         telemetry or FakeTelemetry(),
@@ -49,6 +55,7 @@ def toolbox(
         FakeClock(T0),
         LOOKBACK,
         cloud,
+        cluster=cluster,
     )
 
 
@@ -65,6 +72,8 @@ def test_specs_are_the_neutral_tools_with_closed_arguments() -> None:
         "cloud_alarms": {"service"},
         "cloud_health": {"service"},
         "cloud_quotas": {"service"},
+        "cluster_state": {"service"},
+        "cluster_changes": {"service"},
         "read_file": {"service", "path"},
         "service_dependencies": {"service"},
         "cloud_overview": set(),
@@ -79,6 +88,8 @@ def test_specs_are_the_neutral_tools_with_closed_arguments() -> None:
         "cloud_alarms": ["service"],
         "cloud_health": ["service"],
         "cloud_quotas": ["service"],
+        "cluster_state": ["service"],
+        "cluster_changes": ["service"],
         "read_file": ["service", "path"],
         "service_dependencies": ["service"],
         "cloud_overview": [],
@@ -280,6 +291,21 @@ def test_prompts_say_when_to_look_at_provider_events_and_quotas() -> None:
         assert "`cloud_health`, `cloud_quotas`" in prompt
 
 
+def test_prompts_say_when_to_look_at_the_cluster() -> None:
+    for prompt in (SYSTEM_PROMPT, VERIFICATION_PROMPT, CHAT_PROMPT, CONSOLE_PROMPT):
+        for expected in (
+            "`cluster_state`",
+            "`cluster_changes`",
+            "reinício ou lentidão",
+            "sem deploy no pipeline",
+            "o horário e a ferramenta",
+        ):
+            assert expected in prompt
+    for prompt in (SYSTEM_PROMPT, VERIFICATION_PROMPT):
+        assert "reverter" in prompt
+        assert "pode ser a causa" in prompt
+
+
 async def test_health_without_the_plan_is_an_answer() -> None:
     cloud = FakeCloudInventory(health={SERVICE: HEALTH_UNAVAILABLE})
     tools = toolbox(cloud=cloud)
@@ -393,4 +419,53 @@ async def test_cloud_failure_becomes_an_unavailable_evaluation() -> None:
 
     assert answer.startswith(UNAVAILABLE)
     assert tools.evaluations[0].finding == UNAVAILABLE
+    assert not tools.evaluations[0].ok
+
+
+@pytest.mark.parametrize(
+    ("name", "subject", "call", "summary"),
+    [
+        ("cluster_state", f"estado no cluster de {SERVICE}", "state", "pod OOMKilled"),
+        ("cluster_changes", f"mudanças no cluster de {SERVICE}", "changes", "03:10 ConfigMap"),
+    ],
+)
+async def test_cluster_tools_call_the_cluster_since_the_lookback(
+    name: str, subject: str, call: str, summary: str
+) -> None:
+    cluster = FakeClusterInventory(
+        state={SERVICE: "pod OOMKilled"}, changes={SERVICE: "03:10 ConfigMap"}
+    )
+    tools = toolbox(cluster=cluster)
+
+    answer = await tools.call(name, {"service": SERVICE})
+
+    assert answer == summary
+    assert cluster.calls == [(call, SERVICE)]
+    assert cluster.since == [T0 - LOOKBACK]
+    assert tools.evaluations[0].subject == subject
+    assert tools.evaluations[0].ok
+
+
+async def test_service_outside_the_cluster_is_an_answer() -> None:
+    tools = toolbox(cluster=FakeClusterInventory())
+
+    assert await tools.call("cluster_state", {"service": SERVICE}) == NO_WORKLOADS
+    assert await tools.call("cluster_changes", {"service": SERVICE}) == NO_CLUSTER_CHANGES
+    assert all(evaluation.ok for evaluation in tools.evaluations)
+
+
+@pytest.mark.parametrize("name", ["cluster_state", "cluster_changes"])
+async def test_without_cluster_the_tools_say_it_is_not_configured(name: str) -> None:
+    tools = toolbox()
+
+    assert await tools.call(name, {"service": SERVICE}) == NO_CLUSTER
+    assert tools.evaluations[0].ok
+
+
+async def test_cluster_failure_becomes_an_unavailable_evaluation() -> None:
+    tools = toolbox(cluster=FakeClusterInventory(failing={"state", "changes"}))
+
+    answer = await tools.call("cluster_state", {"service": SERVICE})
+
+    assert answer.startswith(UNAVAILABLE)
     assert not tools.evaluations[0].ok
