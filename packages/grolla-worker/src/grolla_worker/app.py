@@ -6,6 +6,12 @@ from grolla.application.analysis import (
     run_next_verification,
 )
 from grolla.application.chat import reap_stuck_replies, run_next_reply
+from grolla.application.follow_up import (
+    CycleQueue,
+    reap_stuck_cycles,
+    run_next_cycle,
+    schedule_cycles,
+)
 from grolla.application.incidents import deliver_notifications
 from grolla.application.memory import (
     STUDY_AUTHOR_SYSTEM,
@@ -18,6 +24,7 @@ from grolla.application.memory import (
 )
 from grolla.application.memory_retrieval import index_memory
 from grolla.bootstrap import WorkerContainer
+from grolla.domain.follow_up import FollowUpPolicy
 
 from grolla_worker.heartbeat import HEARTBEAT_CRON, beat
 
@@ -35,6 +42,8 @@ REAPER_CRON = "* * * * *"
 LEARNINGS_CRON = "* * * * * */10"
 STUDIES_CRON = "* * * * *"
 INDEX_CRON = "* * * * * */30"
+SCHEDULE_CYCLES_CRON = "* * * * * */30"
+CYCLES_CRON = "* * * * * */10"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -225,6 +234,10 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             ):
                 pass
 
+    cycles, follow_up = container.cycle_queue, container.follow_up_policy
+    if cycles is not None and follow_up is not None:
+        _follow_up_jobs(app, container, cycles, follow_up)
+
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:
         # O estudo diário só pede a rodada; quem estuda é o `run_studies`.
@@ -242,3 +255,52 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             )
 
     return app
+
+
+def _follow_up_jobs(
+    app: procrastinate.App,
+    container: WorkerContainer,
+    cycles: CycleQueue,
+    policy: FollowUpPolicy,
+) -> None:
+    """O acompanhamento da crise, só com a seção `follow_up` no YAML."""
+    limits = container.follow_up_limits
+
+    # A varredura é barata: só decide e enfileira, na fila `default`.
+    @app.periodic(cron=SCHEDULE_CYCLES_CRON)
+    @app.task(name="schedule_cycles", queue=DEFAULT_QUEUE, queueing_lock="schedule_cycles")
+    async def schedule(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await schedule_cycles(cycles, container.repository, container.clock, policy, limits)
+
+    # Uma rodada por vez (lock): os ciclos de todos os incidentes até a fila esvaziar.
+    @app.periodic(cron=CYCLES_CRON)
+    @app.task(
+        name="run_cycles", queue=ANALYSIS_QUEUE, queueing_lock="run_cycles", lock="run_cycles"
+    )
+    async def run(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        while await run_next_cycle(
+            queue=cycles,
+            repository=container.repository,
+            model=container.model,
+            telemetry=container.telemetry,
+            changes=container.changes,
+            cloud=container.cloud,
+            clock=container.clock,
+            policy=policy,
+            limits=limits,
+            impact=container.impact_policy,
+            page_url=container.analysis.page_url,
+            memory=container.memory,
+            embedder=container.embedder,
+        ):
+            pass
+
+    @app.periodic(cron=REAPER_CRON)
+    @app.task(
+        name="reap_stuck_cycles",
+        queue=ANALYSIS_QUEUE,
+        queueing_lock="reap_stuck_cycles",
+        lock="reap_stuck_cycles",
+    )
+    async def reap(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+        await reap_stuck_cycles(cycles, container.repository, container.clock, policy, limits)

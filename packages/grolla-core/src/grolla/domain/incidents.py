@@ -13,6 +13,7 @@ if TYPE_CHECKING:  # o acompanhamento importa este módulo
     from grolla.domain.follow_up import Cycle
 
 UNKNOWN_SERVICE = "desconhecido"
+ALERT_REOPENED_REASON = "alerta voltou a disparar"  # mitigado volta para em tratamento
 
 
 class Severity(StrEnum):
@@ -266,23 +267,27 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
             )
             kind = NotificationKind.SEVERITY_RAISED
 
-    # Só Detectado e Informado seguem a severidade; Em tratamento e Mitigado são do humano.
+    # Só Detectado e Informado seguem a severidade; Em tratamento é do humano. Mitigado volta
+    # para Em tratamento quando um alerta volta a disparar, mantendo IC, TTA e TTM.
     waiting = incident.state in (IncidentState.DETECTED, IncidentState.INFORMED)
+    reopened = incident.state is IncidentState.MITIGATED
     target = state_for(incident.severity) if waiting else incident.state
+    if reopened:
+        target = IncidentState.HANDLING
     if target != incident.state:
-        events.append(
-            _event(
-                incident,
-                now,
-                EventType.STATE_CHANGED,
-                {"from": incident.state.value, "to": target.value},
-            )
-        )
+        change = {"from": incident.state.value, "to": target.value}
+        if reopened:
+            change["reason"] = ALERT_REOPENED_REASON
+        events.append(_event(incident, now, EventType.STATE_CHANGED, change))
         incident = replace(incident, state=target)
 
     if current is None:
         events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
     notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
+    if reopened:
+        card = _notification(NotificationKind.ALERT_REOPENED, incident, alert, page_url)
+        summary = f"{ALERT_REOPENED_REASON}: {alert.rule_name}; incidente volta a em tratamento"
+        notifications = (*notifications, replace(card, summary=summary))
     return replace(
         decision_with_cards(incident, events, notifications, now), request_analysis=current is None
     )

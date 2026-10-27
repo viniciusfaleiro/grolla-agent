@@ -85,3 +85,4 @@ async def ask(
         saved = await uow.add_message(question, wants_reply=True)
         data = {"message_id": saved.id, "text": text}
         await uow.append([IncidentEvent(incident_id, now, EventType.HUMAN_MESSAGE, data, author)])
+        await uow.request_cycle(incident_id, now)  # a mensagem antecipa o próximo ciclo
