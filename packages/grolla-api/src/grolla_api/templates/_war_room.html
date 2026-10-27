@@ -1,14 +1,12 @@
 {# Condução, causa raiz e análise; é o fragmento devolvido pelas rotas de ação. #}
 {% from "_macros.html" import lookups, evidence_list, avatar, when %}
 {% from "_follow_up.html" import proposal_notice, follow_up_section %}
-{% from "_live.html" import alarm_banner, incident_status %}
+{% from "_live.html" import incident_status, next_step_buttons %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 <section id="war-room">
 <div class="conduct">
-  {{ alarm_banner(alarm, header, author, incident, now) }}
-
-  {{ incident_status(incident, header, impact) }}
+  {{ incident_status(incident, header, impact, alarm, author, now, alerts) }}
 
   {{ proposal_notice(proposal, header, author, base) }}
 
@@ -47,20 +45,7 @@
   </div>
   {% elif open %}
   <div class="panel next-step" hx-target="#war-room" hx-swap="outerHTML">
-    <div class="next-step-main">
-      {% if "assume" in header.actions %}
-      <form hx-post="{{ base }}assume"><button class="{{ 'button-primary button-big' if header.primary == 'assume' else '' }}">{{ "Assumir como IC" if not incident.commander else "Assumir como IC no lugar de " ~ incident.commander }}</button></form>
-      {% endif %}
-      {% if "mitigate" in header.actions %}
-      <form hx-post="{{ base }}mitigate"><button class="{{ 'button-primary button-big' if header.primary == 'mitigate' else '' }}">Marcar mitigado</button></form>
-      {% endif %}
-      {% if "resolve" in header.actions %}
-      <button class="{{ 'button-primary button-big' if header.primary == 'resolve' else '' }}" popovertarget="encerrar">Encerrar</button>
-      {% endif %}
-      {% if "reopen" in header.actions %}
-      <form hx-post="{{ base }}reopen"><button>Reabrir</button></form>
-      {% endif %}
-    </div>
+    {{ next_step_buttons(incident, header) }}
 
     {% if "record" in header.actions %}
     <form class="record" hx-post="{{ base }}record">
