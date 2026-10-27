@@ -10,7 +10,8 @@ próximos pelo vetor (distância de cosseno exata, sem índice ANN) e os K melho
 com a fusão de rankings (RRF): `score = soma de 1/(60 + posição)`.
 """
 
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -47,6 +48,14 @@ from grolla.domain.memory import (
     SubjectKind,
 )
 
+# Busca textual com OU entre as palavras: a consulta é a frase inteira de um incidente, e com E
+# (`websearch_to_tsquery`) quase nada casaria. O `ts_rank` põe na frente quem tem mais em comum.
+ANY_WORD = (
+    "CAST(replace(CAST(plainto_tsquery('portuguese', {param}) AS text), ' & ', ' | ') AS tsquery)"
+)
+TEXT_ANY = ANY_WORD.format(param=":text")
+QUERY_ANY = ANY_WORD.format(param=":query")
+
 MEMORY_COLUMNS = (
     "id, kind, subject, subject_kind, title, body, confidence, source_kind, source_author,"
     " source_ref, incident_id, active, consolidated, noise, created_at, updated_at"
@@ -75,7 +84,7 @@ PENDING_NOTES = sa.text(
 # sem texto, os mais recentes do serviço.
 SIMILAR_EPISODES = sa.text(
     f"SELECT {MEMORY_COLUMNS} FROM memories,"  # noqa: S608 — colunas fixas
-    " websearch_to_tsquery('portuguese', :text) AS query"
+    f" {TEXT_ANY} AS query"
     " WHERE kind = :episode AND active"
     " AND (subject = ANY(CAST(:services AS text[])) OR search @@ query)"
     " ORDER BY (subject = ANY(CAST(:services AS text[])) AND EXISTS ("
@@ -89,7 +98,7 @@ SIMILAR_EPISODES = sa.text(
 # episódio) e do texto. Episódio de outro serviço só entra se um dos dois o trouxer no top K.
 RRF = 60
 HYBRID_EPISODES = sa.text(
-    "WITH q AS (SELECT websearch_to_tsquery('portuguese', :text) AS tsq),"  # noqa: S608 — idem
+    f"WITH q AS (SELECT {TEXT_ANY} AS tsq),"  # noqa: S608 — idem
     " vec AS (SELECT memory_id, row_number() OVER (ORDER BY distance, memory_id) AS pos"
     " FROM (SELECT c.memory_id, min(c.embedding <=> CAST(:vector AS vector)) AS distance"
     " FROM memory_chunks AS c JOIN memories AS m ON m.id = c.memory_id"
@@ -121,7 +130,7 @@ SEARCH_CHUNKS = sa.text(
     " AND (c.origin = :document OR m.active)"
     " AND (CAST(:subjects AS text[]) IS NULL OR c.subject = ANY(CAST(:subjects AS text[])))"
     " AND (CAST(:origin AS text) IS NULL OR c.origin = :origin)),"
-    " q AS (SELECT websearch_to_tsquery('portuguese', :text) AS tsq),"
+    f" q AS (SELECT {TEXT_ANY} AS tsq),"
     " vec AS (SELECT id, row_number() OVER ("
     "ORDER BY embedding <=> CAST(:vector AS vector), id) AS pos"
     " FROM base WHERE CAST(:vector AS text) IS NOT NULL ORDER BY pos LIMIT :k),"
@@ -151,7 +160,7 @@ DROP_STALE_CHUNKS = sa.text(
 )
 SEARCH = sa.text(
     f"{SELECT_MEMORIES} WHERE active"
-    " AND search @@ websearch_to_tsquery('portuguese', :query)"
+    f" AND search @@ {QUERY_ANY}"
     " AND (CAST(:subject AS text) IS NULL OR subject = :subject)"
     " ORDER BY confidence = :confirmed DESC, updated_at DESC, id LIMIT :limit"
 )
@@ -220,6 +229,16 @@ UPSERT_SERVICE_STUDY = sa.text(
     " studied_at = coalesce(EXCLUDED.studied_at, service_studies.studied_at),"
     " ok = EXCLUDED.ok, reason = EXCLUDED.reason"
 )
+
+
+def distinctive(text: str, names: Iterable[str]) -> str:
+    """O texto da busca textual sem os nomes do serviço e da regra de alerta: todo episódio do
+    serviço os tem, então não distinguem um caso do outro e, com OU, trariam todos; o critério
+    determinístico já cuida deles.
+    """
+    for name in sorted({n for n in names if n}, key=len, reverse=True):
+        text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+    return text
 
 
 def _memory(row: sa.Row[Any]) -> Memory:
@@ -366,7 +385,7 @@ class PostgresMemoryStore:
                 "episode": MemoryKind.EPISODE.value,
                 "services": services,
                 "alerts": list(alert_names),
-                "text": text,
+                "text": distinctive(text, [*services, *alert_names]),
                 "limit": EPISODE_LIMIT,
             }
             if query is not None and vector is not None:
@@ -517,7 +536,7 @@ class PostgresMemoryStore:
                     "document": ChunkOrigin.DOCUMENT.value,
                     "subjects": None if subjects is None else list(subjects),
                     "origin": None if origin is None else origin.value,
-                    "text": query.text,
+                    "text": distinctive(query.text, subjects or ()),
                     "vector": None if query.vector is None else _vector(query.vector),
                     "k": _candidates(limit),
                     "limit": limit,

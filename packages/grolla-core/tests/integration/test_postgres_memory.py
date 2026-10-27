@@ -550,6 +550,27 @@ async def test_drop_stale_chunks_removes_other_models_and_forgotten(
     assert await store.unindexed(MODEL, 10) == []
 
 
+async def test_text_search_matches_any_word_of_a_long_sentence(
+    store: PostgresMemoryStore,
+) -> None:
+    """A consulta é a frase inteira de um incidente: basta ter palavras em comum, e quem tem
+    mais vem primeiro (com E entre as palavras, nada casaria).
+    """
+    many = make_memory(subject="pedidos-api", kind=MemoryKind.NOTE)
+    few = make_memory(subject="pedidos-api", kind=MemoryKind.EPISODE)
+    none = make_memory(subject="pedidos-api", kind=MemoryKind.EPISODE)
+    await saved(store, many, few, none)
+    many_chunk = await indexed(store, many, POOL, "Vazão baixa sem erro: gerador de tráfego.")
+    few_chunk = await indexed(store, few, POOL, "A vazão caiu depois do deploy.")
+    none_chunk = await indexed(store, none, POOL, "Disco cheio no nó.")
+
+    sentence = "a vazão da pedidos-api caiu pela metade e não há nenhum erro"
+    hits = await store.search_chunks(None, Query(sentence, None, MODEL), 10)
+
+    # O nome do serviço também é palavra do trecho: o sem relação casa só por ele e fica atrás.
+    assert [hit.chunk for hit in hits] == [many_chunk, few_chunk, none_chunk]
+
+
 async def test_search_chunks_fuses_vector_and_text(store: PostgresMemoryStore) -> None:
     near = make_memory(subject="pedidos-api", kind=MemoryKind.EPISODE)
     words = make_memory(subject="gateway", kind=MemoryKind.EPISODE)

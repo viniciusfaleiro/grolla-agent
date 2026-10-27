@@ -45,6 +45,7 @@ class FakeAzureDevOps:
         self.commit_status = 200
         self.files: dict[str, Any] = {"/README.md": fixture("item_file")}  # Git Items por caminho
         self.listing: Any = fixture("items_root")
+        self.empty: set[str] = set()  # repositórios sem nenhum branch
         self.requests: list[httpx2.Request] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
@@ -56,17 +57,23 @@ class FakeAzureDevOps:
         if "/commits/" in request.url.path:
             return httpx2.Response(self.commit_status, json=fixture("commit"))
         if request.url.path.endswith("/items"):
-            return self._items(request.url.params)
+            return self._items(request.url.params, empty=parts[-2] in self.empty)
         if "/_apis/git/repositories/" in request.url.path:
             if (project, parts[-1]) not in self.repositories:
                 return httpx2.Response(404, json={"message": "TF401019: repository not found"})
-            return httpx2.Response(200, json={**fixture("repository"), "name": parts[-1]})
+            repository = {**fixture("repository"), "name": parts[-1]}
+            if parts[-1] in self.empty:
+                repository |= {"defaultBranch": None, "size": 0}
+            return httpx2.Response(200, json=repository)
         return httpx2.Response(200, json=self.builds)
 
-    def _items(self, params: httpx2.QueryParams) -> httpx2.Response:
+    def _items(self, params: httpx2.QueryParams, *, empty: bool = False) -> httpx2.Response:
         """Git Items: a listagem com `recursionLevel` (a pasta em `scopePath`; com `path` a API
         real responde 400), senão o arquivo do caminho (ou 404).
         """
+        if empty:  # como a API real com um repositório sem nenhum branch
+            body = {"message": "VS403403: Cannot find any branches for the repository."}
+            return httpx2.Response(404, json=body)
         if "recursionLevel" in params:
             if "scopePath" not in params:
                 return httpx2.Response(400, json={"message": "VS403403: scopePath obrigatório"})
@@ -526,6 +533,14 @@ async def test_documents_skip_binary_and_vanished_files() -> None:
 
 async def test_documents_of_service_without_repository_are_empty() -> None:
     assert await documented().history().documents("servico-sem-repositorio", 10, 1000) == []
+
+
+async def test_documents_of_an_empty_repository_are_empty() -> None:
+    fake = documented()
+    fake.empty = {"authorizer-api"}
+
+    assert await fake.history().documents("authorizer-api", 10, 1000) == []
+    assert not any(r.url.path.endswith("/items") for r in fake.requests)
 
 
 async def test_documents_with_failing_api_or_network_are_unavailable() -> None:

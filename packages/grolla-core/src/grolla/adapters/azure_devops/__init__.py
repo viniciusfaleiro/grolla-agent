@@ -102,8 +102,8 @@ class AzureDevOpsChangeHistory:
         try:
             async with self._http() as client:
                 repository = await self._repository(client, service)
-                if repository is None:
-                    return []
+                if repository is None or repository.branch is None:
+                    return []  # sem repositório, ou repositório vazio (sem nenhum branch)
                 listing = await self._items(client, repository, "/", file=False, full=True)
                 paths = sorted(
                     item.path
