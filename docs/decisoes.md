@@ -67,3 +67,6 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 60 | 27/10 | war room | Cada hipótese aparece uma vez, com o veredito de mesmo título; veredito sem hipótese vai no fim | Hipóteses e vereditos saíam duas vezes, em seções separadas |
 | 61 | 27/10 | war room | Filtro da linha do tempo no navegador, com o estado na seção, e eventos de sistema recolhidos | O polling troca a timeline a cada evento; um filtro na query string se perderia |
 | 62 | 27/10 | war room | Sem gráfico no cartão "Agora": a taxa de erro vem do último ciclo | Desenhar a série pediria uma consulta à telemetria a cada carga da página |
+| 63 | 27/10 | lista | Filtros da lista na URL, aplicados em Python sobre os 200 incidentes mais recentes | O limite já existia e o filtro em memória é barato; não muda o port |
+| 64 | 27/10 | lista | Causa e post mortem lidos só para os cartões abertos e os 20 encerrados mostrados | No máximo algumas dezenas de consultas simples; um método de leitura junto fica para quando a lista crescer |
+| 65 | 27/10 | lista | Aberto há mais de 24 h sem IC vira "esquecido?" com "Encerrar" | No lab, dois incidentes ficaram abertos 40 h sem ninguém |

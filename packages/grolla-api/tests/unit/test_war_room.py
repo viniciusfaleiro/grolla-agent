@@ -736,9 +736,10 @@ def test_incident_list_shows_how_many_are_open(
 
     page = client.get("/incidents").text
 
-    assert "1 aberto de 2" in page
-    assert "há 12 min" in page
+    assert "1 aberto" in page
+    assert "2 de 2 incidentes" in page
     assert "IC Ana" in page
+    assert page.index("Precisa de você agora") < page.index('id="encerrados"')
 
 
 @pytest.mark.parametrize(

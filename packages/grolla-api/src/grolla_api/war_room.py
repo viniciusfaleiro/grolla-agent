@@ -884,3 +884,144 @@ def event_kind(event: IncidentEvent) -> str:
 def system_count(events: Iterable[IncidentEvent]) -> int:
     """Quantos eventos de sistema a linha do tempo recolhe atrás de "mostrar"."""
     return sum(1 for e in events if event_kind(e) == "sistema")
+
+
+# ---- Lista de incidentes: filtros e cartões ----
+
+_PERIODS = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+_SCOPES = frozenset({"abertos", "encerrados", "todos"})
+FORGOTTEN_AFTER = timedelta(hours=24)  # aberto sem IC há mais que isso: talvez esquecido
+CLOSED_SHOWN = 20  # encerrados mostrados sem "mostrar todos"
+
+
+@dataclass(frozen=True)
+class IncidentFilter:
+    """Filtros da lista na query; valor inválido vale como sem filtro."""
+
+    severities: frozenset[Severity] = frozenset()
+    scope: str = "todos"
+    service: str = ""
+    alarm: str = ""  # disparando ou normalizado
+    commander: str = ""  # meus ou sem
+    period: str = ""  # 24h, 7d ou 30d
+    text: str = ""
+
+    @classmethod
+    def from_query(cls, params: Mapping[str, Sequence[str]]) -> "IncidentFilter":
+        def one(name: str) -> str:
+            values = params.get(name) or [""]
+            return values[0].strip()
+
+        severities = frozenset(Severity(v) for v in params.get("sev", ()) if v in Severity)
+        return cls(
+            severities=severities,
+            scope=one("estado") if one("estado") in _SCOPES else "todos",
+            service=one("servico"),
+            alarm=one("alarme") if one("alarme") in {"disparando", "normalizado"} else "",
+            commander=one("ic") if one("ic") in {"meus", "sem"} else "",
+            period=one("periodo") if one("periodo") in _PERIODS else "",
+            text=one("q"),
+        )
+
+    @property
+    def active(self) -> bool:
+        return self != IncidentFilter()
+
+    def matches(self, incident: Incident, author: str | None, now: datetime) -> bool:
+        checks = (
+            not self.severities or incident.severity in self.severities,
+            not self.service or self.service in incident.services,
+            self._alarm(incident),
+            self._commander(incident, author),
+            not self.period or incident.detected_at >= now - _PERIODS[self.period],
+            self._text(incident),
+        )
+        return all(checks)
+
+    def _alarm(self, incident: Incident) -> bool:
+        if self.alarm == "disparando":
+            return incident.state in OPEN_STATES and bool(incident.firing)
+        if self.alarm == "normalizado":
+            return alarm_normalized(incident)
+        return True
+
+    def _commander(self, incident: Incident, author: str | None) -> bool:
+        if self.commander == "meus":
+            return author is not None and incident.commander == author
+        if self.commander == "sem":
+            return incident.commander is None
+        return True
+
+    def _text(self, incident: Incident) -> bool:
+        needle = self.text.casefold()
+        haystack = [incident.title, *incident.services]
+        return not needle or any(needle in item.casefold() for item in haystack)
+
+
+@dataclass(frozen=True)
+class OpenCard:
+    """O cartão de um incidente aberto em "Precisa de você agora"."""
+
+    incident: Incident
+    alarm: str  # disparando, normalizado ou "" (sem alerta)
+    since: str  # "há 21 min"
+    cause: str  # causa raiz, ou a hipótese mais provável
+    cause_confirmed: bool
+    forgotten: bool
+    next_step: str
+
+
+_NEXT_STEP = {"assume": "Assumir", "mitigate": "Marcar mitigado", "resolve": "Encerrar"}
+
+
+def open_card(
+    incident: Incident,
+    analysis: Analysis | None,
+    verification: Verification | None,
+    now: datetime,
+) -> OpenCard:
+    if incident.firing:
+        alarm, since = "disparando", ago(now - incident.detected_at)
+    elif alarm_normalized(incident):
+        alarm, since = "normalizado", ago(now - incident.last_alert_at)
+    else:
+        alarm, since = "", ago(now - incident.detected_at)
+    situation = situation_of(analysis, verification)
+    forgotten = incident.commander is None and now - incident.detected_at > FORGOTTEN_AFTER
+    header = header_of(incident, now)
+    step = "Encerrar" if forgotten else _NEXT_STEP.get(header.primary or "", "Abrir war room")
+    return OpenCard(
+        incident=incident,
+        alarm=alarm,
+        since=since,
+        cause=situation.text,
+        cause_confirmed=situation.kind == "causa",
+        forgotten=forgotten,
+        next_step=step,
+    )
+
+
+@dataclass(frozen=True)
+class ClosedRow:
+    incident: Incident
+    cause: str
+    duration: str
+    post_mortem: str  # rótulo da situação do post mortem, ou ""
+
+
+def closed_row(
+    incident: Incident, verification: Verification | None, post_mortem: str
+) -> ClosedRow:
+    """Linha dos encerrados; `post_mortem` é o rótulo da situação dele ("" sem post mortem)."""
+    end = incident.resolved_at or incident.last_alert_at
+    return ClosedRow(
+        incident=incident,
+        cause=(verification.root_cause or "") if verification else "",
+        duration=format_duration(end - incident.detected_at),
+        post_mortem=post_mortem,
+    )
+
+
+def firing_count(incidents: Iterable[Incident]) -> int:
+    """Contador da navegação: abertos com alarme disparando."""
+    return sum(1 for i in incidents if i.state in OPEN_STATES and i.firing)

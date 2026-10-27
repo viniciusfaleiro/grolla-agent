@@ -157,3 +157,11 @@
     }
   });
 })();
+
+// Filtros da lista: mudar um campo já filtra (o botão "Filtrar" fica para quem não tem JS).
+(() => {
+  document.addEventListener("change", (event) => {
+    const form = event.target instanceof Element ? event.target.closest("form[data-autosubmit]") : null;
+    if (form && event.target.name !== "q") form.requestSubmit();
+  });
+})();
