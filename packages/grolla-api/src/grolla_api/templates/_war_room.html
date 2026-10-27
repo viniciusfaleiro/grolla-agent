@@ -45,6 +45,28 @@
 
   {{ proposal_notice(proposal, header, author, base) }}
 
+  {% if merged_into %}
+  <aside class="merged-into" aria-label="Incidente juntado">
+    <p>Juntado em <a href="/incidents/{{ merged_into.id }}">{{ merged_into.title }}</a></p>
+  </aside>
+  {% endif %}
+
+  {% if merge %}
+  <aside class="proposal merge-suggestion" aria-label="Sugestão de junção">
+    <span class="avatar avatar-agent"><img src="/static/grolla-avatar.svg" alt=""></span>
+    <div class="proposal-text">
+      <p class="proposal-head">Parece o mesmo problema que <a href="/incidents/{{ merge.other.id }}">{{ merge.other.title }}</a></p>
+      {% if merge.reason %}<p class="muted">{{ merge.reason }}</p>{% endif %}
+    </div>
+    {% if author %}
+    <form method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar" hx-confirm="Juntar este incidente em &quot;{{ merge.other.title }}&quot;? Este fica descartado e os alertas passam para o outro.">
+      <input type="hidden" name="destino" value="{{ merge.other.id }}">
+      <button class="button-primary">Juntar</button>
+    </form>
+    {% endif %}
+  </aside>
+  {% endif %}
+
   {% if not author %}
   <div class="panel join">
     <h2>Como o time te chama?</h2>
@@ -92,6 +114,9 @@
         </span>
       </form>
       {% endif %}
+      {% if merge_candidates %}
+      <button class="button-quiet" popovertarget="juntar">Juntar com…</button>
+      {% endif %}
       {% if "discard" in header.actions %}
       <button class="button-quiet button-danger" popovertarget="descartar">Descartar como falso positivo</button>
       {% endif %}
@@ -108,6 +133,24 @@
         <div class="row">
           <button type="button" class="button-quiet" popovertarget="encerrar" popovertargetaction="hide">Cancelar</button>
           <button class="button-primary">Encerrar</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+    {% if merge_candidates %}
+    <div id="juntar" popover>
+      <form class="popover-form" method="post" action="/incidents/{{ incident.id }}/juntar" hx-post="/incidents/{{ incident.id }}/juntar">
+        <h3>Juntar com outro incidente</h3>
+        <p class="muted">Este incidente fica descartado; os serviços, os alertas disparando e a pior severidade passam para o escolhido.</p>
+        <label for="destino">É o mesmo problema que</label>
+        <select id="destino" name="destino" required>
+          {% for other in merge_candidates %}
+          <option value="{{ other.id }}">{{ other.severity }} · {{ other.title }}</option>
+          {% endfor %}
+        </select>
+        <div class="row">
+          <button type="button" class="button-quiet" popovertarget="juntar" popovertargetaction="hide">Cancelar</button>
+          <button class="button-primary">Juntar</button>
         </div>
       </form>
     </div>

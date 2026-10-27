@@ -12,7 +12,8 @@
   <li{% if is_quiet(event) %} class="quiet"{% endif %}>
     {{ hhmm(event.at) }}
     <div class="event{% if human %} event-human{% endif %}">
-      <span class="event-label">{{ event_label(event, event_labels) }}</span>
+      {% set ref = linked_incident(event) %}
+      <span class="event-label">{{ event_label(event, event_labels) }}{% if ref %} <a href="/incidents/{{ ref }}">{{ linked[ref].title if ref in linked else "outro incidente" }}</a>{% endif %}</span>
       {% if event.author != "sistema" %}<span class="event-author">por {{ display_name(event.author) }}</span>{% endif %}
       {% set detail = event_detail(event) %}
       {% if detail %}<div class="event-detail">{{ detail | truncate(180) }}</div>{% endif %}

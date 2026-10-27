@@ -124,7 +124,7 @@ input, textarea, select {
   padding: 0.55rem 0.75rem;
   min-width: 0;
 }
-input:focus, textarea:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+input:focus, textarea:focus, select:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
 textarea { resize: none; }
 
 .error { color: var(--danger); font-weight: 600; margin-top: 0.5rem; }
@@ -561,6 +561,15 @@ a.chip:hover { color: var(--brand); }
 .proposal-head { font-weight: 700; }
 .proposal-text .muted { font-size: 0.92rem; overflow-wrap: anywhere; }
 .proposal form { display: contents; }
+
+/* Sugestão de junção: mesmo desenho da proposta, na cor de atenção. */
+.merge-suggestion { border-left-color: var(--warn); background: var(--warn-soft); }
+.merge-suggestion .proposal-head { overflow-wrap: anywhere; }
+.merged-into {
+  padding: 0.7rem 0.9rem; font-weight: 650; overflow-wrap: anywhere;
+  border-left: 4px solid var(--brand); background: var(--brand-soft); border-radius: var(--radius);
+}
+.popover-form select { width: 100%; max-width: 100%; }
 
 .follow-up .panel-head h2 { margin: 0; }
 .cycles { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }

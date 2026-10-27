@@ -10,7 +10,15 @@ from uuid import UUID
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, PartialReason
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
 from grolla.domain.follow_up import Cycle, CycleStatus, Proposal, Trend
-from grolla.domain.incidents import EventType, Incident, IncidentEvent, IncidentState, Severity
+from grolla.domain.incidents import (
+    OPEN_STATES,
+    EventType,
+    Incident,
+    IncidentEvent,
+    IncidentState,
+    Severity,
+)
+from grolla.domain.triage import AGENT_SEVERITY_REASON
 from grolla.domain.war_room import (
     AssumeCommander,
     ChangeSeverity,
@@ -112,6 +120,17 @@ PROPOSAL_LABELS = {
 PROPOSAL_ACTIONS = {Proposal.MITIGATE: "mitigate", Proposal.RESOLVE: "resolve"}
 
 RECENT_CYCLES = 6
+
+AGENT_SEVERITY_LABEL = "Severidade sugerida pelo agente"
+
+# Evento da junção → campo do data com o outro incidente; o rótulo termina com o link para ele.
+LINKED_INCIDENT = {
+    EventType.MERGE_SUGGESTED: "other",
+    EventType.INCIDENT_MERGED: "merged",
+    EventType.MERGED_INTO: "into",
+}
+
+MERGE_CANDIDATES = 10  # os abertos mais recentes no seletor "Juntar com…"
 
 
 def _severity(form: Mapping[str, str]) -> ChangeSeverity:
@@ -320,6 +339,10 @@ def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     proposal = _proposal(data.get("proposal"))
     if event.type is EventType.AGENT_PROPOSAL and proposal is not None:
         return PROPOSAL_LABELS[proposal]
+    if event.type is EventType.SEVERITY_CHANGED and str(data.get("reason", "")).startswith(
+        AGENT_SEVERITY_REASON
+    ):
+        return AGENT_SEVERITY_LABEL
     return labels.get(event.type, event.type)
 
 
@@ -476,3 +499,65 @@ def chat_version(messages: Sequence[ChatMessage]) -> str:
     """Muda quando chega mensagem ou uma pergunta deixa de esperar: o polling só troca o chat aí."""
     waiting = sum(1 for message in messages if is_waiting(message))
     return f"{len(messages)}-{waiting}"
+
+
+def linked_incident(event: IncidentEvent) -> UUID | None:
+    """O outro incidente citado num evento da junção; None nos demais."""
+    key = LINKED_INCIDENT.get(event.type)
+    if key is None:
+        return None
+    try:
+        return UUID(str(event.data.get(key)))
+    except ValueError:
+        return None
+
+
+def linked_ids(events: Iterable[IncidentEvent]) -> set[UUID]:
+    return {ref for event in events if (ref := linked_incident(event)) is not None}
+
+
+def last_event(events: Sequence[IncidentEvent], kind: EventType) -> IncidentEvent | None:
+    return next((event for event in reversed(events) if event.type is kind), None)
+
+
+@dataclass(frozen=True)
+class MergeNotice:
+    other: Incident
+    reason: str
+
+
+def merge_suggestion(
+    incident: Incident, events: Sequence[IncidentEvent], linked: Mapping[UUID, Incident]
+) -> MergeNotice | None:
+    """A última sugestão de junção, enquanto os dois incidentes seguem abertos."""
+    last = last_event(events, EventType.MERGE_SUGGESTED)
+    ref = None if last is None else linked_incident(last)
+    other = None if ref is None else linked.get(ref)
+    if last is None or other is None or incident.state not in OPEN_STATES:
+        return None
+    if other.state not in OPEN_STATES:
+        return None
+    return MergeNotice(other=other, reason=str(last.data.get("reason", "")))
+
+
+def merged_into(
+    events: Sequence[IncidentEvent], linked: Mapping[UUID, Incident]
+) -> Incident | None:
+    """O principal em que este incidente foi juntado."""
+    last = last_event(events, EventType.MERGED_INTO)
+    ref = None if last is None else linked_incident(last)
+    return None if ref is None else linked.get(ref)
+
+
+def merge_candidates(incident: Incident, recent: Iterable[Incident]) -> list[Incident]:
+    """Os outros incidentes abertos, os mais recentes primeiro."""
+    others = [i for i in recent if i.id != incident.id and i.state in OPEN_STATES]
+    return others[:MERGE_CANDIDATES]
+
+
+def merge_target(form: Mapping[str, str]) -> UUID:
+    """O `destino` do form de juntar."""
+    try:
+        return UUID(form.get("destino", ""))
+    except ValueError as error:
+        raise InvalidActionError("escolha o incidente em que este será juntado") from error
