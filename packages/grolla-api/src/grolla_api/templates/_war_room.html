@@ -54,12 +54,13 @@
       {% endif %}
     </div>
 
-    {% if s.text %}
-    <p class="agora-text">{{ s.text }}</p>
+    {% if s.title %}
+    <p class="agora-title">{{ s.title }}</p>
+    {% if s.text %}<p class="agora-text">{{ s.text }}</p>{% endif %}
     {% elif s.kind == "investigando" %}
-    <p class="agora-text agora-wait">Consultando métricas, logs, traces, deploys e o cluster.</p>
+    <p class="agora-title agora-wait">Consultando métricas, logs, traces, deploys e o cluster.</p>
     {% else %}
-    <p class="agora-text agora-wait">Nenhuma análise pedida.</p>
+    <p class="agora-title agora-wait">Nenhuma análise pedida.</p>
     {% endif %}
     {% if s.kind == "sem_causa" and s.missing %}<p class="agora-missing">O que faltou: {{ s.missing }}</p>{% endif %}
 

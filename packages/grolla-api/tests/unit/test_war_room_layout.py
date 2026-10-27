@@ -81,6 +81,7 @@ def test_situation_prefers_the_confirmed_root_cause_and_its_plan() -> None:
     s = situation_of(analysis(), verification())
 
     assert s.kind == "causa"
+    assert s.title == "Antifraude-api  sem réplicas"
     assert s.text == "Deployment antifraude-api com 0 réplicas desde 15:16."
     assert not s.steps_from_analysis
     assert s.steps[0].command == "kubectl scale deploy/antifraude-api --replicas=2 -n loja"
@@ -105,6 +106,7 @@ def test_situation_without_a_cause_shows_the_best_hypothesis(ver: str | None, ki
     s = situation_of(analysis(), v)
 
     assert s.kind == kind
+    assert s.title == "antifraude-api sem réplicas"
     assert s.text == "O antifraude-api está com 0 réplicas."
     assert s.confidence == 75
     assert s.steps_from_analysis
@@ -227,3 +229,40 @@ def test_timeline_marks_each_event_kind_and_hides_system_ones_behind_a_toggle(
     assert 'data-filtro="pessoa"' in page
     assert 'class="record"' in page
     assert "data-reset" in page
+
+
+def test_situation_without_a_confirmed_verdict_titles_with_the_first_sentence() -> None:
+    v = verification(
+        verdicts=(),
+        root_cause="Limite de CPU em 25m. A revisão nova subiu às 20:40 e o p99 foi a 2 s.",
+    )
+
+    s = situation_of(analysis(), v)
+
+    assert s.title == "Limite de CPU em 25m."
+    assert s.text.startswith("Limite de CPU em 25m. A revisão nova")
+
+
+def test_situation_does_not_repeat_the_title_below_it() -> None:
+    s = situation_of(analysis(summary="antifraude-api sem réplicas"), None)
+
+    assert s.title == "antifraude-api sem réplicas"
+    assert s.text == ""
+
+
+def test_situation_title_stops_at_the_first_comma() -> None:
+    v = verification(
+        verdicts=(
+            HypothesisVerdict(
+                "Limite de CPU muito baixo (25m contra 500m esperado) causando throttling, "
+                "provavelmente por mudança manual fora do pipeline",
+                Verdict.CONFIRMED,
+                "",
+                (),
+            ),
+        )
+    )
+
+    s = situation_of(analysis(), v)
+
+    assert s.title == "Limite de CPU muito baixo (25m contra 500m esperado) causando throttling"
