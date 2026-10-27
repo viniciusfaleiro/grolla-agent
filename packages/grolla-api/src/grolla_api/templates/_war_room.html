@@ -78,7 +78,8 @@
       <p class="next-move-what">{{ first.what }}</p>
       {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
       {% if first.command %}
-      <div class="command"><code>{{ first.command }}</code><button type="button" class="button-copy" data-copy="{{ first.command }}">{{ icon("copy") }}<span>Copiar</span></button></div>
+      {% if first.destructive %}<p>{{ destructive_badge }}</p>{% endif %}
+      <div class="command{% if first.destructive %} command-destructive{% endif %}"><code>{{ first.command }}</code><button type="button" class="button-copy" data-copy="{{ first.command }}"{% if first.destructive %} data-confirm="Este comando apaga, derruba ou zera algo. Confira o alvo antes de rodar. Copiar mesmo assim?"{% endif %}>{{ icon("copy") }}<span>Copiar</span></button></div>
       {% endif %}
       {% if first.expected %}<p class="next-move-why">Esperado: {{ first.expected }}</p>{% endif %}
       {% if s.steps | length > 1 %}
@@ -86,7 +87,7 @@
         <summary>Depois: mais {{ s.steps | length - 1 }} {{ "passo" if s.steps | length == 2 else "passos" }}</summary>
         <ol start="2">
           {% for step in s.steps[1:] %}
-          <li><strong>{{ step.what }}</strong>{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
+          <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
           {% endfor %}
         </ol>
       </details>

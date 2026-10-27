@@ -1,5 +1,5 @@
 {# Conversa; o polling só troca este bloco quando a versão muda. #}
-{% from "_macros.html" import lookups, hhmm, avatar %}
+{% from "_macros.html" import lookups, hhmm, avatar, icon %}
 <div id="chat-messages"
      hx-get="/incidents/{{ incident.id }}/chat?visto={{ chat_version }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
@@ -11,11 +11,13 @@
   {% if day != ns.day %}{% set ns.day = day %}<li class="day">{{ day }}</li>{% endif %}
   {% set agent = is_agent(message) %}
   {% set mine = not agent and message.author == author %}
-  <li class="message {{ 'message-agent' if agent else 'message-human' }}{% if mine %} message-mine{% endif %}{% if agent and is_failure(message) %} message-failed{% endif %}">
+  <li class="message {{ 'message-agent' if agent else 'message-human' }}{% if mine %} message-mine{% endif %}{% if agent and is_failure(message) %} message-failed{% endif %}{% if message.refusal %} message-refused{% endif %}">
     {{ avatar(message.author) }}
     <div class="bubble">
       <div class="who"><strong>{{ "Você" if mine else display_name(message.author) }}</strong>{{ hhmm(message.at) }}</div>
-      {% if agent %}
+      {% if agent and message.refusal %}
+      <p class="refusal">{{ icon("shield") }}<span>{{ message.text }}</span></p>
+      {% elif agent %}
       <div class="rich">{{ rich_text(message.text) }}</div>
       {% if message.evaluations %}
       <details>

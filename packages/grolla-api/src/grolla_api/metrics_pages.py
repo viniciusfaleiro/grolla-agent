@@ -79,6 +79,7 @@ def is_empty(metrics: PeriodMetrics) -> bool:
             metrics.seen_before_confirmed,
             metrics.seen_before_rejected,
             metrics.memory_helped,
+            metrics.refused,
         )
     )
 
