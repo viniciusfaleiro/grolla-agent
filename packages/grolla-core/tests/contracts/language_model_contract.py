@@ -21,6 +21,9 @@ responde erro).
 O post mortem (`draft_post_mortem` e `regenerate_section`) tem a suíte `PostMortemModelContract`,
 com as fixtures `post_mortem_model` e `failing_post_mortem_model`.
 
+A triagem (`triage`) tem a suíte `TriageModelContract`, com as fixtures `triage_model` (devolve
+uma triagem válida) e `failing_triage_model` (a API responde erro).
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -34,6 +37,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
     AlertRule,
@@ -48,6 +52,7 @@ from grolla.application.investigation import (
     SynthesisBrief,
     TokenBudget,
     Toolbox,
+    TriageBrief,
 )
 from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
 from grolla.domain.chat import ChatDraft
@@ -61,6 +66,7 @@ from grolla.domain.post_mortem import (
     PostMortemStatus,
     SectionKey,
 )
+from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry
@@ -589,3 +595,57 @@ class PostMortemModelContract(LanguageModelFixtures):
             await failing_post_mortem_model.regenerate_section(
                 regeneration_brief, SectionKey.SUMMARY, None, budget
             )
+
+
+class TriageModelContract(LanguageModelFixtures):
+    """A triagem do incidente novo, sem ferramentas: o mesmo problema que outro aberto e a
+    severidade sugerida.
+
+    O adapter sobrescreve `triage_model` (devolve uma triagem válida) e `failing_triage_model`
+    (a API responde erro).
+    """
+
+    @pytest.fixture
+    def triage_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_triage_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def triage_brief(self) -> TriageBrief:
+        incident = make_incident(services=(SERVICE,), severity=Severity.P3)
+        other = make_incident(services=("pedidos-api",), severity=Severity.P1)
+        summary = "Taxa de erro alta em pedidos-api; alertas: Erro de conexão com o banco"
+        return TriageBrief(
+            incident,
+            (make_alert(service=SERVICE),),
+            ((other, summary),),
+            MemoryContext(),
+            opened_by_default=True,
+            now=T0,
+        )
+
+    async def test_triage_returns_a_valid_draft(
+        self, triage_model: LanguageModel, triage_brief: TriageBrief, budget: TokenBudget
+    ) -> None:
+        draft = await triage_model.triage(triage_brief, budget)
+
+        assert isinstance(draft, TriageDraft)
+        assert draft.same_as is None or draft.same_as in {o.id for o, _ in triage_brief.others}
+        assert draft.severity is None or isinstance(draft.severity, Severity)
+        assert budget.usages
+        assert {usage.stage for usage in budget.usages} == {STAGE_TRIAGE}
+
+    async def test_exhausted_budget_stops_the_triage(
+        self, triage_model: LanguageModel, triage_brief: TriageBrief
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await triage_model.triage(triage_brief, TokenBudget(limit=1))
+
+    async def test_api_failure_raises_language_model_error(
+        self, failing_triage_model: LanguageModel, triage_brief: TriageBrief, budget: TokenBudget
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_triage_model.triage(triage_brief, budget)
