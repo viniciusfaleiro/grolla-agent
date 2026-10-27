@@ -13,6 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from grolla.application import follow_up
 from grolla.application.clock import Clock
+from grolla.application.console import (
+    ConsoleStore,
+    ask_console,
+    chart_series,
+    open_incident_from_console,
+)
 from grolla.application.incidents import (
     AlertIngress,
     IncidentRepository,
@@ -20,6 +26,7 @@ from grolla.application.incidents import (
     InvalidAlertPayloadError,
     receive_alerts,
 )
+from grolla.application.investigation import Telemetry, ToolUnavailableError
 from grolla.application.memory import (
     InvalidMemoryError,
     LearningQueue,
@@ -58,12 +65,14 @@ from grolla.application.triage import merge_incidents
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.chat import AGENT_AUTHOR
+from grolla.domain.console import ConsoleMessage, ConsoleSession
 from grolla.domain.incidents import (
     OPEN_STATES,
     EventType,
     Incident,
     IncidentEvent,
     IncidentState,
+    Severity,
 )
 from grolla.domain.memory import ENVIRONMENT, Memory, SubjectKind
 from grolla.domain.post_mortem import (
@@ -74,6 +83,12 @@ from grolla.domain.post_mortem import (
 )
 from grolla.domain.war_room import InvalidActionError
 
+from grolla_api.console_pages import (
+    CONSOLE_SUGGESTIONS,
+    ChartView,
+    chart_view,
+    console_version,
+)
 from grolla_api.memory_pages import (
     NEW_SUBJECT_KINDS,
     STUDY_MODE_LABELS,
@@ -159,6 +174,7 @@ LatestHeartbeat = Callable[[], Awaitable[datetime | None]]
 
 WORKER_HEARTBEAT_LIMIT = timedelta(minutes=2)
 INCIDENT_LIST_LIMIT = 200
+CONSOLE_SESSIONS_LIMIT = 50
 
 EVENT_LABELS = {
     EventType.ALERT_RECEIVED: "Alerta recebido",
@@ -194,6 +210,7 @@ EVENT_LABELS = {
     EventType.MERGE_SUGGESTED: "Grolla sugere juntar com",  # + o link do outro incidente
     EventType.MERGED_INTO: "Juntado em",
     EventType.INCIDENT_MERGED: "Recebeu o incidente",
+    EventType.INCIDENT_OPENED_MANUALLY: "Aberto manualmente",  # pelo console: "Aberto pelo console"
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -258,6 +275,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "granularity_labels": GRANULARITY_LABELS,
     "hit_rate": hit_rate,
     "median_minutes": median_minutes,
+    "console_suggestions": CONSOLE_SUGGESTIONS,
 }
 templates.env.globals.update(TEMPLATE_GLOBALS)
 
@@ -273,6 +291,10 @@ STATUS_ERROR = "#erro-status"
 PLAN_ERROR = "#erro-plano"
 EVALUATION_ERROR = "#erro-avaliacao"
 SEEN_BEFORE_ERROR = "#erro-ja-vi-isso"
+CONSOLE_ERROR = "#console-error"
+CONSOLE_INCIDENT_ERROR = "#erro-incidente"
+CONSOLE_OFF = "o console está desligado nesta instância"
+INVALID_SEVERITY = "escolha a severidade: P0, P1, P2 ou P3"
 REGENERATION_ASKED = (
     "Pedido enviado: o Grolla está regenerando esta seção. Recarregue a página em instantes "
     "para ver o texto novo; o atual fica no histórico."
@@ -307,6 +329,8 @@ class Services:
     renderer: DocumentRenderer
     metrics: MetricsReader
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
+    console: ConsoleStore | None = None  # None: console desligado (sem a seção `console`)
+    telemetry: Telemetry | None = None  # gráficos do console; sem ela, "gráfico indisponível"
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.
@@ -930,6 +954,152 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "rows": await agent_metrics(services.metrics, clock, granularity),
         }
         return templates.TemplateResponse(request, "metrics.html", context)
+
+    def console_or_404() -> ConsoleStore:
+        if services.console is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, CONSOLE_OFF)
+        return services.console
+
+    async def console_session_or_404(session_id: str) -> ConsoleSession:
+        store = console_or_404()
+        try:
+            found = await store.session(UUID(session_id))
+        except ValueError:
+            found = None
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conversa não encontrada")
+        return found
+
+    async def charts_of(messages: list[ConsoleMessage]) -> dict[int, list[ChartView]]:
+        """Cada gráfico pedido, com a série lida agora; falha vira "gráfico indisponível"."""
+        views: dict[int, list[ChartView]] = {}
+        for message in messages:
+            for chart in message.charts:
+                points = None
+                if services.telemetry is not None:
+                    try:
+                        points = await chart_series(services.telemetry, chart, clock)
+                    except ToolUnavailableError:
+                        points = None
+                views.setdefault(message.id, []).append(chart_view(chart, points))
+        return views
+
+    async def console_context(session: ConsoleSession, author: str | None) -> dict[str, Any]:
+        store = console_or_404()
+        messages = await store.messages(session.id)
+        return {
+            "session": session,
+            "author": author,
+            "messages": messages,
+            "charts": await charts_of(messages),
+            "console_version": console_version(messages),
+        }
+
+    @app.get("/console", response_class=HTMLResponse)
+    async def console_home(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        store = services.console
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "console",
+            "back_to": "/console",
+            "now": clock.now(),
+            "enabled": store is not None,
+            "sessions": await store.sessions(CONSOLE_SESSIONS_LIMIT) if store else [],
+        }
+        return templates.TemplateResponse(request, "console.html", context)
+
+    @app.post("/console")
+    async def console_new(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
+        store = console_or_404()
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CONSOLE_ERROR)
+        text = parse_form(await request.body()).get("texto", "")
+        try:
+            session = await ask_console(
+                store=store, session_id=None, author=author, text=text, clock=clock
+            )
+        except InvalidActionError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, CONSOLE_ERROR)
+        return reload_page(request, f"/console/{session.id}")
+
+    @app.get("/console/{session_id}", response_class=HTMLResponse)
+    async def console_page(request: Request, session_id: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        session = await console_session_or_404(session_id)
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        incident = (
+            await repository.get_incident(session.incident_id) if session.incident_id else None
+        )
+        context = {
+            **await console_context(session, author),
+            "nav": "console",
+            "back_to": f"/console/{session.id}",
+            "incident": incident,
+        }
+        return templates.TemplateResponse(request, "console_session.html", context)
+
+    @app.get("/console/{session_id}/mensagens", response_class=HTMLResponse)
+    async def console_messages(request: Request, session_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]
+        session = await console_session_or_404(session_id)
+        store = console_or_404()
+        if visto == console_version(await store.messages(session.id)):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)  # nada novo: o HTMX não troca
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        context = await console_context(session, author)
+        return templates.TemplateResponse(request, "_console_messages.html", context)
+
+    @app.post("/console/{session_id}", response_class=HTMLResponse)
+    async def console_ask(request: Request, session_id: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        store = console_or_404()
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CONSOLE_ERROR)
+        session = await console_session_or_404(session_id)
+        text = parse_form(await request.body()).get("texto", "")
+        try:
+            await ask_console(
+                store=store, session_id=session.id, author=author, text=text, clock=clock
+            )
+        except LookupError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conversa não encontrada") from error
+        except InvalidActionError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, CONSOLE_ERROR)
+        context = await console_context(session, author)
+        return templates.TemplateResponse(request, "_console_messages.html", context)
+
+    @app.post("/console/{session_id}/incidente")
+    async def console_incident(request: Request, session_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        store = console_or_404()
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, CONSOLE_INCIDENT_ERROR)
+        session = await console_session_or_404(session_id)
+        form = parse_form(await request.body())
+        try:
+            severity = Severity(form.get("severidade", ""))
+        except ValueError:
+            return error_fragment(
+                INVALID_SEVERITY, status.HTTP_422_UNPROCESSABLE_CONTENT, CONSOLE_INCIDENT_ERROR
+            )
+        try:
+            opened = await open_incident_from_console(
+                store=store,
+                repository=repository,
+                session_id=session.id,
+                title=form.get("titulo", ""),
+                service=form.get("servico", ""),
+                severity=severity,
+                author=author,
+                clock=clock,
+                page_url=services.intake.page_url,
+            )
+        except LookupError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conversa não encontrada") from error
+        except (InvalidActionError, ValueError) as error:
+            return error_fragment(
+                str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, CONSOLE_INCIDENT_ERROR
+            )
+        return reload_page(request, f"/incidents/{opened.id}")
 
     @app.post("/author")
     async def set_author(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]

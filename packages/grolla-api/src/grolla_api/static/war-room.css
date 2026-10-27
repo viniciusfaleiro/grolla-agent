@@ -660,3 +660,35 @@ a.button-primary:hover { color: var(--brand-ink); }
 .pm-plan textarea, .popover-form textarea { width: 100%; resize: vertical; }
 .pm-add > summary { font-size: 0.88rem; }
 .pm-add[open] > summary { margin-bottom: 0.5rem; }
+
+/* Console: conversa larga, o painel do incidente ao lado (embaixo no celular) */
+.console-home { display: grid; gap: 1.25rem; max-width: 60rem; }
+.console-new form { display: flex; gap: 0.5rem; align-items: flex-end; }
+.console-new textarea { flex: 1; resize: vertical; line-height: 1.4; }
+.console-suggestions { justify-content: flex-start; }
+.console-row { grid-template-columns: minmax(0, 1fr) auto; }
+.console-row .meta { grid-column: 1; }
+.console-row .when { grid-column: 2; }
+.console-head h1 { overflow-wrap: anywhere; }
+.console {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+  gap: 1.25rem 1.5rem;
+  align-items: start;
+}
+.console-side { display: grid; gap: 0.75rem; justify-items: start; }
+.console-chat .message { max-width: min(92%, 46rem); }
+@media (max-width: 64rem) { .console { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 34rem) { .console-new form { flex-direction: column; align-items: stretch; } }
+
+/* Gráficos do console: SVG do servidor, cores pelos tokens (seguem o tema escuro) */
+.chart { margin: 0.6rem 0 0; padding: 0.6rem 0.7rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.chart figcaption { font-size: 0.86rem; font-weight: 650; margin-bottom: 0.35rem; }
+.chart-svg { display: block; width: 100%; height: auto; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-tick { fill: var(--muted); font-size: 12px; font-family: var(--text); }
+.chart-line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: var(--brand); }
+.chart-legend { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
+.chart-swatch { width: 14px; height: 3px; border-radius: 2px; background: var(--brand); flex: none; }
+.chart-note { font-size: 0.86rem; color: var(--warn); }
