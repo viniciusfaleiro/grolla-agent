@@ -52,6 +52,7 @@ os deployables só montam o processo.
 | **Filas de análise e de validação** | `AnalysisQueue`: reivindicação com `SKIP LOCKED`, pedidos presos e encerramento numa transação (resultado, eventos, card e `llm_usage`), para a análise inicial e para a validação; o `finish` da análise com hipóteses já pede a validação | `grolla.adapters.postgres.PostgresAnalysisQueue` |
 | **Fila dos ciclos de acompanhamento** | `CycleQueue`: candidatos (incidentes abertos com análise, ciclos, pedido antecipado e tokens), enfileiramento idempotente, reivindicação com `SKIP LOCKED`, ciclos presos e encerramento numa transação (ciclo, eventos, cards e `llm_usage`) | `grolla.adapters.postgres.PostgresCycleQueue` |
 | **Fila do chat do war room** | `ChatQueue`: a pergunta é a fila (`SKIP LOCKED`), perguntas presas, resposta numa transação (mensagem do agente, desfecho na pergunta, eventos e `llm_usage`) e tokens já gastos no chat do incidente | `grolla.adapters.postgres.PostgresChatQueue` |
+| **Post mortem** | `PostMortemStore`: documento com seções e plano de ação em `jsonb`, versões só inserção, lista com filtros e itens vencidos, fila de rascunho e regeneração com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresPostMortemStore` |
 | **Memória viva** | `MemoryStore`: dossiês, episódios e notas com busca textual em português (`tsvector` + `websearch_to_tsquery`), contexto da investigação (ambiente, serviços, integrações citadas, notas e episódios parecidos), gravação com versões numa transação e listagens da página; trechos com embedding (pgvector) e busca híbrida em SQL (vetor + texto com RRF) no `context_for` e no `search_chunks`; `LearningQueue` e `StudyQueue` com `SKIP LOCKED` | `grolla.adapters.postgres.PostgresMemoryStore` · `PostgresLearningQueue` · `PostgresStudyQueue` |
 | **Memória com RAG (núcleo)** | `chunk_text` recorta por seção `#`/`##` (seção longa por parágrafo, nunca trecho vazio). `index_memory` indexa em lote os registros pendentes (`unindexed`), com o título no trecho do episódio e da nota, e limpa os trechos velhos; `index_documents` indexa os `.md` do serviço no estudo. `query_for` monta a `Query` com vetor (falha do embedder vira consulta só textual). Com `embedder`, `memory_for` usa a busca híbrida (determinístico primeiro, depois RRF de vetor e texto) e traz até 3 trechos de documentação, que `memory_text` mostra no bloco `<documentacao>` (`### [documento] <serviço>: <caminho> — <seção>`, texto e `Link:`); `recall` devolve trechos (`chunks_text`, bloco `<memoria>` com `## Trechos`) | `grolla.application.memory_retrieval` · `grolla.application.memory_store.memory_for` · `grolla.domain.memory.chunk_text` |
 | **Fakes da memória com RAG** | `FakeTextEmbedder` determinístico e sem rede (saco de palavras normalizado por hash, com `concepts` para roteirizar paráfrases), `InMemoryMemoryStore` com trechos e busca híbrida em Python (RRF k=60) e `FakeChangeHistory.documents` | `grolla.testing.memory` · `grolla.testing.investigation` |
@@ -91,6 +92,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0006`: memória viva: registros, versões, fila do aprendizado e rodadas de estudo (abaixo).
 - `0007`: memória com RAG: extensão `vector` (pgvector) e os trechos indexados (abaixo).
 - `0008`: acompanhamento da crise: ciclos por incidente e o pedido de ciclo antecipado (abaixo).
+- `0009`: post mortem: o documento por incidente, as versões das seções e a fila de rascunhos e
+  regenerações (abaixo).
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -224,6 +227,17 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
   grava o estudo do serviço (uma falha mantém a data do último estudo bem feito) e o uso com a
   rodada; `tokens` é a soma desse uso; `service_order` põe primeiro os nunca estudados, os que
   falharam ou ficaram sem orçamento, depois os estudados há mais tempo.
+- `PostgresPostMortemStore` (`post_mortems`, `post_mortem_versions`, `post_mortem_jobs`): o
+  documento é uma linha com as seções e o plano de ação em `jsonb` (datas ISO, ids como texto);
+  `save` faz upsert e insere as versões (só inserção) numa transação; `versions` traz as de uma
+  seção, mais recentes primeiro; `summaries` filtra por status, severidade, serviço
+  (`ANY(services)`) e período (dia da detecção em UTC, inclusive), mais recentes primeiro, e
+  conta em SQL os itens abertos com prazo antes de `today`. A fila vai de `pendente` a
+  `em_andamento` (`claim` com `FOR UPDATE SKIP LOCKED`) e a `feito` ou `falho` (com o motivo);
+  `finish` só grava se o pedido está em andamento (documento, versões e `llm_usage`).
+  `request_post_mortem` (na unidade de trabalho) pede o rascunho uma vez só por incidente (índice
+  único parcial `post_mortem_jobs_draft`); `request_regeneration` sempre insere um pedido
+  (`tests/integration/test_postgres_post_mortem.py`).
 - `data` dos eventos, `labels` e `raw` voltam do banco como JSON: horários viram ISO 8601 e ids
   viram texto.
 
@@ -262,7 +276,7 @@ class TestSystemClockContract(ClockContract):
 src/grolla/
   domain/          incidents.py · analysis.py · war_room.py · chat.py
   application/     clock.py · incidents.py · investigation.py · analysis.py · war_room.py · chat.py
-  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, follow_up, memory, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/ · fastembed/
+  adapters/        system_clock/ · postgres/ (database, incidents, analysis, chat, follow_up, memory, post_mortem, migrate, migrations/) · signoz/ (ingress, telemetry) · teams/ · anthropic/ · azure_devops/ · aws/ · fastembed/
   bootstrap/       settings.py · team_config.py · container.py
   testing/         clock.py (FakeClock) · incidents.py · investigation.py (fakes) · memory.py (memória e embeddings) · builders.py
 tests/             unit/ · integration/ · contracts/
