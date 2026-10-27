@@ -93,13 +93,24 @@ class _Seen:
     state: _State | None
 
 
+@dataclass(frozen=True)
+class CloudAccount:
+    """Outra conta, lida por uma role somente leitura assumida (STS AssumeRole)."""
+
+    name: str
+    role_arn: str
+    regions: tuple[str, ...]
+
+
 class AwsCloudInventory:
     def __init__(
         self,
         regions: Sequence[str],
         resource_map: Mapping[str, Sequence[str]],
         session: Any = None,  # boto3.Session; testes injetam uma sessão com Stubber
+        accounts: Sequence[CloudAccount] = (),  # contas além da própria; contrato da AWS completa
     ) -> None:
+        self._accounts = tuple(accounts)
         self._regions = tuple(regions)
         self._resource_map = {k: tuple(v) for k, v in resource_map.items()}
         self._session = session
@@ -117,6 +128,12 @@ class AwsCloudInventory:
 
     async def overview(self) -> ToolResult:
         return await self._run(self._overview)
+
+    async def health(self, service: str) -> ToolResult:
+        raise NotImplementedError  # contrato da AWS completa: do grolla-integracoes
+
+    async def quotas(self, service: str) -> ToolResult:
+        raise NotImplementedError  # contrato da AWS completa: do grolla-integracoes
 
     async def _run(self, query: Callable[[], ToolResult]) -> ToolResult:
         try:

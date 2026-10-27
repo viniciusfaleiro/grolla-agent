@@ -278,6 +278,12 @@ class FakeCloudInventory:
             raise ToolUnavailableError("overview da nuvem fora do ar no fake")
         return ToolResult(self.overview_text, "https://console.nuvem.interno/")
 
+    async def health(self, service: str) -> ToolResult:
+        raise NotImplementedError  # contrato da AWS completa: implementado pelo grolla-dominio
+
+    async def quotas(self, service: str) -> ToolResult:
+        raise NotImplementedError  # contrato da AWS completa: implementado pelo grolla-dominio
+
     def _answer(self, tool: str, service: str, default: str) -> ToolResult:
         self.calls.append((tool, service))
         if tool in self.failing:

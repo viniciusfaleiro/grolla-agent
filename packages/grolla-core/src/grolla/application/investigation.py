@@ -54,6 +54,7 @@ STAGE_TRIAGE = "triage"
 STAGE_CONSOLE = "console"
 STAGE_TRANSCRIPT = "transcript"
 NO_CLOUD = "consulta à nuvem não configurada nesta instância"
+HEALTH_UNAVAILABLE = "eventos da nuvem indisponíveis no plano de suporte desta conta"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
@@ -209,6 +210,18 @@ class CloudInventory(Protocol):
         """
         ...
 
+    async def health(self, service: str) -> ToolResult:
+        """Eventos abertos do provedor que afetam os recursos do serviço ou as regiões; sem o
+        plano que dá acesso a eles, o resumo é HEALTH_UNAVAILABLE (não é erro).
+        """
+        ...
+
+    async def quotas(self, service: str) -> ToolResult:
+        """Uso e limite das cotas que mais derrubam serviço, nas contas e regiões configuradas,
+        com as perto do limite primeiro.
+        """
+        ...
+
 
 class NoCloudInventory:
     """Instância sem a seção `cloud`: as ferramentas de nuvem respondem NO_CLOUD, sem erro."""
@@ -223,6 +236,12 @@ class NoCloudInventory:
         return ToolResult(NO_CLOUD, None)
 
     async def overview(self) -> ToolResult:
+        return ToolResult(NO_CLOUD, None)
+
+    async def health(self, service: str) -> ToolResult:  # noqa: ARG002
+        return ToolResult(NO_CLOUD, None)
+
+    async def quotas(self, service: str) -> ToolResult:  # noqa: ARG002
         return ToolResult(NO_CLOUD, None)
 
 

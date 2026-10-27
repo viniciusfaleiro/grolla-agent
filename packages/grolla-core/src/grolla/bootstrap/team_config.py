@@ -89,8 +89,17 @@ class ChangeHistoryConfig(_Section):
     )  # só as exceções ao nome do serviço
 
 
+class CloudAccountConfig(_Section):
+    """Outra conta: a role somente leitura que o agente assume (sem credencial no YAML)."""
+
+    name: str = Field(min_length=1)
+    role_arn: str = Field(pattern=r"^arn:aws:iam::\d{12}:role/.+$")
+    regions: list[str] = Field(min_length=1)
+
+
 class CloudConfig(_Section):
     regions: list[str] = Field(min_length=1)
+    accounts: list[CloudAccountConfig] = Field(default_factory=list[CloudAccountConfig])
     # Opcional: serviço -> ARNs ou identificadores, para recursos sem a tag `service=<nome>`.
     resource_map: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
