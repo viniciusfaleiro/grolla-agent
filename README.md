@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-post%20mortem%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-m%C3%A9tricas%20do%20agente%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -156,6 +156,7 @@ por capacidade ficam em [`openspec/`](openspec/). As decisões que atravessam o 
 | **Ferramentas da memória** | `recall` (busca na memória), `read_file` (lê o repositório do serviço), `service_dependencies` (integrações vistas nos traces), `cloud_overview` (arquitetura na nuvem) e `remember` (só no chat) | `grolla.application.investigation.Toolbox` |
 | **Acompanhamento da crise** | P0/P1 abertos recebem um ciclo a cada 5 min (tendência, taxa de erro, resumo), card "Atualização" só quando muda e curto a cada 15 min, ciclo antecipado por alerta ou mensagem, proposta de mitigar ou encerrar após 15 min normalizado (quem decide é o time), volta de mitigado para em tratamento quando o alerta dispara de novo e impacto financeiro estimado | jobs `schedule_cycles` e `run_cycles` · seção "Acompanhamento" no war room |
 | **Post mortem** | Rascunho blameless ao resolver (métricas TTD/TTA/TTM/TTR e timeline do log, demais seções escritas pelo agente), edição por seção com versões e autor, regenerar seção com instrução, plano de ação com dono, prazo e tipo, ciclo de vida até encerrado, PDF da versão aprovada e lista com filtros e itens vencidos | `GET /postmortems` · `GET /postmortems/{id}` · job `run_post_mortems` |
+| **Métricas do agente** | Post mortem aprovado reescreve o episódio na memória como confirmado; "era o mesmo problema?" no "já vi isso"; avaliação do agente no post mortem (hipótese certa, minutos, memória ajudou) e a página de métricas por semana ou mês | `GET /metricas` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
 | **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
@@ -354,7 +355,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S4 — On-call acionado sozinho** · Spike.sh para P0/P1 (começa em modo sombra) — adiado até haver conta no Spike.sh
 - **S5 — Agente acompanha a crise** · ciclos em P0/P1, updates só quando muda, impacto financeiro estimado e propostas de mitigar e encerrar ✅
 - **S6 — Post mortem em minutos** · rascunho automático, edição, aprovação e PDF ✅
-- **S7 — Post mortem alimenta a memória** · post mortems aprovados viram conhecimento e métricas de acerto do agente por período
+- **S7 — Post mortem alimenta a memória** · post mortems aprovados viram conhecimento e métricas de acerto do agente por período ✅
 - **S8–S11** · menos ruído (agrupamento/triagem pelo LLM) · console de operação · transcrição de call · AWS completa (ECS/EKS, quotas, Health, multi-conta)
 
 ## 📄 Licença

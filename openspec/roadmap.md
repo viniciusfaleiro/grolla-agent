@@ -159,7 +159,12 @@ vida rascunho → em revisão → aprovado → encerrado, PDF e lista com filtro
   lista com filtros e action items vencidos.
 - **Ports:** `DocumentRenderer`.
 
-## S7 · Post mortem alimenta a memória
+## S7 · Post mortem alimenta a memória ✅
+
+Change `post-mortem-alimenta-a-memoria`: post mortem aprovado reescreve o episódio como
+confirmado e atualiza os dossiês, "era o mesmo problema?" no "já vi isso", avaliação
+estruturada do agente no post mortem e a página `/metricas` por semana ou mês.
+
 
 - **Valor:** o que o time escreve no post mortem vira conhecimento, e dá para medir se o agente
   está acertando mais.

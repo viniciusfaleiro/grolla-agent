@@ -118,6 +118,25 @@ uma consulta só no Postgres, sem varrer o log de cada incidente na api.
 | `grolla-web` | botões "era o mesmo" e "não era" no "já vi isso", formulário da avaliação no post mortem, `/metricas` |
 | `grolla-e2e` | cenários: responder o "já vi isso", avaliar e ver em `/metricas`; aprovar o post mortem confirma o episódio |
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo:**
+- `lessons_text(pm)` monta o texto que ensina a memória: fatores, lições, plano com os itens e
+  resumo.
+- Só o episódio fica confirmado; os dossiês reescritos a partir do post mortem continuam com a
+  fonte do agente e a confiança aprendida.
+- Avaliar move o rascunho a em revisão; no aprovado, a avaliação continua permitida.
+
+**Persistência:**
+- A última resposta do "já vi isso" segue a ordem de inserção no log.
+- Post mortem encerrado conta pelo `status_at` do encerramento.
+
+**Web:**
+- Contagem zero aparece como "—".
+- Responder o "já vi isso" recarrega a página (303 ou `HX-Redirect`), para a timeline atualizar.
+
+**Code review do pai:** o cenário espera o 303 do "já vi isso" respondido.
+
 ## Risks / Trade-offs
 
 - [Pouca resposta humana] → métricas com "—" e o número de avaliados ao lado do percentual.
