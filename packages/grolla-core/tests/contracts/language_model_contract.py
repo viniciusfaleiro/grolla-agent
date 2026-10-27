@@ -18,9 +18,13 @@ O ciclo de acompanhamento (`follow_up`) tem a suíte `FollowUpModelContract`, co
 `following_model` (chama ao menos uma ferramenta e devolve o ciclo) e `failing_follower` (a API
 responde erro).
 
+O post mortem (`draft_post_mortem` e `regenerate_section`) tem a suíte `PostMortemModelContract`,
+com as fixtures `post_mortem_model` e `failing_post_mortem_model`.
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -28,6 +32,7 @@ from grolla.application.investigation import (
     STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
+    STAGE_POST_MORTEM,
     STAGE_STUDY,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -38,6 +43,7 @@ from grolla.application.investigation import (
     LanguageModel,
     LanguageModelError,
     LearningBrief,
+    PostMortemBrief,
     ServiceStudyBrief,
     SynthesisBrief,
     TokenBudget,
@@ -48,9 +54,17 @@ from grolla.domain.chat import ChatDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
 from grolla.domain.memory import DossierDraft, LearningDraft, MemoryContext, SynthesisDraft
+from grolla.domain.post_mortem import (
+    DETERMINISTIC,
+    ActionKind,
+    PostMortemDraft,
+    PostMortemStatus,
+    SectionKey,
+)
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry
+from grolla.testing.post_mortem import make_post_mortem
 
 SERVICE = "authorizer-api"
 
@@ -486,3 +500,92 @@ RULE = AlertRule(
     service=SERVICE,
     url="https://observabilidade.interno/regras/1",
 )
+
+
+class PostMortemModelContract(LanguageModelFixtures):
+    """As duas etapas do post mortem, sem ferramentas: `draft_post_mortem` e
+    `regenerate_section`.
+
+    O adapter sobrescreve `post_mortem_model` (as duas respondem um resultado válido) e
+    `failing_post_mortem_model` (a API responde erro).
+    """
+
+    @pytest.fixture
+    def post_mortem_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_post_mortem_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def post_mortem_brief(self) -> PostMortemBrief:
+        incident = make_incident(
+            services=(SERVICE,), severity=Severity.P1, state=IncidentState.RESOLVED
+        )
+        return PostMortemBrief(incident, CONTEXT, current=None, impact=None, now=T0)
+
+    @pytest.fixture
+    def regeneration_brief(self, post_mortem_brief: PostMortemBrief) -> PostMortemBrief:
+        current = make_post_mortem(post_mortem_brief.incident.id, status=PostMortemStatus.REVIEW)
+        return replace(post_mortem_brief, current=current, impact="R$ 3.000,00 estimado")
+
+    async def test_draft_writes_every_section_of_the_model_and_the_action_plan(
+        self,
+        post_mortem_model: LanguageModel,
+        post_mortem_brief: PostMortemBrief,
+        budget: TokenBudget,
+    ) -> None:
+        draft = await post_mortem_model.draft_post_mortem(post_mortem_brief, budget)
+
+        assert isinstance(draft, PostMortemDraft)
+        assert set(draft.sections) == set(SectionKey) - DETERMINISTIC
+        assert all(body.strip() for body in draft.sections.values())
+        assert draft.actions
+        assert all(text.strip() and isinstance(kind, ActionKind) for text, kind in draft.actions)
+        assert budget.usages
+        assert {usage.stage for usage in budget.usages} == {STAGE_POST_MORTEM}
+
+    async def test_regeneration_rewrites_one_section(
+        self,
+        post_mortem_model: LanguageModel,
+        regeneration_brief: PostMortemBrief,
+        budget: TokenBudget,
+    ) -> None:
+        body = await post_mortem_model.regenerate_section(
+            regeneration_brief, SectionKey.FACTORS, "incluir a falta de alarme no banco", budget
+        )
+        plain = await post_mortem_model.regenerate_section(
+            regeneration_brief, SectionKey.SUMMARY, None, budget
+        )
+
+        assert body.strip()
+        assert plain.strip()
+        assert {usage.stage for usage in budget.usages} == {STAGE_POST_MORTEM}
+
+    async def test_exhausted_budget_stops_both_stages(
+        self,
+        post_mortem_model: LanguageModel,
+        post_mortem_brief: PostMortemBrief,
+        regeneration_brief: PostMortemBrief,
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await post_mortem_model.draft_post_mortem(post_mortem_brief, TokenBudget(limit=1))
+        with pytest.raises(BudgetExceededError):
+            await post_mortem_model.regenerate_section(
+                regeneration_brief, SectionKey.SUMMARY, None, TokenBudget(limit=1)
+            )
+
+    async def test_api_failure_raises_language_model_error(
+        self,
+        failing_post_mortem_model: LanguageModel,
+        post_mortem_brief: PostMortemBrief,
+        regeneration_brief: PostMortemBrief,
+        budget: TokenBudget,
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_post_mortem_model.draft_post_mortem(post_mortem_brief, budget)
+        with pytest.raises(LanguageModelError):
+            await failing_post_mortem_model.regenerate_section(
+                regeneration_brief, SectionKey.SUMMARY, None, budget
+            )
