@@ -14,6 +14,7 @@ from contracts.language_model_contract import (
     FollowUpModelContract,
     LanguageModelContract,
     MemoryModelContract,
+    PostMortemModelContract,
 )
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
@@ -1378,3 +1379,23 @@ async def test_regeneration_api_error_becomes_language_model_error() -> None:
 
     with pytest.raises(LanguageModelError, match="529"):
         await regenerate(ScriptedApi(response, response, response))
+
+
+def post_mortem_api(request: httpx2.Request) -> httpx2.Response:
+    """Responde pela etapa, reconhecida pelo schema: o rascunho inteiro ou uma seção."""
+    body = json.loads(request.content)
+    required = body["output_config"]["format"]["schema"]["required"]
+    return ok(final({"body": "Seção nova."} if required == ["body"] else WRITTEN))
+
+
+class TestClaudePostMortemModelContract(PostMortemModelContract):
+    @pytest.fixture
+    def post_mortem_model(self) -> LanguageModel:
+        return memory_model(post_mortem_api)
+
+    @pytest.fixture
+    def failing_post_mortem_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        )

@@ -7,10 +7,11 @@ from datetime import date, timedelta
 from uuid import uuid4
 
 import pytest
+from contracts.document_renderer_contract import DocumentRendererContract
 from fpdf import FPDF
 from fpdf.errors import FPDFException
 from grolla.adapters.fpdf import FpdfDocumentRenderer, latin1
-from grolla.application.post_mortem import RenderError
+from grolla.application.post_mortem import DocumentRenderer, RenderError
 from grolla.domain.incidents import Incident, IncidentState, Severity
 from grolla.domain.post_mortem import (
     SECTION_TITLES,
@@ -118,3 +119,9 @@ def test_fpdf_failure_becomes_render_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(RenderError, match="sem página"):
         FpdfDocumentRenderer().render(post_mortem(), incident())
+
+
+class TestFpdfDocumentRendererContract(DocumentRendererContract):
+    @pytest.fixture
+    def renderer(self) -> DocumentRenderer:
+        return FpdfDocumentRenderer()
