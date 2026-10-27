@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, quote, unquote
+from uuid import UUID
 
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, PartialReason
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
@@ -314,10 +315,40 @@ def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     if event.type is EventType.CYCLE_COMPLETED:
         summary = plain_text(str(data.get("summary", "")))
         return f"Acompanhamento: {trend_label(data.get('trend'))} — {summary}".removesuffix(" — ")
+    if event.type is EventType.SEEN_BEFORE_ANSWERED:
+        return f"Já vi isso: {_seen_answer(event)}"
     proposal = _proposal(data.get("proposal"))
     if event.type is EventType.AGENT_PROPOSAL and proposal is not None:
         return PROPOSAL_LABELS[proposal]
     return labels.get(event.type, event.type)
+
+
+def _seen_answer(event: IncidentEvent) -> str:
+    return "era o mesmo problema" if event.data.get("same") is True else "não era o mesmo problema"
+
+
+def seen_before_answer(events: Iterable[IncidentEvent], past: UUID) -> IncidentEvent | None:
+    """A última resposta ao "já vi isso" sobre o incidente `past`: a nova substitui a anterior."""
+    answers = [
+        event
+        for event in events
+        if event.type is EventType.SEEN_BEFORE_ANSWERED and str(event.data.get("past")) == str(past)
+    ]
+    return answers[-1] if answers else None
+
+
+def seen_answer_text(event: IncidentEvent) -> str:
+    """'Ana confirmou: era o mesmo problema' ou 'Ana respondeu: não era o mesmo problema'."""
+    verb = "confirmou" if event.data.get("same") is True else "respondeu"
+    return f"{display_name(event.author)} {verb}: {_seen_answer(event)}"
+
+
+def same_problem(form: Mapping[str, str]) -> bool:
+    """O `mesmo=sim|nao` dos botões do "já vi isso"."""
+    answer = form.get("mesmo", "")
+    if answer not in ("sim", "nao"):
+        raise InvalidActionError("responda se era o mesmo problema")
+    return answer == "sim"
 
 
 def event_detail(event: IncidentEvent) -> str:

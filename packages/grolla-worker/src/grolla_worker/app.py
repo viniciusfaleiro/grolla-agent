@@ -177,6 +177,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             model=container.model,
             clock=container.clock,
             policy=container.memory_policy,
+            post_mortems=container.post_mortems,
         ):
             pass
 

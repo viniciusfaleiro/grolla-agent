@@ -15,6 +15,7 @@ from grolla.domain.post_mortem import (
     REGENERATE_REASON,
     ActionKind,
     ActionStatus,
+    AgentEvaluation,
     InvalidPostMortemError,
     PostMortem,
     PostMortemDraft,
@@ -24,6 +25,8 @@ from grolla.domain.post_mortem import (
     check_regenerable,
     drafted,
     edited,
+    evaluated,
+    lessons_text,
     metrics_text,
     moved,
     overdue,
@@ -365,3 +368,76 @@ def test_overdue_items_are_open_with_due_before_today() -> None:
     ]
 
     assert overdue(make_post_mortem(actions=items), TODAY) == (late,)
+
+
+# ---- Avaliação do agente ----
+
+EVALUATION = AgentEvaluation(main_hypothesis_correct=True, minutes_to_right=8, memory_helped=True)
+
+
+def test_evaluation_is_signed_and_a_draft_goes_to_review() -> None:
+    pm = make_post_mortem()
+
+    result = evaluated(pm, replace(EVALUATION, author="outro"), " Ana ", NOW)
+
+    assert result.evaluation == replace(EVALUATION, author="Ana", at=NOW)
+    assert (result.status, result.status_by, result.updated_at) == (
+        PostMortemStatus.REVIEW,
+        "Ana",
+        NOW,
+    )
+
+
+def test_approved_post_mortem_can_still_be_evaluated() -> None:
+    pm = make_post_mortem(status=PostMortemStatus.APPROVED)
+
+    result = evaluated(pm, AgentEvaluation(minutes_to_right=0), "Ana", NOW)
+
+    assert result.status is PostMortemStatus.APPROVED
+    assert result.evaluation.minutes_to_right == 0
+
+
+@pytest.mark.parametrize(
+    ("status", "evaluation", "author", "message"),
+    [
+        (PostMortemStatus.CLOSED, EVALUATION, "Ana", "encerrado não pode ser alterado"),
+        (PostMortemStatus.REVIEW, EVALUATION, " ", "informe o seu nome"),
+        (
+            PostMortemStatus.REVIEW,
+            AgentEvaluation(minutes_to_right=-1),
+            "Ana",
+            "não podem ser negativos",
+        ),
+    ],
+)
+def test_evaluation_is_refused(
+    status: PostMortemStatus, evaluation: AgentEvaluation, author: str, message: str
+) -> None:
+    with pytest.raises(InvalidPostMortemError, match=message):
+        evaluated(make_post_mortem(status=status), evaluation, author, NOW)
+
+
+def test_lessons_text_has_factors_lessons_plan_with_items_and_summary() -> None:
+    owned = replace(make_action("Alarme no banco"), owner="Bruno", due=date(2026, 2, 1))
+    pm = make_post_mortem(actions=[owned, make_action("Teste de carga", kind=ActionKind.PREVENT)])
+    empty = replace(pm, sections=(), actions=())
+
+    text = lessons_text(pm)
+
+    titles = [line for line in text.splitlines() if line.startswith("## ")]
+    assert titles == [
+        "## Fatores contribuintes",
+        "## O que funcionou, o que não funcionou e onde tivemos sorte",
+        "## Plano de ação",
+        "## Resumo executivo",
+    ]
+    assert "- Alarme no banco (detectar, Bruno, 01/02/2026, aberto)" in text
+    assert "- Teste de carga (prevenir, sem dono, sem prazo, aberto)" in text
+    assert "Impacto" not in text
+    assert lessons_text(empty).count("\n—") == 4
+
+
+def test_seen_before_answer_shows_on_the_timeline_as_a_person() -> None:
+    answer = event(EventType.SEEN_BEFORE_ANSWERED, {"past": "x", "same": True}, author="Ana")
+
+    assert timeline_text([answer]) == "- 10:00 [pessoa] Ana: respondeu se era o mesmo problema"

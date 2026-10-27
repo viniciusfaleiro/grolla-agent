@@ -446,7 +446,10 @@ td { padding: 0.55rem 0.6rem; border-top: 1px solid var(--line); vertical-align:
   display: grid; gap: 0.25rem; max-width: 72ch;
 }
 .seen-before-head { font-weight: 650; }
-.seen-before p:last-child:not(.seen-before-head) { color: var(--muted); font-size: 0.92rem; }
+.seen-before-reason { color: var(--muted); font-size: 0.92rem; }
+.seen-before-answer { font-weight: 600; color: var(--ink); }
+.seen-before-ask { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.35rem; }
+.seen-before-ask > span { color: var(--muted); font-size: 0.92rem; }
 
 /* Títulos dentro do texto do agente (seções dos dossiês) */
 .rich-heading { font: 650 1rem/1.2 var(--display); margin-top: 0.5rem; }

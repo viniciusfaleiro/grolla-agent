@@ -376,6 +376,7 @@ async def test_learnings_job_drains_the_queue_with_the_container_ports(
         "model": container.model,
         "clock": container.clock,
         "policy": container.memory_policy,
+        "post_mortems": container.post_mortems,  # o post mortem aprovado ensina a memória
     }
 
 

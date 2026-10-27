@@ -1,0 +1,105 @@
+# Ana encerra um incidente do pm-memoria-api e o worker grava o episódio aprendido. Ao aprovar o
+# post mortem, o aprendizado roda de novo com ele como fonte: o episódio fica confirmado e a
+# memória do serviço ganha uma versão com o motivo "post mortem aprovado".
+name: aprovar o post mortem confirma o episódio na memória
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Latência alta no pm-memoria-api
+              service_name: pm-memoria-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: p99 de 1,6 s no pm-memoria-api
+              description: O p99 de latência do pm-memoria-api está em 1,6 s (limite 800 ms).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=172
+            fingerprint: e2e-pm-memoria-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'pm-memoria-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.4 }
+      status: 200
+  # O episódio aprendido no encerramento existe antes da aprovação, para a reescrita gerar versão.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'episodio' AND active
+        AND subject = 'pm-memoria-api' AND incident_id = '{incidente}'
+      at_least: 1
+      timeout_seconds: 90
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'rascunho'
+      at_least: 1
+      timeout_seconds: 90
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/secoes/resumo
+      cookies: { grolla_author: Ana }
+      form: { texto: "O pm-memoria-api ficou lento por 15 min depois do build 20261026.4." }
+      status: 303
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/plano
+      cookies: { grolla_author: Ana }
+      form: { descricao: alarme de p99 no pm-memoria-api, tipo: detectar }
+      status: 303
+  - for_each:
+      sql: >-
+        SELECT item->>'id' AS item, item->>'description' AS descricao, item->>'kind' AS tipo
+        FROM post_mortems, jsonb_array_elements(actions) AS item
+        WHERE incident_id = '{incidente}'
+        AND (item->>'owner' IS NULL OR item->>'due' IS NULL)
+      do:
+        - http:
+            service: api
+            method: POST
+            path: /postmortems/{incidente}/plano/{item}
+            cookies: { grolla_author: Ana }
+            form: { descricao: "{descricao}", tipo: "{tipo}", dono: Bruno, prazo: "2026-12-31" }
+            status: 303
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{incidente}/status
+      cookies: { grolla_author: Ana }
+      form: { para: aprovado }
+      status: 303
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'episodio' AND active
+        AND subject = 'pm-memoria-api' AND incident_id = '{incidente}'
+        AND confidence = 'confirmado' AND source_author = 'Ana'
+      at_least: 1
+      timeout_seconds: 90
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memory_versions v JOIN memories m ON m.id = v.memory_id
+        WHERE m.subject = 'pm-memoria-api' AND v.reason = 'post mortem aprovado'
+      at_least: 1
+      timeout_seconds: 30

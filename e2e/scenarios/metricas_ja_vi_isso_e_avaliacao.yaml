@@ -1,0 +1,155 @@
+# Ana encerra um incidente do metricas-api; o worker grava o episódio e o mesmo alerta volta,
+# abrindo um incidente novo com "Já vi isso". Ana responde "era o mesmo problema", encerra o
+# novo, aprova o post mortem dele e avalia o agente (hipótese certa, 8 minutos, memória ajudou).
+# A página de métricas mostra o acerto e o "já vi isso" confirmado.
+name: já vi isso confirmado e avaliação aparecem nas métricas
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - &alerta
+            status: firing
+            labels:
+              alertname: Taxa de erro alta no metricas-api
+              service_name: metricas-api
+              severity: warning
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 5,4% no metricas-api
+              description: A taxa de erro HTTP 5xx do metricas-api está em 5,4% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=171
+            fingerprint: e2e-metricas-1
+  - capture:
+      name: anterior
+      sql: SELECT id FROM incidents WHERE 'metricas-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{anterior}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.2 resolveu }
+      status: 200
+  # O episódio precisa existir antes do alerta repetido.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'episodio' AND active
+        AND subject = 'metricas-api' AND incident_id = '{anterior}' AND NOT noise
+      at_least: 1
+      timeout_seconds: 90
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - <<: *alerta
+            startsAt: "2026-01-01T11:00:00Z"
+            fingerprint: e2e-metricas-2
+  - capture:
+      name: novo
+      sql: SELECT id FROM incidents WHERE 'metricas-api' = ANY(services) AND id <> '{anterior}'
+  - expect_page:
+      service: api
+      path: /incidents/{novo}
+      contains: [Já vi isso, "/incidents/{anterior}"]
+      timeout_seconds: 90
+  # "Era o mesmo problema": vira evento do incidente novo, com Ana e o incidente passado.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{novo}/ja-vi-isso
+      cookies: { grolla_author: Ana }
+      form: { mesmo: sim }
+      status: 303
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{novo}'
+        AND type = 'seen_before_answered' AND author = 'Ana'
+        AND data->>'past' = '{anterior}' AND (data->>'same')::boolean
+      at_least: 1
+      timeout_seconds: 10
+  # Encerra o novo e aprova o post mortem dele, como em post_mortem_aprovacao.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{novo}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback do build 20261026.3 resolveu }
+      status: 200
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{novo}' AND status = 'rascunho'
+      at_least: 1
+      timeout_seconds: 90
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{novo}/secoes/resumo
+      cookies: { grolla_author: Ana }
+      form: { texto: "O metricas-api voltou a errar depois do build 20261026.3." }
+      status: 303
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{novo}/plano
+      cookies: { grolla_author: Ana }
+      form: { descricao: alarme de taxa de erro no metricas-api, tipo: detectar }
+      status: 303
+  - for_each:
+      sql: >-
+        SELECT item->>'id' AS item, item->>'description' AS descricao, item->>'kind' AS tipo
+        FROM post_mortems, jsonb_array_elements(actions) AS item
+        WHERE incident_id = '{novo}'
+        AND (item->>'owner' IS NULL OR item->>'due' IS NULL)
+      do:
+        - http:
+            service: api
+            method: POST
+            path: /postmortems/{novo}/plano/{item}
+            cookies: { grolla_author: Ana }
+            form: { descricao: "{descricao}", tipo: "{tipo}", dono: Bruno, prazo: "2026-12-31" }
+            status: 303
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{novo}/status
+      cookies: { grolla_author: Ana }
+      form: { para: aprovado }
+      status: 303
+  - http:
+      service: api
+      method: POST
+      path: /postmortems/{novo}/avaliacao
+      cookies: { grolla_author: Ana }
+      form: { hipotese_certa: sim, minutos: "8", memoria_ajudou: sim }
+      status: 303
+then:
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{novo}' AND status = 'aprovado'
+        AND evaluation IS NOT NULL
+      count: 1
+  # Só este cenário avalia e responde o "já vi isso": o mês corrente tem 1 de 1 certa.
+  - expect_page:
+      service: api
+      path: /metricas
+      contains: [Métricas, "100%"]

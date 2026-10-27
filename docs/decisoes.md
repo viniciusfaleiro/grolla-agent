@@ -32,3 +32,5 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 25 | 27/10 | S6 | PDF com fpdf2 (puro Python, texto em latin-1) atrás de `DocumentRenderer` | Sem dependências nativas na imagem slim, como Cairo e Pango, que o WeasyPrint exigiria |
 | 26 | 27/10 | S6 | Ciclo de vida no domínio: aprovar exige dono e prazo; encerrar exige itens concluídos ou aceitos | Regra de negócio pura, testável, e a página só mostra a mensagem |
 | 27 | 27/10 | S6 | Falha do modelo no rascunho grava o post mortem com as seções determinísticas | O time sempre tem o documento; "regenerar" completa depois |
+| 28 | 27/10 | S7 | Métricas de acerto só de respostas humanas (hipótese certa, minutos, memória ajudou, "era o mesmo") | Auditável, sem um segundo modelo julgando o primeiro |
+| 29 | 27/10 | S7 | Post mortem aprovado reescreve o episódio como confirmado, pelo mesmo caminho do aprendizado | É a fonte mais confiável; sem fila nova |

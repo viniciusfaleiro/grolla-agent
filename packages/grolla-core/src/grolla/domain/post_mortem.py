@@ -7,7 +7,7 @@ são mostradas ao time.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -92,6 +92,17 @@ class ActionItem:
 
 
 @dataclass(frozen=True)
+class AgentEvaluation:
+    """O que o time responde sobre o agente no post mortem; base das métricas de acerto."""
+
+    main_hypothesis_correct: bool | None = None
+    minutes_to_right: int | None = None
+    memory_helped: bool | None = None
+    author: str | None = None
+    at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PostMortem:
     incident_id: UUID
     status: PostMortemStatus
@@ -101,6 +112,7 @@ class PostMortem:
     updated_at: datetime
     status_by: str = AGENT_AUTHOR  # quem moveu para o status atual
     status_at: datetime | None = None
+    evaluation: AgentEvaluation = field(default_factory=AgentEvaluation)
 
 
 @dataclass(frozen=True)
@@ -242,6 +254,7 @@ EVENT_TEXT: Mapping[EventType, str] = {
     EventType.CYCLE_PARTIAL: "ciclo de acompanhamento parcial",
     EventType.FOLLOW_UP_STOPPED: "parou o acompanhamento",
     EventType.AGENT_PROPOSAL: "sugeriu",
+    EventType.SEEN_BEFORE_ANSWERED: "respondeu se era o mesmo problema",
 }
 _DETAIL_KEYS = ("rule_name", "summary", "root_cause", "title", "text", "proposal", "reason")
 DETAIL_LIMIT = 200  # caracteres de cada detalhe de um evento na timeline
@@ -444,3 +457,43 @@ def overdue(pm: PostMortem, today: date) -> tuple[ActionItem, ...]:
         for a in pm.actions
         if a.status is ActionStatus.OPEN and a.due is not None and a.due < today
     )
+
+
+MINUTES_NEGATIVE = "os minutos até a hipótese certa não podem ser negativos"
+
+
+def evaluated(
+    pm: PostMortem, evaluation: AgentEvaluation, author: str, now: datetime
+) -> PostMortem:
+    """A avaliação do agente preenchida por uma pessoa, com autor e data; rascunho passa a em
+    revisão. Levanta InvalidPostMortemError em post mortem encerrado, sem autor ou com minutos
+    negativos.
+    """
+    author = _required(author, AUTHOR_REQUIRED)
+    if pm.status is PostMortemStatus.CLOSED:
+        raise InvalidPostMortemError(CLOSED_LOCKED)
+    if evaluation.minutes_to_right is not None and evaluation.minutes_to_right < 0:
+        raise InvalidPostMortemError(MINUTES_NEGATIVE)
+    signed = replace(evaluation, author=author, at=now)
+    return _touched(replace(pm, evaluation=signed), author, now)
+
+
+LEARNING_SECTIONS = (SectionKey.FACTORS, SectionKey.LESSONS, SectionKey.ACTIONS, SectionKey.SUMMARY)
+
+
+def _item_line(item: ActionItem) -> str:
+    owner = item.owner or "sem dono"
+    due = f"{item.due:%d/%m/%Y}" if item.due else "sem prazo"
+    return f"- {item.description} ({item.kind.value}, {owner}, {due}, {item.status.value})"
+
+
+def lessons_text(pm: PostMortem) -> str:
+    """O que o post mortem ensina à memória: fatores, lições, plano (com os itens) e resumo."""
+    bodies = {s.key: s.body for s in pm.sections}
+    parts: list[str] = []
+    for key in LEARNING_SECTIONS:
+        lines = [f"## {SECTION_TITLES[key]}", bodies.get(key, "").strip() or NONE]
+        if key is SectionKey.ACTIONS:
+            lines += [_item_line(a) for a in pm.actions]
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)

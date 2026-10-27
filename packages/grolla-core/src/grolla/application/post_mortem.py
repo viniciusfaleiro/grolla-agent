@@ -399,12 +399,26 @@ async def request_regeneration(  # noqa: PLR0913 — o pedido precisa de qual, c
     )
 
 
-async def move_status(
-    *, store: PostMortemStore, incident_id: UUID, to: PostMortemStatus, author: str, clock: Clock
+async def move_status(  # noqa: PLR0913 — a mudança precisa de qual, para onde, quem e quando
+    *,
+    store: PostMortemStore,
+    incident_id: UUID,
+    to: PostMortemStatus,
+    author: str,
+    clock: Clock,
+    repository: IncidentRepository | None = None,
 ) -> PostMortem:
-    """Levanta PostMortemNotFoundError ou InvalidPostMortemError (com o item que falta)."""
-    pm = moved(await _document(store, incident_id), to, author, clock.now())
+    """Levanta PostMortemNotFoundError ou InvalidPostMortemError (com o item que falta).
+
+    Com `repository`, aprovar pede de novo o aprendizado do incidente, que passa a usar o post
+    mortem aprovado como fonte.
+    """
+    now = clock.now()
+    pm = moved(await _document(store, incident_id), to, author, now)
     await store.save(pm, [])
+    if repository is not None and to is PostMortemStatus.APPROVED:
+        async with repository.transaction() as uow:
+            await uow.request_learning(incident_id, now)
     return pm
 
 

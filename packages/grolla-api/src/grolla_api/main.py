@@ -22,6 +22,7 @@ def services_from(container: ApiContainer) -> Services:
         study_enabled=container.config.memory_policy().study is not None,
         post_mortems=container.post_mortems,
         renderer=container.renderer,
+        metrics=container.metrics,
         impact=container.impact_policy,
     )
 

@@ -120,6 +120,7 @@ class EventType(StrEnum):
     CYCLE_PARTIAL = "cycle_partial"
     FOLLOW_UP_STOPPED = "follow_up_stopped"
     AGENT_PROPOSAL = "agent_proposal"
+    SEEN_BEFORE_ANSWERED = "seen_before_answered"  # data: {"past": <id>, "same": bool}
 
 
 @dataclass(frozen=True)

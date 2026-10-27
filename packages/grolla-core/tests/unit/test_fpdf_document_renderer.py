@@ -18,6 +18,7 @@ from grolla.domain.post_mortem import (
     ActionItem,
     ActionKind,
     ActionStatus,
+    AgentEvaluation,
     PostMortem,
     PostMortemStatus,
     Section,
@@ -119,6 +120,33 @@ def test_fpdf_failure_becomes_render_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(RenderError, match="sem página"):
         FpdfDocumentRenderer().render(post_mortem(), incident())
+
+
+def test_evaluation_fields_follow_the_agent_section() -> None:
+    evaluation = AgentEvaluation(True, 12, True, "ana", T0 + timedelta(hours=3))
+    pm = replace(post_mortem(), evaluation=evaluation)
+
+    text = text_of(FpdfDocumentRenderer().render(pm, incident()))
+
+    agent = text.index("Avaliação do agente")
+    for expected in (
+        "Hipótese principal certa: sim",
+        "Minutos até a hipótese certa: 12",
+        "Memória ajudou: sim",
+        "Avaliado por ana em 01/01/2026 13:00 UTC",
+    ):
+        assert text.index(expected) > agent
+
+
+def test_unanswered_evaluation_says_so_and_has_no_author() -> None:
+    pm = replace(post_mortem(), evaluation=AgentEvaluation(memory_helped=False))
+
+    text = text_of(FpdfDocumentRenderer().render(pm, incident()))
+
+    assert "Hipótese principal certa: sem resposta" in text
+    assert "Minutos até a hipótese certa: -" in text
+    assert "Memória ajudou: não" in text
+    assert "Avaliado por" not in text
 
 
 class TestFpdfDocumentRendererContract(DocumentRendererContract):

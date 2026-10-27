@@ -6,7 +6,8 @@ vira "?". Nunca falha por causa de um caractere.
 
 O documento tem o cabeçalho (título do incidente, severidade, serviços, status e datas), as
 seções na ordem do template, com o markdown simples convertido (títulos `#`, listas `- ` e o
-negrito `**` removido), e o plano de ação como tabela logo depois da seção "Plano de ação".
+negrito `**` removido), o plano de ação como tabela logo depois da seção "Plano de ação" e os
+campos da avaliação do time logo depois da seção "Avaliação do agente".
 """
 
 from datetime import UTC, datetime
@@ -18,10 +19,12 @@ from fpdf.errors import FPDFException
 from grolla.application.post_mortem import RenderError
 from grolla.domain.incidents import Incident
 from grolla.domain.post_mortem import (
+    NONE,
     SECTION_TITLES,
     ActionItem,
     ActionKind,
     ActionStatus,
+    AgentEvaluation,
     PostMortem,
     PostMortemStatus,
     SectionKey,
@@ -81,6 +84,8 @@ class FpdfDocumentRenderer:
                 _markdown(pdf, bodies.get(key, ""))
                 if key is SectionKey.ACTIONS:
                     _actions(pdf, pm.actions)
+                if key is SectionKey.AGENT:
+                    _evaluation(pdf, pm.evaluation)
             return bytes(pdf.output())
         except FPDFException as error:
             raise RenderError(f"falha ao gerar o PDF: {error}") from error
@@ -148,6 +153,20 @@ def _actions(pdf: FPDF, actions: tuple[ActionItem, ...]) -> None:
             row = table.row()
             for cell in cells:
                 row.cell(latin1(cell))
+
+
+def _answer(value: bool | None) -> str:
+    return "sem resposta" if value is None else "sim" if value else "não"
+
+
+def _evaluation(pdf: FPDF, evaluation: AgentEvaluation) -> None:
+    pdf.ln(2)
+    minutes = NONE if evaluation.minutes_to_right is None else str(evaluation.minutes_to_right)
+    _line(pdf, f"Hipótese principal certa: {_answer(evaluation.main_hypothesis_correct)}")
+    _line(pdf, f"Minutos até a hipótese certa: {minutes}")
+    _line(pdf, f"Memória ajudou: {_answer(evaluation.memory_helped)}")
+    if evaluation.author and evaluation.at is not None:
+        _line(pdf, f"Avaliado por {evaluation.author} em {_when(evaluation.at)}")
 
 
 def _line(pdf: FPDF, text: str, height: float = LINE) -> None:
