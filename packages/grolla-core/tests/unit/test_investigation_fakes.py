@@ -8,7 +8,11 @@ from contracts.change_history_contract import (
     RepositoryFilesContract,
 )
 from contracts.chat_queue_contract import ChatQueueContract, WarRoomRepositoryContract
-from contracts.cloud_inventory_contract import CloudInventoryContract, CloudOverviewContract
+from contracts.cloud_inventory_contract import (
+    CloudHealthQuotasContract,
+    CloudInventoryContract,
+    CloudOverviewContract,
+)
 from contracts.cycle_queue_contract import CycleQueueContract
 from contracts.language_model_contract import (
     SERVICE,
@@ -23,6 +27,7 @@ from grolla.application.chat import ChatQueue
 from grolla.application.follow_up import CycleQueue
 from grolla.application.incidents import IncidentRepository, NotificationOutbox
 from grolla.application.investigation import (
+    HEALTH_UNAVAILABLE,
     READ_LIMIT,
     AlertRule,
     ChangeHistory,
@@ -84,6 +89,34 @@ class TestFakeCloudInventoryContract(CloudInventoryContract):
     @pytest.fixture
     def unavailable_cloud(self) -> CloudInventory:
         return FakeCloudInventory(failing=CLOUD_TOOLS)
+
+
+class TestFakeCloudHealthQuotasContract(CloudHealthQuotasContract):
+    @pytest.fixture
+    def cloud(self, service: str) -> CloudInventory:
+        return FakeCloudInventory(
+            health={service: "evento aberto: banco de dados em sa-east-1 (degradado)"},
+            quotas={service: "instâncias de banco: 18 de 20 (90%)"},
+        )
+
+    @pytest.fixture
+    def unavailable_cloud(self) -> CloudInventory:
+        return FakeCloudInventory(failing=CLOUD_TOOLS)
+
+    @pytest.fixture
+    def cloud_without_health_plan(self, service: str) -> CloudInventory:
+        return FakeCloudInventory(health={service: HEALTH_UNAVAILABLE})
+
+
+async def test_fake_cloud_answers_no_events_and_no_quota_near_the_limit_by_default() -> None:
+    cloud = FakeCloudInventory()
+
+    health = await cloud.health("pedidos-api")
+    quotas = await cloud.quotas("pedidos-api")
+
+    assert health.summary == "nenhum evento aberto do provedor para pedidos-api"
+    assert quotas.summary == "nenhuma cota perto do limite"
+    assert cloud.calls == [("health", "pedidos-api"), ("quotas", "pedidos-api")]
 
 
 class TestScriptedLanguageModelContract(LanguageModelContract):

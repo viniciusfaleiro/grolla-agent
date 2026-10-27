@@ -231,25 +231,29 @@ class FakeChangeHistory:
         return ToolResult(content, url)
 
 
-CLOUD_TOOLS = ("resources", "changes", "alarms", "overview")
+CLOUD_TOOLS = ("resources", "changes", "alarms", "health", "quotas", "overview")
 
 
 class FakeCloudInventory:
-    """Nuvem roteirizada: `resources`, `changes` e `alarms` mapeiam serviço → resumo.
+    """Nuvem roteirizada: `resources`, `changes`, `alarms`, `health` e `quotas` mapeiam
+    serviço → resumo.
 
-    Serviço sem recursos no mapa responde NO_CLOUD_RESOURCES; sem mudanças ou alarmes no mapa,
-    responde que não há. As consultas em `failing` (nomes de `CLOUD_TOOLS`) levantam
-    ToolUnavailableError. Cada chamada fica em `calls` como (consulta, serviço); a visão geral
-    (`overview`) responde o texto do mesmo nome, com o serviço vazio em `calls`.
+    Serviço sem recursos no mapa responde NO_CLOUD_RESOURCES; sem mudanças, alarmes, eventos do
+    provedor ou cotas perto do limite no mapa, responde que não há. As consultas em `failing`
+    (nomes de `CLOUD_TOOLS`) levantam ToolUnavailableError. Cada chamada fica em `calls` como
+    (consulta, serviço); a visão geral (`overview`) responde o texto do mesmo nome, com o
+    serviço vazio em `calls`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — um mapa roteirizável por consulta da nuvem
         self,
         resources: Mapping[str, str] | None = None,
         changes: Mapping[str, str] | None = None,
         alarms: Mapping[str, str] | None = None,
         failing: Iterable[str] = (),
         *,
+        health: Mapping[str, str] | None = None,
+        quotas: Mapping[str, str] | None = None,
         overview: str = "sem serviço: rede vpc-lab (available)",
     ) -> None:
         self.overview_text = overview
@@ -257,6 +261,8 @@ class FakeCloudInventory:
             "resources": dict(resources or {}),
             "changes": dict(changes or {}),
             "alarms": dict(alarms or {}),
+            "health": dict(health or {}),
+            "quotas": dict(quotas or {}),
         }
         self.failing = set(failing)
         self.calls: list[tuple[str, str]] = []
@@ -279,10 +285,10 @@ class FakeCloudInventory:
         return ToolResult(self.overview_text, "https://console.nuvem.interno/")
 
     async def health(self, service: str) -> ToolResult:
-        raise NotImplementedError  # contrato da AWS completa: implementado pelo grolla-dominio
+        return self._answer("health", service, f"nenhum evento aberto do provedor para {service}")
 
     async def quotas(self, service: str) -> ToolResult:
-        raise NotImplementedError  # contrato da AWS completa: implementado pelo grolla-dominio
+        return self._answer("quotas", service, "nenhuma cota perto do limite")
 
     def _answer(self, tool: str, service: str, default: str) -> ToolResult:
         self.calls.append((tool, service))
