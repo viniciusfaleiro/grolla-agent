@@ -1,0 +1,38 @@
+# Bia ensina um fato ao agente pelo console. O agente guarda com `remember`: a nota do lote-api
+# fica confirmada, com Bia (a autora da pergunta) como fonte, e a resposta diz "Guardei".
+name: nota ensinada pelo console
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  # A escrita redireciona para a sessão; o runner não segue o redirect nem confere o status.
+  - http:
+      service: api
+      method: POST
+      path: /console
+      cookies: { grolla_author: Bia }
+      form: { texto: "Para registrar: o lote-api roda o fechamento às 23h" }
+  - capture:
+      name: sessao
+      sql: >-
+        SELECT id FROM console_sessions WHERE author = 'Bia'
+        AND title = 'Para registrar: o lote-api roda o fechamento às 23h'
+then:
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM console_messages r JOIN console_messages q ON q.id = r.reply_to
+        WHERE r.session_id = '{sessao}' AND r.author = 'agente' AND r.text LIKE '%Guardei%'
+        AND q.reply_status = 'respondida'
+      at_least: 1
+      timeout_seconds: 60
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM memories WHERE kind = 'nota' AND active AND subject = 'lote-api'
+        AND confidence = 'confirmado' AND source_author = 'Bia'
+        AND body LIKE '%fechamento às 23h%'
+      count: 1
+  - expect_page:
+      service: api
+      path: /memoria/lote-api
+      contains: [fechamento às 23h, confirmado, Bia]
