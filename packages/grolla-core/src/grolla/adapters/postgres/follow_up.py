@@ -168,7 +168,11 @@ class PostgresCycleQueue:
             for notification in notifications:
                 await uow.enqueue(notification, at)
             await record_usages(connection, cycle.incident_id, usages, at)
+            # Só o pedido atendido por este ciclo: um pedido que chegou durante a execução fica.
             await connection.execute(
-                sa.text("DELETE FROM follow_ups WHERE incident_id = :id"),
-                {"id": cycle.incident_id},
+                sa.text(
+                    "DELETE FROM follow_ups WHERE incident_id = :id"
+                    " AND (CAST(:started AS timestamptz) IS NULL OR requested_at <= :started)"
+                ),
+                {"id": cycle.incident_id, "started": cycle.started_at},
             )

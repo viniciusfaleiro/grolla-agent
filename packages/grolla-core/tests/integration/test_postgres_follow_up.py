@@ -205,6 +205,21 @@ async def test_finish_records_cycle_events_cards_and_usage_and_clears_the_reques
     assert candidate.tokens == 116
 
 
+async def test_request_made_while_the_cycle_runs_survives_the_finish(
+    repository: PostgresIncidentRepository, queue: PostgresCycleQueue
+) -> None:
+    """Um alerta ou mensagem que chega durante o ciclo pede outro ciclo: o pedido fica."""
+    incident = await saved(repository)
+    cycle = await running(queue, incident.id)
+    during = STARTED + timedelta(seconds=30)
+    async with repository.transaction() as uow:
+        await uow.request_cycle(incident.id, during)
+
+    await queue.finish(finished(cycle), [], [], [], FINISHED)
+
+    assert (await candidate_of(queue, incident.id)).requested_at == during
+
+
 async def test_candidate_carries_analysis_end_cycles_request_and_follow_up_tokens(
     repository: PostgresIncidentRepository,
     queue: PostgresCycleQueue,
