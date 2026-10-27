@@ -98,6 +98,7 @@ def aggregate(facts: MetricsFacts, periods: Sequence[Period]) -> tuple[PeriodMet
                 seen_before_confirmed=sum(1 for same in answers if same),
                 seen_before_rejected=sum(1 for same in answers if not same),
                 memory_helped=sum(1 for e in evaluations if e.memory_helped),
+                refused=sum(1 for at in facts.refusals if _within(at, period)),
             )
         )
     return tuple(result)

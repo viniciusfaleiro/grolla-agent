@@ -38,6 +38,7 @@ from grolla.domain.console import (
 )
 from grolla.domain.incidents import Incident, Severity, decide_manual
 from grolla.domain.memory import MemoryContext, Source, SourceKind, memory_text
+from grolla.domain.safety import REFUSALS, Scope
 from grolla.domain.war_room import InvalidActionError
 
 CONSOLE_LIMIT_REACHED = "limite diário do console atingido"
@@ -159,7 +160,8 @@ async def run_next_console_reply(  # noqa: PLR0913 — o caso de uso liga os por
     CONSOLE_LIMIT_REACHED sem chamar o modelo. Com a `memory`, o modelo recebe a memória do
     ambiente e pode guardar nela, com `remember`, o que o time ensinar (fonte: o autor da
     pergunta, no chat, sem incidente). Qualquer falha vira "não consegui responder: <motivo>",
-    com as consultas feitas. Os gráficos pedidos passam por `valid_charts`.
+    com as consultas feitas. Os gráficos pedidos passam por `valid_charts`. Pedido fora do
+    domínio ou de execução vira a recusa fixa do escopo, sem consultas nem gráficos.
     """
     now = clock.now()
     job = await store.claim(now)
@@ -193,13 +195,14 @@ async def run_next_console_reply(  # noqa: PLR0913 — o caso de uso liga os por
         ok = False
     else:
         ok = True
+    refused = draft.scope is not Scope.DOMAIN
     await _answer(
         store,
         job,
-        draft,
+        ConsoleDraft(REFUSALS[draft.scope], scope=draft.scope) if refused else draft,
         clock.now(),
         ok=ok,
-        evaluations=toolbox.evaluations,
+        evaluations=() if refused else toolbox.evaluations,
         usages=budget.usages,
     )
     return True
@@ -310,5 +313,6 @@ async def _answer(  # noqa: PLR0913 — a resposta reúne o texto, os gráficos,
         evaluations=tuple(evaluations),
         reply_status=ReplyStatus.ANSWERED if ok else ReplyStatus.FAILED,
         reply_to=job.message_id,
+        refusal=None if draft.scope is Scope.DOMAIN else draft.scope,
     )
     await store.answer(job, reply, usages, now)

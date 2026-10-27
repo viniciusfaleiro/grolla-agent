@@ -37,6 +37,7 @@ from grolla.testing.investigation import (
     FakeClusterInventory,
     FakeTelemetry,
     fake_usage,
+    tool_text,
 )
 
 SERVICE = "authorizer-api"
@@ -103,7 +104,7 @@ async def test_query_metric_uses_the_lookback_window_and_records_the_evaluation(
     telemetry = FakeTelemetry()
     tools = toolbox(telemetry)
 
-    answer = await tools.call("query_metric", {"service": SERVICE, "signal": "latencia_p99"})
+    answer = await tool_text(tools, "query_metric", {"service": SERVICE, "signal": "latencia_p99"})
 
     assert answer == f"latencia_p99 de {SERVICE} estável na janela\nLink: {FAKE_SOURCE_URL}"
     assert telemetry.calls == [
@@ -158,7 +159,7 @@ async def test_telemetry_tools_describe_what_was_evaluated(
     telemetry = FakeTelemetry()
     tools = toolbox(telemetry)
 
-    await tools.call(name, arguments)
+    await tool_text(tools, name, arguments)
 
     assert tools.evaluations[0].subject == subject
     assert telemetry.calls == [(call[0], {**call[1], "start": T0 - LOOKBACK, "end": T0})]
@@ -168,7 +169,7 @@ async def test_recent_deploys_since_the_lookback_and_without_link_has_no_link_li
     changes = FakeChangeHistory()
     tools = toolbox(changes=changes)
 
-    answer = await tools.call("recent_deploys", {"service": "sem-repo"})
+    answer = await tool_text(tools, "recent_deploys", {"service": "sem-repo"})
 
     assert answer == NO_REPOSITORY
     assert changes.calls == [("sem-repo", T0 - LOOKBACK)]
@@ -182,7 +183,7 @@ async def test_recent_deploys_since_the_lookback_and_without_link_has_no_link_li
 async def test_tool_failure_becomes_an_unavailable_evaluation_and_never_raises() -> None:
     tools = toolbox(FakeTelemetry(failing={"search_logs"}))
 
-    answer = await tools.call("search_logs", {"service": SERVICE})
+    answer = await tool_text(tools, "search_logs", {"service": SERVICE})
 
     assert answer.startswith(UNAVAILABLE)
     assert tools.evaluations == (
@@ -195,7 +196,7 @@ async def test_tool_failure_becomes_an_unavailable_evaluation_and_never_raises()
 async def test_unexpected_error_of_a_tool_also_becomes_an_evaluation() -> None:
     tools = toolbox(FakeTelemetry(failing={"find_traces"}, error=TimeoutError))
 
-    answer = await tools.call("find_traces", {"service": SERVICE, "only_errors": True})
+    answer = await tool_text(tools, "find_traces", {"service": SERVICE, "only_errors": True})
 
     assert answer == f"{UNAVAILABLE}: find_traces fora do ar no fake"
     assert not tools.evaluations[0].ok
@@ -220,7 +221,7 @@ async def test_invalid_call_is_answered_and_recorded_without_calling_the_source(
     telemetry = FakeTelemetry()
     tools = toolbox(telemetry)
 
-    answer = await tools.call(name, arguments)
+    answer = await tool_text(tools, name, arguments)
 
     assert answer.startswith(f"{UNAVAILABLE}: argumentos inválidos")
     assert telemetry.calls == []
@@ -310,7 +311,7 @@ async def test_health_without_the_plan_is_an_answer() -> None:
     cloud = FakeCloudInventory(health={SERVICE: HEALTH_UNAVAILABLE})
     tools = toolbox(cloud=cloud)
 
-    answer = await tools.call("cloud_health", {"service": SERVICE})
+    answer = await tool_text(tools, "cloud_health", {"service": SERVICE})
 
     assert answer.startswith(HEALTH_UNAVAILABLE)
     assert tools.evaluations[0].ok
@@ -379,7 +380,7 @@ async def test_cloud_tools_call_the_cloud_with_the_service(
     )
     tools = toolbox(cloud=cloud)
 
-    answer = await tools.call(name, {"service": SERVICE})
+    answer = await tool_text(tools, name, {"service": SERVICE})
 
     assert answer.endswith(f"Link: https://console.nuvem.interno/{SERVICE}")
     assert cloud.calls == [(call, SERVICE)]
@@ -398,7 +399,7 @@ async def test_cloud_changes_since_the_lookback() -> None:
 async def test_service_without_cloud_resources_is_an_answer() -> None:
     tools = toolbox(cloud=FakeCloudInventory())
 
-    assert await tools.call("cloud_resources", {"service": SERVICE}) == NO_CLOUD_RESOURCES
+    assert await tool_text(tools, "cloud_resources", {"service": SERVICE}) == NO_CLOUD_RESOURCES
     assert tools.evaluations[0].ok
 
 
@@ -408,14 +409,14 @@ async def test_service_without_cloud_resources_is_an_answer() -> None:
 async def test_without_cloud_the_tools_say_it_is_not_configured(name: str) -> None:
     tools = toolbox()
 
-    assert await tools.call(name, {"service": SERVICE}) == NO_CLOUD
+    assert await tool_text(tools, name, {"service": SERVICE}) == NO_CLOUD
     assert tools.evaluations[0].ok
 
 
 async def test_cloud_failure_becomes_an_unavailable_evaluation() -> None:
     tools = toolbox(cloud=FakeCloudInventory(failing=CLOUD_TOOLS))
 
-    answer = await tools.call("cloud_changes", {"service": SERVICE})
+    answer = await tool_text(tools, "cloud_changes", {"service": SERVICE})
 
     assert answer.startswith(UNAVAILABLE)
     assert tools.evaluations[0].finding == UNAVAILABLE
@@ -437,7 +438,7 @@ async def test_cluster_tools_call_the_cluster_since_the_lookback(
     )
     tools = toolbox(cluster=cluster)
 
-    answer = await tools.call(name, {"service": SERVICE})
+    answer = await tool_text(tools, name, {"service": SERVICE})
 
     assert answer == summary
     assert cluster.calls == [(call, SERVICE)]
@@ -449,8 +450,8 @@ async def test_cluster_tools_call_the_cluster_since_the_lookback(
 async def test_service_outside_the_cluster_is_an_answer() -> None:
     tools = toolbox(cluster=FakeClusterInventory())
 
-    assert await tools.call("cluster_state", {"service": SERVICE}) == NO_WORKLOADS
-    assert await tools.call("cluster_changes", {"service": SERVICE}) == NO_CLUSTER_CHANGES
+    assert await tool_text(tools, "cluster_state", {"service": SERVICE}) == NO_WORKLOADS
+    assert await tool_text(tools, "cluster_changes", {"service": SERVICE}) == NO_CLUSTER_CHANGES
     assert all(evaluation.ok for evaluation in tools.evaluations)
 
 
@@ -458,14 +459,14 @@ async def test_service_outside_the_cluster_is_an_answer() -> None:
 async def test_without_cluster_the_tools_say_it_is_not_configured(name: str) -> None:
     tools = toolbox()
 
-    assert await tools.call(name, {"service": SERVICE}) == NO_CLUSTER
+    assert await tool_text(tools, name, {"service": SERVICE}) == NO_CLUSTER
     assert tools.evaluations[0].ok
 
 
 async def test_cluster_failure_becomes_an_unavailable_evaluation() -> None:
     tools = toolbox(cluster=FakeClusterInventory(failing={"state", "changes"}))
 
-    answer = await tools.call("cluster_state", {"service": SERVICE})
+    answer = await tool_text(tools, "cluster_state", {"service": SERVICE})
 
     assert answer.startswith(UNAVAILABLE)
     assert not tools.evaluations[0].ok

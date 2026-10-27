@@ -18,8 +18,9 @@ from grolla.domain.war_room import InvalidActionError
 
 class MetricsReader(Protocol):
     async def facts(self, since: datetime) -> MetricsFacts:
-        """Incidentes resolvidos, post mortems aprovados ou encerrados (com a avaliação) e a
-        última resposta do "já vi isso" de cada incidente, desde `since`.
+        """Incidentes resolvidos, post mortems aprovados ou encerrados (com a avaliação), a
+        última resposta do "já vi isso" de cada incidente e as respostas recusadas do chat e do
+        console, desde `since`.
         """
         ...
 

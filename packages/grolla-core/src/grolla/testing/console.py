@@ -46,6 +46,10 @@ class InMemoryConsoleStore:
     async def messages(self, session_id: UUID) -> list[ConsoleMessage]:
         return [m for m in self._messages if m.session_id == session_id]
 
+    def all_messages(self) -> list[ConsoleMessage]:
+        """Todas as mensagens de todas as sessões, para os outros fakes (métricas)."""
+        return list(self._messages)
+
     async def link_incident(self, session_id: UUID, incident_id: UUID) -> None:
         session = self._sessions[session_id]
         self._sessions[session_id] = replace(session, incident_id=incident_id)
