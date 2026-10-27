@@ -15,6 +15,7 @@ from contracts.language_model_contract import (
     LanguageModelContract,
     MemoryModelContract,
     PostMortemModelContract,
+    TriageModelContract,
 )
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
@@ -1520,3 +1521,17 @@ async def test_triage_api_error_refusal_and_budget() -> None:
         await triage(ScriptedApi(ok(final("", stop_reason="refusal"))))
     with pytest.raises(BudgetExceededError):
         await triage(ScriptedApi(ok(final(TRIAGED))), RecordingBudget(fail_at=1))
+
+
+class TestClaudeTriageModelContract(TriageModelContract):
+    @pytest.fixture
+    def triage_model(self) -> LanguageModel:
+        answer = {**TRIAGED, "same_as": None}
+        return memory_model(lambda _request: ok(final(answer)))
+
+    @pytest.fixture
+    def failing_triage_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        )
