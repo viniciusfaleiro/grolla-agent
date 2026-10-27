@@ -84,3 +84,10 @@ A página do post mortem SHALL mostrar e permitir editar os campos de avaliaçã
 - **WHEN** um post mortem aprovado tem a avaliação preenchida
 - **THEN** o PDF mostra "Hipótese principal certa: sim", os minutos e "Memória ajudou: sim"
 
+### Requirement: Itens da transcrição na timeline do post mortem
+A timeline do post mortem SHALL incluir os eventos extraídos da transcrição com a origem "transcrição" e o horário dito na call, quando houver, na ordem dos horários.
+
+#### Scenario: Post mortem com a call
+- **WHEN** o post mortem de um incidente com transcrição é gerado
+- **THEN** a timeline tem "[transcrição]" com a decisão do rollback às 03:12
+

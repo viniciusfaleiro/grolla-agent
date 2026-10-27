@@ -41,3 +41,7 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 34 | 27/10 | S9 | Nos gráficos, o modelo só pede serviço, sinal e janela; o servidor busca a série e desenha o SVG | Os números vêm do dado, nunca do modelo; SVG no servidor dispensa biblioteca de gráficos |
 | 35 | 27/10 | S9 | Incidente aberto pelo console passa pelo mesmo núcleo (`decide_manual`): estado pela severidade, card e análise | Um caminho só para incidente; o console não ganha regras próprias |
 | 36 | 27/10 | S9 | Teto diário de tokens do console, além do teto por resposta | Conversa livre é o uso mais fácil de estourar o crédito; custo previsível |
+| 37 | 27/10 | S10 | Transcrição por upload de texto (`.vtt`/`.srt`/colado), sem integrar com a ferramenta de reunião | Funciona com Teams, Meet ou Zoom sem conta nova; todas exportam `.vtt` |
+| 38 | 27/10 | S10 | O que a call diz das hipóteses é só evento; não muda análise nem estado | "O núcleo decide": quem descarta uma hipótese no war room é a pessoa |
+| 39 | 27/10 | S10 | Transcrição longa é cortada no limite e marcada, não recusada | Na crise, metade da call vale mais que nada; o corte aparece na timeline |
+| 40 | 27/10 | S10 | Transcrição vai ao modelo entre `<transcricao>` como dado, com defesa explícita no prompt | A fala é texto de terceiros: prompt injection não pode mudar o que o agente faz |

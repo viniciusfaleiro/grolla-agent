@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-console%20de%20opera%C3%A7%C3%A3o%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-transcri%C3%A7%C3%A3o%20de%20call%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -159,6 +159,7 @@ por capacidade ficam em [`openspec/`](openspec/). As decisões que atravessam o 
 | **Métricas do agente** | Post mortem aprovado reescreve o episódio na memória como confirmado; "era o mesmo problema?" no "já vi isso"; avaliação do agente no post mortem (hipótese certa, minutos, memória ajudou) e a página de métricas por semana ou mês | `GET /metricas` |
 | **Menos ruído** | Triagem de todo incidente novo: o agente sugere juntar com outro aberto na janela ("Parece o mesmo problema que…", e quem junta é o time com "Juntar com…") e sobe a severidade quando nenhuma regra casou, com o motivo na timeline | job `run_triages` · `POST /incidents/{id}/juntar` |
 | **Console de operação** | Conversa com o agente sem incidente aberto: sessões salvas, respostas curtas com evidência, gráficos de taxa de erro, p99 e vazão desenhados no servidor com os dados reais, "Abrir incidente" a partir da conversa e teto diário de tokens próprio | `/console` · fila `console` no worker |
+| **Transcrição de call** | Envie o `.vtt`, `.srt` ou texto da call no war room: o agente extrai decisões, ações com dono, horários ditos, participantes e o que a call disse das hipóteses, e tudo entra na timeline e no post mortem com "origem: transcrição" | `POST /incidents/{id}/transcricao` · job `run_transcripts` |
 | **Log de eventos** | Todo fato vira evento imutável (trigger no banco): base da auditoria e da memória do agente | tabela `incident_events` |
 | **Configuração por time** | YAML com filtro, labels de serviço, janela e regras; segredos só no ambiente | `GROLLA_CONFIG_FILE` |
 | **Health check** | Api saudável só com o banco acessível; worker vivo pelo último heartbeat (2 min) | `GET /health` · `GET /health/worker` |
@@ -360,7 +361,8 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S7 — Post mortem alimenta a memória** · post mortems aprovados viram conhecimento e métricas de acerto do agente por período ✅
 - **S8 — Menos ruído** · triagem pelo agente, sugestão de junção e severidade sugerida ✅
 - **S9 — Console de operação** · conversa fora de incidente, gráficos e abrir incidente pela conversa ✅
-- **S10–S11** · transcrição de call · AWS completa (ECS/EKS, quotas, Health, multi-conta)
+- **S10 — Transcrição de call** · decisões, ações, horários e hipóteses da call na timeline ✅
+- **S11** · AWS completa (ECS/EKS, quotas, Health, multi-conta)
 
 ## 📄 Licença
 
