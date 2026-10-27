@@ -8,7 +8,7 @@ O LLM SHALL ter a ferramenta neutra `cloud_health(service)`, que devolve os even
 - **THEN** recebe que os eventos não estão disponíveis no plano, e a investigação segue
 
 ### Requirement: Cotas na investigação
-O LLM SHALL ter a ferramenta neutra `cloud_quotas(service)`, que devolve o uso contra o limite das cotas de uma lista fechada (instâncias e conexões do banco gerenciado, vCPUs de máquinas sob demanda, balanceadores), destacando as que passam de 80%.
+O LLM SHALL ter a ferramenta neutra `cloud_quotas(service)`, que devolve o uso contra o limite das cotas de uma lista fechada (instâncias e armazenamento do banco gerenciado, vCPUs de máquinas sob demanda, balanceadores), destacando as que passam de 80%.
 
 #### Scenario: Cota perto do limite
 - **WHEN** a conta usa 18 de 20 instâncias de banco gerenciado

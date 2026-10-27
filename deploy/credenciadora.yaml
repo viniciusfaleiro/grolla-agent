@@ -56,6 +56,12 @@ azure_devops:
 cloud:
   regions: [us-east-1]
   resource_map: {}            # servico: [arn ou identificador, ...]
+  # Outras contas, lidas pela role somente leitura `grolla-somente-leitura` (ver deploy/README.md).
+  accounts: []
+  # accounts:
+  #   - name: pagamentos-prod
+  #     role_arn: arn:aws:iam::123456789012:role/grolla-somente-leitura
+  #     regions: [us-east-1, sa-east-1]
 
 # ---- Memória viva ----
 # Aprendizado ao encerrar cada incidente (sempre ligado) e estudo do ambiente: inicial na primeira

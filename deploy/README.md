@@ -48,13 +48,15 @@ Cada incidente novo recebe dois cards: "Estou investigando", na hora, e "Anális
 | **LLM** | API da Anthropic, modelo da etapa `investigation` | `llm.stages.investigation` · `GROLLA_ANTHROPIC_API_KEY` |
 | **SigNoz** | Container `signoz-mcp` (servidor MCP oficial), só na rede interna. O agente chama apenas ferramentas de leitura de uma lista fechada | `signoz.mcp_url` e `signoz.base_url` · `GROLLA_SIGNOZ_URL` e `GROLLA_SIGNOZ_API_KEY` |
 | **Azure DevOps** | API REST de builds, para os deploys recentes | `azure_devops.base_url` e `projects` · `GROLLA_AZURE_DEVOPS_TOKEN` |
-| **AWS** | Somente leitura: estado dos recursos do serviço (RDS, EC2, ELB), mudanças no CloudTrail e alarmes do CloudWatch | `cloud.regions` · role da EC2 ou `AWS_*` |
+| **AWS** | Somente leitura: estado dos recursos do serviço (RDS, EC2, ELB, ECS, EKS), mudanças no CloudTrail, alarmes do CloudWatch, eventos do AWS Health e cotas, numa ou em várias contas | `cloud.regions` · `cloud.accounts` · role da EC2 ou `AWS_*` |
 
 Cada incidente passa por duas fases. A **análise inicial** gera as hipóteses e o card "Análise pronta". A **validação** confirma ou rejeita cada hipótese e termina no card **"Causa raiz"**, com um plano de ação concreto (por exemplo, rollback ou religar um recurso) para o time validar e executar. O agente nunca executa ações.
 
 **AWS:**
 
-- Use uma role somente leitura na EC2 do agente ou um usuário IAM com a política [`iam-somente-leitura.json`](iam-somente-leitura.json). A política lista só ações de Describe, Lookup e GetResources.
+- Use uma role somente leitura na EC2 do agente ou um usuário IAM com a política [`iam-somente-leitura.json`](iam-somente-leitura.json). A política lista só ações de leitura (Describe, List, Get, Lookup) e o `sts:AssumeRole` das roles `grolla-somente-leitura`.
+- **Várias contas:** em cada conta extra, crie a role `grolla-somente-leitura` com a mesma política (sem o statement de AssumeRole) e a confiança de [`iam-confianca-role.json`](iam-confianca-role.json), trocando `<CONTA_PRINCIPAL>` pelo id da conta do agente. Depois liste a conta em `cloud.accounts` (`name`, `role_arn`, `regions`). A falha de uma conta aparece na resposta e não esconde as outras. Nenhuma credencial vai no YAML.
+- O AWS Health só responde com plano de suporte Business ou Enterprise; sem ele, a ferramenta diz que os eventos estão indisponíveis e a investigação segue.
 - Marque os recursos de cada serviço com a tag `service=<nome do serviço>`. Recursos sem tag entram por `cloud.resource_map`.
 
 Não é preciso mapear todos os serviços. Sem entrada em `service_repo_map`, o agente procura um

@@ -9,14 +9,36 @@
         "rds:DescribeDBInstances",
         "rds:DescribeDBClusters",
         "rds:ListTagsForResource",
+        "rds:DescribeAccountAttributes",
         "ec2:DescribeInstances",
         "ec2:DescribeInstanceStatus",
         "elasticloadbalancing:DescribeLoadBalancers",
         "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeAccountLimits",
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "eks:ListClusters",
+        "eks:DescribeCluster",
+        "eks:ListNodegroups",
+        "eks:DescribeNodegroup",
+        "health:DescribeEvents",
+        "health:DescribeAffectedEntities",
+        "servicequotas:GetServiceQuota",
         "cloudtrail:LookupEvents",
-        "cloudwatch:DescribeAlarms"
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "GrollaAssumeRolesSomenteLeitura",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/grolla-somente-leitura"
     }
   ]
 }
