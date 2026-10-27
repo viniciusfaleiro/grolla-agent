@@ -116,6 +116,20 @@ async def consult(self, context: str, question: str, toolbox, budget) -> Console
 **Worker:** `run_console_replies`, a cada 3 s, na fila `console` com concorrência 1, separada da
 fila `analysis`.
 
+### Ajustes combinados durante a implementação
+
+- O `ApiContainer` ganhou `telemetry: Telemetry | None` (None sem a seção `signoz`) para os
+  gráficos; sem telemetria a página mostra "gráfico indisponível".
+- `ConsoleStore.answer` também atualiza o `updated_at` da sessão: a última atividade é a última
+  pergunta ou resposta.
+- `ConsoleStoreContract` ganhou a fixture `incident_id`, para o Postgres ligar a sessão a um
+  incidente que existe (a FK de `console_sessions.incident_id` fica).
+- Nota ensinada no console: `Source(SourceKind.CHAT, autor, None)`, mostrada como "console, por
+  <autor>".
+- O worker escuta a fila `console` com concorrência 1, separada da `analysis`.
+- A memória de uma análise deixa de fora o episódio do próprio incidente (uma análise atrasada
+  podia reconhecer o próprio incidente como "já vi isso").
+
 ## Decisions
 
 **1. Console separado do chat do war room.** As sessões não pertencem a incidente, e o contexto é
