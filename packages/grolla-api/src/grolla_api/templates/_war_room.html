@@ -128,6 +128,9 @@
   {% else %}
   <div id="war-room-error" class="error" role="alert"></div>
   <p class="closed-note">Incidente {{ header.state | lower }}. O chat continua aberto para perguntas ao Grolla.</p>
+  {% if incident.state == "resolvido" %}
+  <p><a class="button" href="/postmortems/{{ incident.id }}">Post mortem</a></p>
+  {% endif %}
   {% endif %}
 
   {% if verification and verification.root_cause %}

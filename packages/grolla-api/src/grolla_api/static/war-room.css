@@ -579,3 +579,71 @@ a.chip:hover { color: var(--brand); }
   .cycle { grid-template-columns: auto minmax(0, 1fr); }
   .cycle-body { grid-column: 1 / -1; }
 }
+
+/* Post mortem: lista com filtros, ciclo do documento, seções e plano de ação */
+a.button { display: inline-block; text-decoration: none; }
+a.button-primary:hover { color: var(--brand-ink); }
+
+.pm-filters { display: flex; flex-wrap: wrap; gap: 0.6rem 0.9rem; align-items: flex-end; margin-bottom: 1.25rem; }
+.pm-filters label { display: grid; gap: 0.25rem; font-size: 0.84rem; font-weight: 600; color: var(--muted); }
+.pm-filters input:not([type="date"]) { width: 12rem; }
+.pm-filters-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+@media (max-width: 34rem) {
+  .pm-filters label { flex: 1 1 100%; }
+  .pm-filters input:not([type="date"]) { width: 100%; }
+  .pm-filters-actions { margin-left: 0; }
+}
+
+.pm-status {
+  font-size: 0.8rem; font-weight: 700; padding: 0.12rem 0.55rem; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); white-space: nowrap;
+}
+.pm-status-em_revisao { background: var(--warn-soft); color: var(--warn); }
+.pm-status-aprovado { background: var(--brand-soft); color: var(--brand); }
+.pm-status-encerrado { background: var(--ok-soft); color: var(--ok); }
+.badge-overdue { background: var(--danger-soft); color: var(--danger); }
+.pm-row-overdue { box-shadow: inset 4px 0 0 var(--danger); }
+
+.pm-head { margin: 0.5rem 0 1.25rem; }
+.pm-status-panel { display: grid; gap: 0.75rem; margin-bottom: 1.25rem; }
+.pm-status-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pm-status-actions form { display: contents; }
+.pm-overdue-note {
+  margin-bottom: 1.25rem; padding: 0.7rem 0.9rem;
+  border-left: 4px solid var(--danger); background: var(--danger-soft); border-radius: var(--radius);
+  color: var(--danger);
+}
+.pm-overdue-note a { margin-left: 0.5rem; color: inherit; }
+
+.pm-sections { display: grid; gap: 1.25rem; max-width: 64rem; }
+.pm-section { display: grid; gap: 0.75rem; }
+.pm-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; }
+.pm-section-head .muted { font-size: 0.84rem; }
+.pm-section-number {
+  display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; margin-right: 0.55rem;
+  border-radius: 50%; background: var(--surface-2); color: var(--muted);
+  font: 700 0.8rem/1 var(--text); vertical-align: 0.15em;
+}
+.pm-body { max-width: 80ch; overflow-wrap: anywhere; display: grid; gap: 0.5rem; }
+.pm-body ul { margin: 0; padding-left: 1.2rem; }
+.pm-section-missing .pm-body { color: var(--warn); font-weight: 600; }
+.pm-notice:empty { display: none; }
+.notice { padding: 0.6rem 0.8rem; border-radius: var(--radius); background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+
+.pm-plan { display: grid; gap: 0.6rem; }
+.pm-plan h3 { font-size: 0.95rem; }
+.pm-actions td { overflow-wrap: anywhere; }
+.pm-actions td:first-child { min-width: 14rem; }
+.pm-item-overdue td { background: var(--danger-soft); }
+.pm-item-status { font-weight: 600; margin-right: 0.35rem; }
+.pm-item-concluido { color: var(--ok); }
+.pm-item-aceito { color: var(--muted); }
+.pm-item-actions { white-space: nowrap; }
+.pm-item-actions form { display: inline; }
+.pm-item-actions button { padding: 0.35rem 0.6rem; font-size: 0.84rem; }
+.pm-action-fields { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; }
+.pm-action-fields label, .pm-plan .edit-form > label, .popover-form > label { display: grid; gap: 0.25rem; font-size: 0.84rem; font-weight: 600; color: var(--muted); }
+.pm-action-fields label { flex: 1 1 9rem; }
+.pm-plan textarea, .popover-form textarea { width: 100%; resize: vertical; }
+.pm-add > summary { font-size: 0.88rem; }
+.pm-add[open] > summary { margin-bottom: 0.5rem; }

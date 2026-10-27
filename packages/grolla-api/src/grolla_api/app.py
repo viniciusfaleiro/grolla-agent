@@ -34,11 +34,31 @@ from grolla.application.memory import (
     restore_memory,
 )
 from grolla.application.memory_store import MemoryStore
+from grolla.application.post_mortem import (
+    DocumentRenderer,
+    PostMortemFilters,
+    PostMortemNotFoundError,
+    PostMortemStore,
+    RenderError,
+    add_action,
+    edit_section,
+    move_status,
+    overdue_items,
+    render_pdf,
+    request_regeneration,
+    update_action,
+)
 from grolla.application.war_room import IncidentNotFoundError, act, ask
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, AnalysisStatus
 from grolla.domain.chat import AGENT_AUTHOR
-from grolla.domain.incidents import OPEN_STATES, EventType, Incident
+from grolla.domain.incidents import OPEN_STATES, EventType, Incident, IncidentState
 from grolla.domain.memory import ENVIRONMENT, Memory, SubjectKind
+from grolla.domain.post_mortem import (
+    SECTION_TITLES,
+    InvalidPostMortemError,
+    PostMortem,
+    SectionKey,
+)
 from grolla.domain.war_room import InvalidActionError
 
 from grolla_api.memory_pages import (
@@ -54,6 +74,21 @@ from grolla_api.memory_pages import (
     study_progress,
     subject_groups,
     subject_url,
+)
+from grolla_api.post_mortem_pages import (
+    ACTION_KIND_LABELS,
+    ACTION_STATUS_LABELS,
+    PM_STATUS_LABELS,
+    TRANSITIONS,
+    can_edit,
+    can_regenerate,
+    changed_action,
+    has_pdf,
+    list_filters,
+    new_action,
+    not_generated,
+    section_key,
+    target_status,
 )
 from grolla_api.war_room import (
     AUTHOR_COOKIE,
@@ -173,6 +208,15 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "new_subject_kinds": NEW_SUBJECT_KINDS,
     "subject_kind_names": SUBJECT_KIND_NAMES,
     "subject_url": subject_url,
+    "pm_status_labels": PM_STATUS_LABELS,
+    "action_kind_labels": ACTION_KIND_LABELS,
+    "action_status_labels": ACTION_STATUS_LABELS,
+    "section_titles": SECTION_TITLES,
+    "transitions": TRANSITIONS,
+    "can_edit": can_edit,
+    "can_regenerate": can_regenerate,
+    "has_pdf": has_pdf,
+    "not_generated": not_generated,
 }
 templates.env.globals.update(TEMPLATE_GLOBALS)
 
@@ -184,6 +228,13 @@ RELEARN_ERROR = "#erro-reaprender"  # dentro do popover de confirmação
 NOTE_ERROR = "#erro-nota"
 RELEARN_UNCONFIRMED = "confirme que quer reaprender o ambiente do zero"
 STUDY_QUEUED = "já tem um estudo na fila ou em andamento; espere ele terminar"
+STATUS_ERROR = "#erro-status"
+PLAN_ERROR = "#erro-plano"
+REGENERATION_ASKED = (
+    "Pedido enviado: o Grolla está regenerando esta seção. Recarregue a página em instantes "
+    "para ver o texto novo; o atual fica no histórico."
+)
+PDF_FAILED = "não consegui gerar o PDF; tente de novo em instantes"
 
 
 def error_fragment(message: str, status_code: int, target: str) -> HTMLResponse:
@@ -209,11 +260,15 @@ class Services:
     studies: StudyQueue
     learning_queue: LearningQueue
     study_enabled: bool  # sem `memory.study` no YAML nenhum estudo roda
+    post_mortems: PostMortemStore
+    renderer: DocumentRenderer
     impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.
 RecordChange = Callable[[Memory, str, dict[str, str]], Awaitable[Memory]]
+# Mudança num post mortem: (documento, autor, campos do form) → o que o caso de uso devolve.
+PostMortemChange = Callable[[PostMortem, str, dict[str, str]], Awaitable[object]]
 
 
 def reload_page(request: Request, url: str) -> Response:
@@ -550,6 +605,198 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         except InvalidMemoryError as error:
             return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, NOTE_ERROR)
         return reload_page(request, subject_url(subject))
+
+    post_mortems = services.post_mortems
+
+    def pm_url(incident_id: UUID) -> str:
+        return f"/postmortems/{incident_id}"
+
+    def key_or_404(key: str) -> SectionKey:
+        section = section_key(key)
+        if section is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "seção não encontrada")
+        return section
+
+    async def post_mortem_or_404(incident_id: str) -> PostMortem:
+        found = await post_mortems.get((await incident_or_404(incident_id)).id)
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "post mortem não encontrado")
+        return found
+
+    async def change_post_mortem(
+        request: Request,
+        incident_id: str,
+        target: str,
+        change: PostMortemChange,
+        confirmation: str | None = None,
+    ) -> Response:
+        """Escrita no post mortem: exige autor; erro de domínio vira mensagem junto do form.
+
+        Sem `confirmation`, recarrega a página; com ela, o HTMX recebe só o aviso (`202`).
+        """
+        pm = await post_mortem_or_404(incident_id)
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        if author is None:
+            return error_fragment(NO_AUTHOR, status.HTTP_401_UNAUTHORIZED, target)
+        try:
+            await change(pm, author, parse_form(await request.body()))
+        except PostMortemNotFoundError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "post mortem não encontrado") from error
+        except InvalidPostMortemError as error:
+            return error_fragment(str(error), status.HTTP_422_UNPROCESSABLE_CONTENT, target)
+        if confirmation and request.headers.get("HX-Request") == "true":
+            return HTMLResponse(
+                f'<p class="notice">{escape(confirmation)}</p>',
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+        return reload_page(request, pm_url(pm.incident_id))
+
+    @app.get("/postmortems", response_class=HTMLResponse)
+    async def post_mortem_list(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        filters = list_filters(request.query_params)
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "postmortems",
+            "back_to": "/postmortems",
+            "filters": filters,
+            "filtered": filters != PostMortemFilters(),
+            "summaries": await post_mortems.summaries(filters, clock.now().date()),
+        }
+        return templates.TemplateResponse(request, "postmortems.html", context)
+
+    # Antes da página: `/postmortems/{id}` também casaria com "<id>.pdf".
+    @app.get("/postmortems/{incident_id}.pdf")
+    async def post_mortem_pdf(incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        pm = await post_mortem_or_404(incident_id)
+        try:
+            pdf = await render_pdf(
+                store=post_mortems,
+                repository=repository,
+                renderer=services.renderer,
+                incident_id=pm.incident_id,
+            )
+        except PostMortemNotFoundError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "post mortem não encontrado") from error
+        except InvalidPostMortemError as error:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+        except RenderError as error:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, PDF_FAILED) from error
+        filename = f"post-mortem-{pm.incident_id}.pdf"
+        return Response(
+            pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/postmortems/{incident_id}", response_class=HTMLResponse)
+    async def post_mortem_page(request: Request, incident_id: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        found = await incident_or_404(incident_id)
+        pm = await post_mortems.get(found.id)
+        overdue = overdue_items(pm, clock.now().date()) if pm else ()
+        context = {
+            "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
+            "nav": "postmortems",
+            "back_to": pm_url(found.id),
+            "incident": found,
+            "resolved": found.state is IncidentState.RESOLVED,
+            "pm": pm,
+            "overdue": {item.id for item in overdue},
+        }
+        return templates.TemplateResponse(request, "postmortem.html", context)
+
+    @app.get("/postmortems/{incident_id}/secoes/{key}/versoes", response_class=HTMLResponse)
+    async def post_mortem_versions(request: Request, incident_id: str, key: str) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+        section = key_or_404(key)
+        pm = await post_mortem_or_404(incident_id)
+        context = {"versions": await post_mortems.versions(pm.incident_id, section)}
+        return templates.TemplateResponse(request, "_post_mortem_versions.html", context)
+
+    @app.post("/postmortems/{incident_id}/secoes/{key}")
+    async def post_mortem_edit(request: Request, incident_id: str, key: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        section = key_or_404(key)
+
+        async def edited(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            return await edit_section(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                key=section,
+                body=form.get("texto", ""),
+                author=author,
+                clock=clock,
+            )
+
+        return await change_post_mortem(request, incident_id, f"#erro-{section}", edited)
+
+    @app.post("/postmortems/{incident_id}/secoes/{key}/regenerar")
+    async def post_mortem_regenerate(request: Request, incident_id: str, key: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        section = key_or_404(key)
+
+        async def asked(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            return await request_regeneration(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                key=section,
+                instruction=form.get("instrucao") or None,
+                author=author,
+                clock=clock,
+            )
+
+        target = f"#erro-{section}"
+        return await change_post_mortem(request, incident_id, target, asked, REGENERATION_ASKED)
+
+    @app.post("/postmortems/{incident_id}/status")
+    async def post_mortem_status(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        async def moved(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            return await move_status(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                to=target_status(form),
+                author=author,
+                clock=clock,
+            )
+
+        return await change_post_mortem(request, incident_id, STATUS_ERROR, moved)
+
+    @app.post("/postmortems/{incident_id}/plano")
+    async def post_mortem_add_action(request: Request, incident_id: str) -> Response:  # pyright: ignore[reportUnusedFunction]
+        async def added(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            fields = new_action(form)
+            return await add_action(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                description=fields.description,
+                kind=fields.kind,
+                owner=fields.owner,
+                due=fields.due,
+                author=author,
+                clock=clock,
+            )
+
+        return await change_post_mortem(request, incident_id, PLAN_ERROR, added)
+
+    @app.post("/postmortems/{incident_id}/plano/{action_id}")
+    async def post_mortem_update_action(  # pyright: ignore[reportUnusedFunction]
+        request: Request, incident_id: str, action_id: str
+    ) -> Response:
+        async def updated(pm: PostMortem, author: str, form: dict[str, str]) -> object:
+            item = next((a for a in pm.actions if str(a.id) == action_id), None)
+            if item is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "item do plano não encontrado")
+            fields = changed_action(item, form)
+            return await update_action(
+                store=post_mortems,
+                incident_id=pm.incident_id,
+                action_id=item.id,
+                description=fields.description,
+                kind=fields.kind,
+                owner=fields.owner,
+                due=fields.due,
+                status=fields.status,
+                author=author,
+                clock=clock,
+            )
+
+        return await change_post_mortem(request, incident_id, PLAN_ERROR, updated)
 
     @app.post("/author")
     async def set_author(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
