@@ -63,6 +63,25 @@ cloud:
   #     role_arn: arn:aws:iam::123456789012:role/grolla-somente-leitura
   #     regions: [us-east-1, sa-east-1]
 
+# ---- Clusters (somente leitura) ----
+# Cada cluster com o acesso dele; `enabled: false` tira o cluster da investigação no próximo
+# restart. Nos clusters PCI, `show_values: false`: nenhum valor de ConfigMap ou variável vai ao LLM.
+# RBAC em deploy/k8s-somente-leitura.yaml. Nenhuma credencial vai aqui.
+clusters: []
+# clusters:
+#   - name: nao-pci-prod
+#     access: eks
+#     eks_name: nao-pci-prod
+#     region: us-east-1
+#     namespaces: [pagamentos]
+#   - name: pci-prod
+#     access: eks
+#     eks_name: pci-prod
+#     region: us-east-1
+#     role_arn: arn:aws:iam::123456789012:role/grolla-somente-leitura   # conta PCI
+#     namespaces: [cartoes]
+#     show_values: false
+
 # ---- Memória viva ----
 # Aprendizado ao encerrar cada incidente (sempre ligado) e estudo do ambiente: inicial na primeira
 # subida e diário no cron. Sem `study`, o agente não estuda o ambiente sozinho.

@@ -1,0 +1,35 @@
+# Acesso somente leitura do Grolla a um cluster: aplique em cada cluster que o agente consulta.
+# Só get/list/watch, e nunca Secrets (listar Secret entrega os valores).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grolla-somente-leitura
+rules:
+  - apiGroups: [""]
+    resources: [pods, events, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+---
+# O grupo `grolla-somente-leitura` recebe a ClusterRole. No EKS, ligue a role IAM do agente a esse
+# grupo por um access entry (ou pelo aws-auth); em outro cluster, troque o subject pela conta de
+# serviço ou pelo usuário do agente. Para limitar a namespaces, use RoleBindings em cada um.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grolla-somente-leitura
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grolla-somente-leitura
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: grolla-somente-leitura
