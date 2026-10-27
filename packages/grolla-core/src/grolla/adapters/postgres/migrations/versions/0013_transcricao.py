@@ -21,13 +21,14 @@ def upgrade() -> None:
             author text NOT NULL,
             text text NOT NULL,
             received_at timestamptz NOT NULL,
+            queued_at timestamptz NOT NULL,  -- posição na fila: o recebimento ou o reprocessar
             status text NOT NULL DEFAULT 'pendente',  -- pendente, em_andamento, concluida, falhou
             started_at timestamptz,
             finished_at timestamptz,
             reason text
         );
         CREATE INDEX transcripts_incident ON transcripts (incident_id, id);
-        CREATE INDEX transcripts_pending ON transcripts (received_at) WHERE status = 'pendente';
+        CREATE INDEX transcripts_pending ON transcripts (queued_at) WHERE status = 'pendente';
         """
     )
 
