@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-alarme%20normalizado%20na%20tela%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-war%20room%20redesenhado%20%E2%9C%93-brightgreen)](#-roadmap)
 
 </div>
 
@@ -368,6 +368,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **S11 — AWS completa** · ECS/EKS, Health, cotas e várias contas ✅
 - **Cluster somente leitura** · estado e mudanças no Kubernetes, vários clusters, PCI sem valores ✅
 - **Alarme normalizado na tela** · faixa ao vivo no war room, aviso e título piscando, selo na lista ✅
+- **War room redesenhado** · barra fixa, cartão Agora, hipóteses com veredito, linha do tempo filtrável ✅
 - **S4 — On-call acionado sozinho** · aguardando conta no Spike.sh
 
 ## 📄 Licença

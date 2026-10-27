@@ -224,6 +224,14 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   transição, alertas e estado ao vivo, selo "alarme normalizado" na lista.
 - **Ports:** nenhum.
 
+## S11.3 · War room redesenhado ✅
+
+- **Valor:** quem está no plantão lê, de cima para baixo e num relance, o que acontece, quanto
+  dói, o que fazer agora e como o Grolla chegou lá.
+- **Escopo:** barra fixa com a pílula do alarme e um botão, cartão "Agora", hipóteses com o
+  veredito num lugar só, linha do tempo filtrável, celular com o próximo passo embaixo.
+- **Ports:** nenhum.
+
 ## Fase 2 (depois do S11)
 
 SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com
