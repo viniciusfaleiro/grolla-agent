@@ -8,14 +8,29 @@
   {% include "_chat.html" %}
 
   <div class="rest">
-    <section class="panel" id="alertas">
-      <h2>Alertas</h2>
-      {{ alerts_table(alerts) }}
+    <section class="panel timeline-panel" id="linha-do-tempo" data-filtro="tudo" aria-labelledby="linha-titulo">
+      <div class="panel-head">
+        <h2 id="linha-titulo">Linha do tempo</h2>
+        <div class="segmented" role="group" aria-label="Filtrar a linha do tempo">
+          <button type="button" data-filtro="tudo" aria-pressed="true">Tudo</button>
+          <button type="button" data-filtro="pessoa" aria-pressed="false">Pessoas</button>
+          <button type="button" data-filtro="alerta" aria-pressed="false">Alertas</button>
+          <button type="button" data-filtro="grolla" aria-pressed="false">Grolla</button>
+        </div>
+      </div>
+      {% if author and "record" in header.actions %}
+      <form class="record" hx-post="/incidents/{{ incident.id }}/actions/record" hx-target="#war-room" hx-swap="outerHTML" data-reset>
+        <label class="visually-hidden" for="acao">O que você fez</label>
+        <input id="acao" name="texto" required placeholder="Registre o que você fez, ex.: rollback do build 20261025.4">
+        <button>Registrar ação</button>
+      </form>
+      {% endif %}
+      {% include "_timeline.html" %}
     </section>
 
-    <section class="panel" id="timeline-panel">
-      <h2>Timeline</h2>
-      {% include "_timeline.html" %}
+    <section class="panel" id="alertas" aria-labelledby="alertas-titulo">
+      <h2 id="alertas-titulo">Alertas</h2>
+      {{ alerts_table(alerts, incident) }}
     </section>
   </div>
 </div>

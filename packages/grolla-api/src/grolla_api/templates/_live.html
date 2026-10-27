@@ -1,128 +1,129 @@
 {# Blocos do war room que mudam sozinhos: a resposta da timeline os troca fora dela
-   (hx-swap-oob) quando chega evento. A faixa do alarme fica no bloco de estado, à direita do
-   título. Os formulários ficam de fora, para não apagar o que se digita. #}
-{% from "_macros.html" import avatar, hhmm, when %}
+   (hx-swap-oob) quando chega evento. A barra do incidente (`#incident-status`) traz a pílula do
+   alarme e o botão do próximo passo; os formulários com texto ficam de fora, para não apagar o que
+   se digita. #}
+{% from "_macros.html" import avatar, hhmm, icon %}
 {% from "_follow_up.html" import impact_chip, oob_attr %}
 
-{% macro firing_alerts(alerts, incident) %}
+{% macro alarm_pill(alarm, incident, now, alerts) %}
 {% set firing = alerts | selectattr("fingerprint", "in", incident.firing) | unique(attribute="fingerprint") | list %}
-{% if firing %}
-<ul class="alarm-alerts">
-  {% for alert in firing[:3] %}
-  <li>{{ alert.rule_name }}{% if alert.source_url %} · <a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir o alerta</a>{% endif %}</li>
-  {% endfor %}
-  {% if firing | length > 3 %}<li class="muted">e mais {{ firing | length - 3 }}</li>{% endif %}
-</ul>
-{% endif %}
-{% endmacro %}
-
-{% macro alarm_banner(alarm, incident, now, alerts) %}
-<div id="alarm" class="alarm{% if alarm %} alarm-{{ alarm.kind }}{% endif %}"
-     data-alarm="{{ alarm.kind if alarm else '' }}" data-title="{{ incident.title }}"
-     role="status"{% if not alarm %} hidden{% endif %}>
+<a id="alarm" class="alarm{% if alarm %} alarm-{{ alarm.kind }}{% endif %}" href="#alertas"
+   data-alarm="{{ alarm.kind if alarm else '' }}" data-title="{{ incident.title }}"
+   role="status"{% if not alarm %} hidden{% endif %}>
   {% if alarm and alarm.kind == "normalizado" %}
-  <span class="alarm-icon" aria-hidden="true">✅</span>
-  <p class="alarm-text" title="Nenhum alerta deste incidente está disparando"><strong>Alertas normalizados</strong> às {{ hhmm(alarm.at) }} · <span data-ago="{{ alarm.at.isoformat() }}">{{ ago(now - alarm.at) }}</span></p>
+  {{ icon("check") }}
+  <span class="alarm-text" title="Nenhum alerta deste incidente está disparando"><strong>Alertas normalizados</strong> às {{ hhmm(alarm.at) }} · <span data-ago="{{ alarm.at.isoformat() }}">{{ ago(now - alarm.at) }}</span></span>
   {% elif alarm and alarm.kind == "disparando" %}
-  <span class="alarm-icon" aria-hidden="true">🔴</span>
-  <div class="alarm-text">
-    <p><strong>Alarme disparando</strong> desde {{ hhmm(alarm.at) }} · <span data-ago="{{ alarm.at.isoformat() }}">{{ ago(now - alarm.at) }}</span></p>
-    {{ firing_alerts(alerts, incident) }}
-  </div>
+  <span class="alarm-dot" aria-hidden="true"></span>
+  <span class="alarm-text"><strong>Alarme disparando</strong> desde {{ hhmm(alarm.at) }} · {{ firing | length }} {{ "alerta" if firing | length == 1 else "alertas" }}</span>
   {% elif alarm %}
-  <span class="alarm-icon" aria-hidden="true">⚠️</span>
-  <div class="alarm-text">
-    <p title="O alarme tinha normalizado e disparou de novo"><strong>Voltou a disparar</strong> às {{ hhmm(alarm.at) }}</p>
-    {{ firing_alerts(alerts, incident) }}
-  </div>
+  {{ icon("back") }}
+  <span class="alarm-text" title="O alarme tinha normalizado e disparou de novo"><strong>Voltou a disparar</strong> às {{ hhmm(alarm.at) }} · {{ firing | length }} {{ "alerta" if firing | length == 1 else "alertas" }}</span>
   {% endif %}
-</div>
+</a>
 {% endmacro %}
 
-{% macro incident_status(incident, header, impact, alarm, author, now, alerts, oob=False) %}
-<div id="incident-status"{{ oob_attr(oob) }}>
-  <div class="incident-top">
-  <div class="incident-head">
-    <div class="incident-title">
-      <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
-      <h1>{{ incident.title }}</h1>
+{% macro incident_status(incident, header, impact, alarm, author, now, alerts, can_merge=False, oob=False) %}
+<div id="incident-status"{{ oob_attr(oob) }} class="wr-bar">
+  <div class="wr-bar-row">
+    <div class="incident-head">
+      <div class="incident-title">
+        <span class="sev sev-{{ incident.severity }}" title="Severidade">{{ incident.severity }}</span>
+        <h1>{{ incident.title }}</h1>
+      </div>
+      <div class="chips">
+        <span class="state state-{{ incident.state }}">{{ header.state }}</span>
+        {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
+        {{ impact_chip(impact) }}
+        {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
+      </div>
     </div>
-    <div class="chips">
-      <span class="state state-{{ incident.state }}">{{ header.state }}</span>
-      {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
-      <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
-      {{ impact_chip(impact) }}
-      {% if incident.state == "resolvido" %}<a class="chip chip-link" href="/postmortems/{{ incident.id }}">Post mortem</a>{% endif %}
+    <div class="wr-bar-side">
+      {{ alarm_pill(alarm, incident, now, alerts) }}
+      {% if author and header.actions %}{{ next_step_buttons(incident, header, can_merge) }}{% endif %}
     </div>
-  </div>
-  {{ alarm_banner(alarm, incident, now, alerts) }}
   </div>
 
-  <svg class="pulse pulse-{{ incident.state }}" viewBox="0 0 600 44" preserveAspectRatio="none" aria-hidden="true">
-    {% if header.actions %}
-    <path class="pulse-beat" d="M0 22 H200 L214 22 L224 6 L238 38 L250 14 L258 22 H330 L340 22 L348 12 L358 32 L366 22 H600"/>
-    {% else %}
-    <path d="M0 22 H600"/>
+  <div class="wr-bar-row wr-bar-cycle">
+    {% if header.stages %}
+    <ol class="stages" aria-label="Ciclo do incidente">
+      {% for stage in header.stages %}
+      <li class="{{ stage.status }}"{% if stage.status == "atual" %} aria-current="step"{% endif %}>{{ stage.label }}</li>
+      {% endfor %}
+    </ol>
     {% endif %}
-  </svg>
-
-  {% if header.stages %}
-  <ol class="stages" aria-label="Ciclo do incidente">
-    {% for stage in header.stages %}
-    <li class="{{ stage.status }}"{% if stage.status == "atual" %} aria-current="step"{% endif %}>{{ stage.label }}</li>
-    {% endfor %}
-  </ol>
-  {% endif %}
-
-  <dl class="facts">
-    <div><dt>IC</dt><dd class="commander">{% if incident.commander %}{{ avatar(incident.commander) }}{{ incident.commander }}{% else %}ninguém ainda{% endif %}</dd></div>
-    <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
-    <div><dt title="Tempo até alguém assumir">TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
-    <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
-    <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
-  </dl>
+    <dl class="facts">
+      <div><dt>IC</dt><dd class="commander">{% if incident.commander %}{{ avatar(incident.commander) }}{{ incident.commander }}{% else %}ninguém ainda{% endif %}</dd></div>
+      <div><dt>Duração</dt><dd class="duration">{{ header.duration }}</dd></div>
+      <div><dt title="Tempo até alguém assumir">TTA</dt><dd class="tta">{{ header.tta or "—" }}</dd></div>
+      <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
+      <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
+    </dl>
+  </div>
 </div>
 {% endmacro %}
 
-{# Os botões do próximo passo (sem campo de texto): mudam quando o estado muda sozinho, como na
-   volta de mitigado para em tratamento quando o alarme dispara de novo. #}
-{% macro next_step_buttons(incident, header, oob=False) %}
+{# O botão do próximo passo e o "⋯" com as outras ações do estado. Mudam quando o estado muda
+   sozinho, como na volta de mitigado para em tratamento quando o alarme dispara de novo. #}
+{% macro next_step_buttons(incident, header, can_merge=False) %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
-<div class="next-step-main" id="next-step-main"{{ oob_attr(oob) }}>
-  {% if "assume" in header.actions %}
-  <form hx-post="{{ base }}assume"><button class="{{ 'button-primary button-big' if header.primary == 'assume' else '' }}">{{ "Assumir como IC" if not incident.commander else "Assumir como IC no lugar de " ~ incident.commander }}</button></form>
+<div class="next-step-main" id="next-step-main" hx-target="#war-room" hx-swap="outerHTML">
+  {% if header.primary == "assume" %}
+  <form hx-post="{{ base }}assume"><button class="button-primary button-big">{{ "Assumir como IC" if not incident.commander else "Assumir como IC no lugar de " ~ incident.commander }}</button></form>
+  {% elif header.primary == "mitigate" %}
+  <form hx-post="{{ base }}mitigate"><button class="button-primary button-big">Marcar mitigado</button></form>
+  {% elif header.primary == "resolve" %}
+  <button class="button-primary button-big" popovertarget="encerrar">Encerrar</button>
   {% endif %}
-  {% if "mitigate" in header.actions %}
-  <form hx-post="{{ base }}mitigate"><button class="{{ 'button-primary button-big' if header.primary == 'mitigate' else '' }}">Marcar mitigado</button></form>
-  {% endif %}
-  {% if "resolve" in header.actions %}
-  <button class="{{ 'button-primary button-big' if header.primary == 'resolve' else '' }}" popovertarget="encerrar">Encerrar</button>
-  {% endif %}
-  {% if "reopen" in header.actions %}
-  <form hx-post="{{ base }}reopen"><button>Reabrir</button></form>
-  {% endif %}
+  <button class="button-icon" popovertarget="mais-acoes" aria-label="Mais ações">{{ icon("more") }}</button>
+  <div id="mais-acoes" popover class="menu">
+    <p class="menu-title">Mais ações</p>
+    {% if "assume" in header.actions and header.primary != "assume" %}
+    <form hx-post="{{ base }}assume"><button class="menu-item">{{ "Assumir como IC" if not incident.commander else "Assumir como IC no lugar de " ~ incident.commander }}</button></form>
+    {% endif %}
+    {% if "mitigate" in header.actions and header.primary != "mitigate" %}
+    <form hx-post="{{ base }}mitigate"><button class="menu-item">Marcar mitigado</button></form>
+    {% endif %}
+    {% if "resolve" in header.actions and header.primary != "resolve" %}
+    <button class="menu-item" popovertarget="encerrar">Encerrar</button>
+    {% endif %}
+    {% if "reopen" in header.actions %}
+    <form hx-post="{{ base }}reopen"><button class="menu-item">Reabrir</button></form>
+    {% endif %}
+    {% if "severity" in header.actions %}
+    <form class="severity-picker" hx-post="{{ base }}severity" hx-confirm="Mudar a severidade? O canal do time recebe um card.">
+      <span class="muted">Severidade</span>
+      <span class="options" role="group" aria-label="Severidade">
+        {% for severity in severities %}
+        <button name="severidade" value="{{ severity }}" aria-pressed="{{ 'true' if severity == incident.severity else 'false' }}"{% if severity == incident.severity %} disabled{% endif %}>{{ severity }}</button>
+        {% endfor %}
+      </span>
+    </form>
+    {% endif %}
+    {% if can_merge %}<button class="menu-item" popovertarget="juntar">Juntar com…</button>{% endif %}
+    <button class="menu-item" popovertarget="transcricao">Enviar transcrição</button>
+    {% if "discard" in header.actions %}
+    <button class="menu-item menu-danger" popovertarget="descartar">Descartar como falso positivo</button>
+    {% endif %}
+  </div>
 </div>
 {% endmacro %}
 
-{% macro alerts_table(alerts, oob=False) %}
+{% macro alerts_table(alerts, incident, oob=False) %}
+{% set unique = alerts | unique(attribute="fingerprint") | list %}
 <div id="alerts"{{ oob_attr(oob) }}>
-{% if alerts %}
-<div class="table-wrap">
-<table>
-  <thead><tr><th>Status</th><th>Regra</th><th>Resumo</th><th>Início</th><th>Origem</th></tr></thead>
-  <tbody>
-  {% for alert in alerts %}
-    <tr>
-      <td>{{ alert.status }}</td>
-      <td>{{ alert.rule_name }}</td>
-      <td>{{ alert.summary }}</td>
-      <td>{{ when(alert.starts_at) }}</td>
-      <td>{% if alert.source_url %}<a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
+{% if unique %}
+<ul class="alert-list">
+  {% for alert in unique | sort(attribute="fingerprint") | sort(attribute="starts_at", reverse=True) %}
+  {% set on = alert.fingerprint in incident.firing %}
+  <li class="alert-item{% if on %} alert-on{% endif %}">
+    <span class="alert-status">{% if on %}<span class="alarm-dot" aria-hidden="true"></span>disparando{% else %}{{ icon("check") }}resolvido{% endif %}</span>
+    <span class="alert-rule"><strong>{{ alert.rule_name }}</strong>{% if alert.source_url %} · <a href="{{ alert.source_url }}" target="_blank" rel="noopener">abrir o alerta</a>{% endif %}</span>
+    <span class="alert-summary muted">{{ alert.summary }}</span>
+    <span class="alert-when muted">desde {{ hhmm(alert.starts_at) }}</span>
+  </li>
   {% endfor %}
-  </tbody>
-</table>
-</div>
+</ul>
 {% else %}
 <p class="muted">Nenhum alerta.</p>
 {% endif %}

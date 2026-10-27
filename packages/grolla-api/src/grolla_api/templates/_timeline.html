@@ -1,7 +1,7 @@
 {# Timeline com o autor; o polling só troca este bloco quando chega evento. #}
 {% from "_macros.html" import hhmm %}
 {% from "_follow_up.html" import proposal_notice, follow_up_section %}
-{% from "_live.html" import alerts_table, incident_status, next_step_buttons %}
+{% from "_live.html" import alerts_table, incident_status %}
 <div id="timeline"
      hx-get="/incidents/{{ incident.id }}/timeline?visto={{ events | length }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
@@ -14,7 +14,8 @@
   {% for event in shown %}
   {% set origin = from_transcript(event) %}
   {% set human = event.author not in system_authors and not origin %}
-  <li{% if is_quiet(event) %} class="quiet"{% endif %}>
+  {% set kind = event_kind(event) %}
+  <li{% if is_quiet(event) %} class="quiet"{% endif %} data-kind="{{ kind }}">
     {{ hhmm(event.at) }}
     <div class="event{% if human %} event-human{% endif %}{% if origin %} event-transcript{% endif %}">
       {% set ref = linked_incident(event) %}
@@ -34,6 +35,13 @@
   </li>
   {% endfor %}
 </ol>
+{% set system = system_count(shown) %}
+{% if system %}
+<button type="button" class="button-quiet button-small system-toggle" data-system-toggle>
+  <span class="when-hidden">Mostrar {{ system }} {{ "evento" if system == 1 else "eventos" }} do sistema</span>
+  <span class="when-shown">Esconder os eventos do sistema</span>
+</button>
+{% endif %}
 {% else %}
 <p class="muted">Nenhum evento.</p>
 {% endif %}
@@ -41,7 +49,6 @@
 {% if oob %}
 {{ follow_up_section(cycles, oob=True) }}
 {{ proposal_notice(proposal, header, author, "/incidents/" ~ incident.id ~ "/actions/", oob=True) }}
-{{ incident_status(incident, header, impact, alarm, author, now, alerts, oob=True) }}
-{{ alerts_table(alerts, oob=True) }}
-{% if author and header.actions %}{{ next_step_buttons(incident, header, oob=True) }}{% endif %}
+{{ incident_status(incident, header, impact, alarm, author, now, alerts, merge_candidates | length > 0, oob=True) }}
+{{ alerts_table(alerts, incident, oob=True) }}
 {% endif %}

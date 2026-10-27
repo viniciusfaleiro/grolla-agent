@@ -153,10 +153,12 @@ from grolla_api.war_room import (
     display_name,
     encode_author,
     event_detail,
+    event_kind,
     event_label,
     failed_transcript,
     from_transcript,
     header_of,
+    hypothesis_rows,
     initials,
     is_agent,
     is_failure,
@@ -178,6 +180,8 @@ from grolla_api.war_room import (
     same_problem,
     seen_answer_text,
     seen_before_answer,
+    situation_of,
+    system_count,
     transcript_file,
     trend_label,
     visible_events,
@@ -260,6 +264,8 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "alarm_normalized": alarm_normalized,
     "display_name": display_name,
     "event_detail": event_detail,
+    "event_kind": event_kind,
+    "system_count": system_count,
     "event_label": event_label,
     "initials": initials,
     "is_agent": is_agent,
@@ -411,6 +417,9 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "cycles": recent_cycles(await repository.cycles_of(incident.id)),
             "impact": await follow_up.impact_of(repository, incident, services.impact),
             "proposal": current_proposal(incident, events),
+            "merge_candidates": merge_candidates(
+                incident, await repository.list_incidents(INCIDENT_LIST_LIMIT)
+            ),
         }
 
     async def linked_of(events: list[IncidentEvent]) -> dict[UUID, Incident]:
@@ -423,15 +432,16 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
         events = await repository.events_of(incident.id)
         linked = await linked_of(events)
         seen = analysis.seen_before if analysis else None
-        recent = await repository.list_incidents(INCIDENT_LIST_LIMIT)
+        verification = await repository.verification_of(incident.id)
         return {
             **await follow_up_context(incident, author),
             "analysis": analysis,
-            "verification": await repository.verification_of(incident.id),
+            "verification": verification,
+            "situation": situation_of(analysis, verification),
+            "hypotheses": hypothesis_rows(analysis, verification),
             "discarded": discarded_hypotheses(events),
             "seen_answer": seen_before_answer(events, seen.incident_id) if seen else None,
             "merge": merge_suggestion(incident, events, linked),
-            "merge_candidates": merge_candidates(incident, recent),
             "merged_into": merged_into(events, linked),
         }
 

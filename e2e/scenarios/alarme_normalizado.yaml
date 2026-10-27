@@ -42,7 +42,7 @@ when:
       contains:
         - 'data-alarm="disparando" data-title="Erros no alarme-api"'
         - Alarme disparando</strong> desde
-        - 'Erros no alarme-api · <a href="https://signoz.interno/alerts/edit?ruleId=120"'
+        - '<strong>Erros no alarme-api</strong> · <a href="https://signoz.interno/alerts/edit?ruleId=120"'
         - abrir o alerta
   - http:
       service: api
