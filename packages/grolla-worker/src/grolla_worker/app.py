@@ -16,6 +16,7 @@ from grolla.application.memory import (
     run_next_learning,
     run_next_study,
 )
+from grolla.application.memory_retrieval import index_memory
 from grolla.bootstrap import WorkerContainer
 
 from grolla_worker.heartbeat import HEARTBEAT_CRON, beat
@@ -33,6 +34,7 @@ REPLIES_CRON = "* * * * * */2"  # quem pergunta no chat está olhando a página
 REAPER_CRON = "* * * * *"
 LEARNINGS_CRON = "* * * * * */10"
 STUDIES_CRON = "* * * * *"
+INDEX_CRON = "* * * * * */30"
 
 
 def build_app(container: WorkerContainer) -> procrastinate.App:
@@ -77,6 +79,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             clock=container.clock,
             policy=container.analysis,
             memory=container.memory,
+            embedder=container.embedder,
         ):
             pass
 
@@ -94,6 +97,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             clock=container.clock,
             policy=container.analysis,
             memory=container.memory,
+            embedder=container.embedder,
         ):
             pass
 
@@ -131,6 +135,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
             clock=container.clock,
             policy=container.analysis,
             memory=container.memory,
+            embedder=container.embedder,
         ):
             pass
 
@@ -181,6 +186,7 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
         while await run_next_study(
             studies=container.studies,
             memory=container.memory,
+            embedder=container.embedder,
             model=container.model,
             telemetry=container.telemetry,
             changes=container.changes,
@@ -199,6 +205,25 @@ def build_app(container: WorkerContainer) -> procrastinate.App:
     )
     async def reap_studies(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
         await reap_stuck_studies(container.studies, container.clock, container.memory_policy)
+
+    rag, embedder = container.memory_policy.rag, container.embedder
+    if rag is not None and embedder is not None:
+        # Indexa em trechos o que mudou na memória e limpa o que saiu; uma rodada por vez.
+        @app.periodic(cron=INDEX_CRON)
+        @app.task(
+            name="index_memory",
+            queue=ANALYSIS_QUEUE,
+            queueing_lock="index_memory",
+            lock="index_memory",
+        )
+        async def index(timestamp: int) -> None:  # pyright: ignore[reportUnusedFunction]  # noqa: ARG001
+            while (
+                await index_memory(
+                    memory=container.memory, embedder=embedder, clock=container.clock, policy=rag
+                )
+                >= rag.batch
+            ):
+                pass
 
     study = container.config.memory.study
     if container.memory_policy.study is not None and study is not None:

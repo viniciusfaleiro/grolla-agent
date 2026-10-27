@@ -4,6 +4,13 @@ from dataclasses import replace
 from datetime import timedelta
 from uuid import uuid4
 
+from grolla.application.analysis import AnalysisPolicy, run_next_analysis
+from grolla.application.investigation import (
+    NOTHING_REMEMBERED,
+    RECALL_CHUNKS_SPEC,
+    Toolbox,
+    brief_text,
+)
 from grolla.application.memory_retrieval import (
     RagPolicy,
     index_documents,
@@ -32,7 +39,8 @@ from grolla.domain.memory import (
 )
 from grolla.testing.builders import T0, make_alert, make_incident
 from grolla.testing.clock import FakeClock
-from grolla.testing.investigation import FakeChangeHistory
+from grolla.testing.incidents import InMemoryAnalysisQueue, InMemoryIncidentRepository
+from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry, ScriptedLanguageModel
 from grolla.testing.memory import FakeTextEmbedder, InMemoryMemoryStore
 
 RUNBOOK = """\
@@ -317,3 +325,99 @@ async def test_memory_for_with_embedder_brings_paraphrased_episodes_and_document
     assert textual.documents == ()
     assert [e.id for e in hybrid.episodes] == [episode.id]
     assert {h.chunk.path for h in hybrid.documents} == {"docs/runbook.md"}
+
+
+# ---- recall e análise com RAG ----
+
+
+async def indexed_world(embedder: FakeTextEmbedder) -> tuple[InMemoryMemoryStore, Memory]:
+    memory = InMemoryMemoryStore()
+    note = record(MemoryKind.NOTE, title="Conexões presas", body="Conexões presas no fim do mês")
+    await memory.save([(note, None)])
+    await index_memory(memory=memory, embedder=embedder, clock=FakeClock(), policy=RagPolicy())
+    await index_documents(
+        service="pedidos-api",
+        memory=memory,
+        changes=FakeChangeHistory(files={"pedidos-api": {"docs/runbook.md": RUNBOOK}}),
+        embedder=embedder,
+        clock=FakeClock(),
+        policy=RagPolicy(),
+    )
+    return memory, note
+
+
+def rag_toolbox(memory: InMemoryMemoryStore, embedder: FakeTextEmbedder) -> Toolbox:
+    return Toolbox(
+        FakeTelemetry(),
+        FakeChangeHistory(),
+        FakeClock(T0),
+        timedelta(days=7),
+        memory=memory,
+        embedder=embedder,
+    )
+
+
+async def test_recall_with_rag_returns_chunks_of_memory_and_documentation() -> None:
+    embedder = FakeTextEmbedder({"liberar": "reinicie"})
+    memory, note = await indexed_world(embedder)
+    tools = rag_toolbox(memory, embedder)
+
+    found = await tools.call("recall", {"subject": "pedidos-api", "query": "liberar conexões"})
+
+    assert found.startswith("<memoria>")
+    assert "## Trechos" in found
+    assert f"### [nota] pedidos-api: {note.title} (aprendido" in found
+    assert "### [documento] pedidos-api: docs/runbook.md — Pool de conexões esgotado" in found
+    assert "Link: https://repositorio.interno/pedidos-api/docs/runbook.md" in found
+    assert [e.tool for e in tools.evaluations] == ["recall"]
+    assert embedder.calls[-1] == (("liberar conexões",), "query")
+
+
+async def test_recall_with_rag_says_nothing_without_chunks_and_has_its_own_description() -> None:
+    embedder = FakeTextEmbedder()
+    tools = rag_toolbox(InMemoryMemoryStore(), embedder)
+
+    nothing = await tools.call("recall", {"subject": "pedidos-api", "query": "pool"})
+
+    assert nothing == NOTHING_REMEMBERED
+    recall = next(spec for spec in tools.specs() if spec.name == "recall")
+    assert recall == RECALL_CHUNKS_SPEC
+    assert "documentação" in recall.description
+
+
+async def test_analysis_with_rag_gets_the_runbook_section_in_the_brief() -> None:
+    embedder = FakeTextEmbedder()
+    memory, _ = await indexed_world(embedder)
+    repository = InMemoryIncidentRepository()
+    incident = make_incident(services=("pedidos-api",))
+    alert = make_alert(service="pedidos-api", summary="pool de conexões esgotado")
+    async with repository.transaction() as uow:
+        await uow.save(incident)
+        await uow.link_alert(alert, incident.id)
+        await uow.request_analysis(incident.id, T0)
+    model = ScriptedLanguageModel(calls=[("recall", {"query": "pool"})])
+
+    assert await run_next_analysis(
+        queue=InMemoryAnalysisQueue(repository),
+        repository=repository,
+        model=model,
+        telemetry=FakeTelemetry(),
+        changes=FakeChangeHistory(),
+        clock=FakeClock(T0),
+        policy=AnalysisPolicy(
+            timeout=timedelta(minutes=5),
+            max_tokens=100_000,
+            lookback=timedelta(minutes=60),
+            page_url=lambda incident_id: f"https://grolla.interno/incidents/{incident_id}",
+            telemetry_url=None,
+        ),
+        memory=memory,
+        embedder=embedder,
+    )
+
+    (brief,) = model.briefs
+    assert "Pool de conexões esgotado" in [h.chunk.heading for h in brief.memory.documents]
+    text = brief_text(brief)
+    assert "<documentacao>" in text
+    assert "docs/runbook.md — Pool de conexões esgotado" in text
+    assert "## Trechos" in repository.analyses[incident.id].evaluations[0].finding

@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ from grolla.application.clock import Clock
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
 from grolla.application.investigation import NoCloudInventory
 from grolla.application.memory import STUDY_AUTHOR_SYSTEM, StudyMode
+from grolla.application.memory_retrieval import RagPolicy
 from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.bootstrap.team_config import MemoryConfig, StudyConfig
 from grolla.testing.clock import FakeClock
@@ -20,12 +22,18 @@ from grolla.testing.incidents import (
     InMemoryNotificationOutbox,
 )
 from grolla.testing.investigation import FakeChangeHistory, FakeTelemetry, ScriptedLanguageModel
-from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
+from grolla.testing.memory import (
+    FakeTextEmbedder,
+    InMemoryLearningQueue,
+    InMemoryMemoryStore,
+    InMemoryStudyQueue,
+)
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
     DEFAULT_QUEUE,
     DELIVERY_CRON,
+    INDEX_CRON,
     LEARNINGS_CRON,
     REAPER_CRON,
     REPLIES_CRON,
@@ -175,6 +183,7 @@ async def test_analyses_job_drains_the_queue_with_the_container_ports(
         "clock": container.clock,
         "policy": container.analysis,
         "memory": container.memory,
+        "embedder": container.embedder,
     }
 
 
@@ -237,6 +246,7 @@ async def test_verifications_job_drains_the_queue_with_the_container_ports(
         "clock": container.clock,
         "policy": container.analysis,
         "memory": container.memory,
+        "embedder": container.embedder,
     }
 
 
@@ -300,6 +310,7 @@ async def test_replies_job_drains_the_chat_queue_with_the_container_ports(
         "clock": container.clock,
         "policy": container.analysis,
         "memory": container.memory,
+        "embedder": container.embedder,
     }
 
 
@@ -418,6 +429,51 @@ async def test_studies_job_drains_the_rounds_with_the_container_ports(
         "cloud": container.cloud,
         "clock": container.clock,
         "policy": container.memory_policy,
+        "embedder": container.embedder,
+    }
+
+
+def test_memory_is_not_indexed_without_rag(container: WorkerContainer) -> None:
+    app = registered(container)
+
+    assert "index_memory" not in app.tasks
+
+
+async def test_memory_index_runs_every_thirty_seconds_until_nothing_is_pending(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rag = RagPolicy(batch=2)
+    embedder = FakeTextEmbedder()
+    container = replace(
+        container, memory_policy=replace(container.memory_policy, rag=rag), embedder=embedder
+    )
+    indexed = [2, 2, 1]
+    calls: list[dict[str, Any]] = []
+
+    async def index(**ports: Any) -> int:
+        calls.append(ports)
+        return indexed.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "index_memory", index)
+    app = registered(container)
+
+    task = app.tasks["index_memory"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        ANALYSIS_QUEUE,
+        "index_memory",
+        "index_memory",
+    )
+    assert app.periodic_registry.periodic_tasks[("index_memory", "")].cron == INDEX_CRON
+    assert INDEX_CRON == "* * * * * */30"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 3
+    assert calls[0] == {
+        "memory": container.memory,
+        "embedder": embedder,
+        "clock": container.clock,
+        "policy": rag,
     }
 
 

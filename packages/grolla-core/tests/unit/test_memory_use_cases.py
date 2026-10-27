@@ -14,6 +14,7 @@ from grolla.application.investigation import (
     LanguageModelError,
 )
 from grolla.application.memory import (
+    DOCUMENTS_NOT_INDEXED,
     INTERRUPTED,
     NO_BUDGET,
     STUDY_AUTHOR_SYSTEM,
@@ -38,6 +39,7 @@ from grolla.application.memory import (
     run_next_learning,
     run_next_study,
 )
+from grolla.application.memory_retrieval import RagPolicy
 from grolla.application.memory_store import memory_for
 from grolla.domain.incidents import (
     UNKNOWN_SERVICE,
@@ -71,7 +73,12 @@ from grolla.testing.investigation import (
     ScriptedLanguageModel,
     fake_usage,
 )
-from grolla.testing.memory import InMemoryLearningQueue, InMemoryMemoryStore, InMemoryStudyQueue
+from grolla.testing.memory import (
+    FakeTextEmbedder,
+    InMemoryLearningQueue,
+    InMemoryMemoryStore,
+    InMemoryStudyQueue,
+)
 
 SERVICE = "pedidos-api"
 FILTER = {"team": "pagamentos"}
@@ -327,6 +334,7 @@ class Study:
         self.cloud = FakeCloudInventory()
         self.clock = FakeClock(T0)
         self.policy = MemoryPolicy(study=policy or StudyPolicy(alert_filter=FILTER))
+        self.embedder: FakeTextEmbedder | None = None
 
     async def run(self, mode: StudyMode = StudyMode.INITIAL) -> bool:
         await self.studies.request(mode, "Ana", self.clock.now())
@@ -342,6 +350,7 @@ class Study:
             cloud=self.cloud,
             clock=self.clock,
             policy=self.policy,
+            embedder=self.embedder,
         )
 
     def dossiers(self) -> dict[str, Memory]:
@@ -350,6 +359,49 @@ class Study:
             for r in self.memory.records.values()
             if r.kind is MemoryKind.DOSSIER and r.active
         }
+
+
+async def test_study_with_rag_indexes_the_documentation_of_each_studied_service() -> None:
+    world = Study()
+    world.policy = replace(world.policy, rag=RagPolicy())
+    world.embedder = FakeTextEmbedder()
+    world.changes.files = {SERVICE: {"docs/runbook.md": "## Pool de conexões esgotado\nReinicie."}}
+
+    assert await world.run()
+
+    chunks = [c for c, _ in world.memory.documents[SERVICE].chunks]
+    assert [(c.path, c.heading) for c in chunks] == [
+        ("docs/runbook.md", "Pool de conexões esgotado")
+    ]
+    assert {s.service: (s.ok, s.reason) for s in await world.studies.services()}[SERVICE] == (
+        True,
+        None,
+    )
+
+
+async def test_study_without_embedder_or_rag_does_not_index_documents() -> None:
+    without_embedder, without_rag = Study(), Study()
+    without_embedder.policy = replace(without_embedder.policy, rag=RagPolicy())
+    without_rag.embedder = FakeTextEmbedder()
+
+    for world in (without_embedder, without_rag):
+        assert await world.run()
+        assert world.memory.documents == {}
+        assert world.changes.document_calls == []
+
+
+async def test_failed_documentation_index_is_the_reason_and_the_service_stays_studied() -> None:
+    world = Study()
+    world.policy = replace(world.policy, rag=RagPolicy())
+    world.embedder = FakeTextEmbedder(failing=True)
+    world.changes.files = {SERVICE: {"README.md": "# pedidos\nServiço de pedidos."}}
+
+    assert await world.run()
+
+    study = {s.service: s for s in await world.studies.services()}[SERVICE]
+    assert study.ok
+    assert study.reason == f"{DOCUMENTS_NOT_INDEXED}: modelo de embeddings fora do ar no fake"
+    assert SERVICE in world.dossiers()
 
 
 def test_domain_rules_are_the_ones_with_every_filter_label() -> None:
