@@ -1,5 +1,6 @@
 {# Condução, causa raiz e análise; é o fragmento devolvido pelas rotas de ação. #}
 {% from "_macros.html" import lookups, evidence_list, avatar, when %}
+{% from "_follow_up.html" import impact_chip, proposal_notice, follow_up_section %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 <section id="war-room">
@@ -13,6 +14,7 @@
       <span class="state state-{{ incident.state }}">{{ header.state }}</span>
       {% for service in incident.services %}<span class="chip">{{ service }}</span>{% endfor %}
       <span class="muted">detectado {{ header.detected_ago }}, {{ when(incident.detected_at) }}</span>
+      {{ impact_chip(impact) }}
     </div>
   </div>
 
@@ -39,6 +41,8 @@
     <div><dt title="Tempo até mitigar">TTM</dt><dd class="ttm">{{ header.ttm or "—" }}</dd></div>
     <div><dt title="Tempo até resolver">TTR</dt><dd class="ttr">{{ header.ttr or "—" }}</dd></div>
   </dl>
+
+  {{ proposal_notice(proposal, header, author, base) }}
 
   {% if not author %}
   <div class="panel join">
@@ -156,6 +160,8 @@
 </div>
 
 <div class="analysis">
+  {{ follow_up_section(cycles) }}
+
   <section class="panel" id="analise">
     <h2>Análise do Grolla</h2>
     {% if analysis is none %}

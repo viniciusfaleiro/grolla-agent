@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.adapters.aws import AwsCloudInventory
@@ -7,6 +7,7 @@ from grolla.adapters.fastembed import FastembedTextEmbedder
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresChatQueue,
+    PostgresCycleQueue,
     PostgresDatabase,
     PostgresIncidentRepository,
     PostgresLearningQueue,
@@ -22,6 +23,7 @@ from grolla.adapters.teams import TeamsChatNotifier
 from grolla.application.analysis import AnalysisPolicy, AnalysisQueue
 from grolla.application.chat import ChatQueue
 from grolla.application.clock import Clock
+from grolla.application.follow_up import CycleQueue, FollowUpLimits, ImpactPolicy
 from grolla.application.incidents import (
     AlertIngress,
     ChatNotifier,
@@ -30,6 +32,7 @@ from grolla.application.incidents import (
     NotificationOutbox,
 )
 from grolla.application.investigation import (
+    STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
     STAGE_STUDY,
@@ -45,6 +48,7 @@ from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
+from grolla.domain.follow_up import FollowUpPolicy
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,7 @@ class ApiContainer:
     memory: MemoryStore
     studies: StudyQueue
     learning_queue: LearningQueue  # aprendizados falhos na página da memória
+    impact_policy: ImpactPolicy
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,10 @@ class WorkerContainer:
     studies: StudyQueue
     memory_policy: MemoryPolicy
     embedder: TextEmbedder | None = None  # só com `memory.rag`
+    cycle_queue: CycleQueue | None = None  # só com `follow_up`
+    follow_up_policy: FollowUpPolicy | None = None
+    follow_up_limits: FollowUpLimits = field(default_factory=FollowUpLimits)
+    impact_policy: ImpactPolicy = field(default_factory=ImpactPolicy)
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -107,6 +116,7 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         memory=PostgresMemoryStore(database),
         studies=PostgresStudyQueue(database),
         learning_queue=PostgresLearningQueue(database),
+        impact_policy=config.impact_policy(),
     )
 
 
@@ -142,6 +152,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
             chat=_model_settings(chat),
             learning=_model_settings(config.llm.stages.get(STAGE_LEARNING)),
             study=_model_settings(config.llm.stages.get(STAGE_STUDY)),
+            follow_up=_model_settings(config.llm.stages.get(STAGE_FOLLOW_UP)),
         ),
         telemetry=SignozTelemetry(
             config.signoz.mcp_url, config.signoz.base_url, service_labels=config.service_labels
@@ -164,6 +175,10 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         studies=PostgresStudyQueue(database),
         memory_policy=config.memory_policy(),
         embedder=_embedder(settings, config),
+        cycle_queue=None if config.follow_up is None else PostgresCycleQueue(database),
+        follow_up_policy=config.follow_up_policy(),
+        follow_up_limits=config.follow_up_limits(),
+        impact_policy=config.impact_policy(),
     )
 
 

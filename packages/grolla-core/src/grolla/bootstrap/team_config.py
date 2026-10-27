@@ -9,10 +9,12 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.analysis import AnalysisPolicy
+from grolla.application.follow_up import FollowUpLimits, ImpactPolicy
 from grolla.application.incidents import IntakePolicy
 from grolla.application.memory import MemoryPolicy, StudyPolicy
 from grolla.application.memory_retrieval import RagPolicy
 from grolla.bootstrap.settings import ConfigError
+from grolla.domain.follow_up import FollowUpPolicy
 from grolla.domain.incidents import Severity, SeverityPolicy, SeverityRule
 
 
@@ -49,7 +51,8 @@ class StageConfig(_Section):
 
 class LlmConfig(_Section):
     stages: dict[
-        Literal["investigation", "verification", "warroom_chat", "learning", "study"], StageConfig
+        Literal["investigation", "verification", "warroom_chat", "learning", "study", "follow_up"],
+        StageConfig,
     ]
 
 
@@ -101,6 +104,28 @@ class MemoryConfig(_Section):
     rag: RagConfig | None = None  # sem a seção, só a busca textual
 
 
+class FollowUpConfig(_Section):
+    """Acompanhamento de P0/P1: ciclos periódicos, card só quando muda e propostas."""
+
+    severities: list[Severity] = Field(default_factory=lambda: [Severity.P0, Severity.P1])
+    cycle_minutes: int = Field(default=5, gt=0)
+    quiet_minutes: int = Field(default=15, gt=0)
+    stable_minutes: int = Field(default=15, gt=0)
+    max_cycles: int = Field(default=24, gt=0)
+    cycle_max_tokens: int = Field(default=40_000, gt=0)
+    cycle_timeout_seconds: int = Field(default=180, gt=0)
+    max_tokens_per_incident: int = Field(default=600_000, gt=0)
+
+
+class ServiceImpactConfig(_Section):
+    per_minute: float = Field(gt=0)  # valor em risco por minuto com 100% de erro
+
+
+class ImpactConfig(_Section):
+    currency: str = "BRL"
+    services: dict[str, ServiceImpactConfig] = Field(default_factory=dict[str, ServiceImpactConfig])
+
+
 class TeamConfig(BaseModel):
     """Nomes de labels são todos configuráveis: dependem de como o time escreve os alertas."""
 
@@ -122,6 +147,8 @@ class TeamConfig(BaseModel):
     azure_devops: ChangeHistoryConfig | None = None
     cloud: CloudConfig | None = None  # sem a seção, as ferramentas de nuvem dizem que não há
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    follow_up: FollowUpConfig | None = None  # sem a seção, nenhum ciclo de acompanhamento
+    impact: ImpactConfig = Field(default_factory=ImpactConfig)
 
     def page_url(self, incident_id: UUID) -> str:
         return f"{self.page_base_url.rstrip('/')}/incidents/{incident_id}"
@@ -159,6 +186,31 @@ class TeamConfig(BaseModel):
                 service_max_tokens=study.service_max_tokens,
                 lookback=timedelta(days=study.lookback_days),
             ),
+        )
+
+    def follow_up_policy(self) -> FollowUpPolicy | None:
+        if self.follow_up is None:
+            return None
+        return FollowUpPolicy(
+            severities=frozenset(self.follow_up.severities),
+            cycle=timedelta(minutes=self.follow_up.cycle_minutes),
+            quiet=timedelta(minutes=self.follow_up.quiet_minutes),
+            stable=timedelta(minutes=self.follow_up.stable_minutes),
+            max_cycles=self.follow_up.max_cycles,
+        )
+
+    def follow_up_limits(self) -> FollowUpLimits:
+        section = self.follow_up or FollowUpConfig()
+        return FollowUpLimits(
+            timeout=timedelta(seconds=section.cycle_timeout_seconds),
+            max_tokens=section.cycle_max_tokens,
+            max_tokens_per_incident=section.max_tokens_per_incident,
+        )
+
+    def impact_policy(self) -> ImpactPolicy:
+        return ImpactPolicy(
+            currency=self.impact.currency,
+            per_minute={s: c.per_minute for s, c in self.impact.services.items()},
         )
 
     def intake_policy(self) -> IntakePolicy:

@@ -1,4 +1,12 @@
-"""Microsoft Teams: Adaptive Cards postados por um Workflow (webhook) como ChatNotifier."""
+"""Microsoft Teams: Adaptive Cards postados por um Workflow (webhook) como ChatNotifier.
+
+Os cards do acompanhamento da crise levam ao war room:
+- "Atualização" (FOLLOW_UP_UPDATE com `cycle`): tendência, taxa de erro, impacto estimado,
+  resumo e evidências do ciclo; sem `cycle`, é o card curto "Sem mudança" com o texto pronto do
+  `summary`;
+- "Grolla sugere…" (AGENT_PROPOSAL): a proposta no título (`summary`) e o motivo (`evidence`);
+- "Alerta voltou a disparar" (ALERT_REOPENED): o `summary` e o `evidence` do núcleo.
+"""
 
 from typing import Any
 
@@ -18,6 +26,7 @@ from grolla.domain.analysis import (
     SeenBefore,
     Verification,
 )
+from grolla.domain.follow_up import Cycle, Trend
 from grolla.domain.incidents import Notification, NotificationKind
 
 TIMEOUT_SECONDS = 10.0
@@ -31,6 +40,9 @@ _HEADLINES = {
     NotificationKind.INCIDENT_MITIGATED: "Incidente mitigado",
     NotificationKind.INCIDENT_RESOLVED: "Incidente encerrado",
     NotificationKind.INCIDENT_DISCARDED: "Incidente descartado",
+    NotificationKind.FOLLOW_UP_UPDATE: "Atualização",
+    NotificationKind.AGENT_PROPOSAL: "Grolla sugere",  # o `summary` traz a proposta inteira
+    NotificationKind.ALERT_REOPENED: "Alerta voltou a disparar",
     NotificationKind.SEVERITY_RAISED: "Severidade elevada",
     NotificationKind.INCIDENT_NORMALIZED: "Incidente normalizado",
 }
@@ -44,10 +56,35 @@ _COLORS = {
     NotificationKind.INCIDENT_MITIGATED: "Good",
     NotificationKind.INCIDENT_RESOLVED: "Good",
     NotificationKind.INCIDENT_DISCARDED: "Default",
+    NotificationKind.FOLLOW_UP_UPDATE: "Default",
+    NotificationKind.AGENT_PROPOSAL: "Accent",
+    NotificationKind.ALERT_REOPENED: "Attention",
     NotificationKind.SEVERITY_RAISED: "Warning",
     NotificationKind.INCIDENT_NORMALIZED: "Good",
 }
 
+
+TREND_LABELS = {
+    Trend.WORSE: "Piorando",
+    Trend.STABLE: "Estável",
+    Trend.BETTER: "Melhorando",
+    Trend.NORMAL: "Normalizado",
+}
+_TREND_COLORS = {
+    Trend.WORSE: "Attention",
+    Trend.STABLE: "Warning",
+    Trend.BETTER: "Accent",
+    Trend.NORMAL: "Good",
+}
+NO_CHANGE = "Sem mudança"
+NOT_MEASURED = "não medida"
+PROPOSAL_NOTE = "O Grolla não muda o estado: confirme pelo botão no war room."
+_WAR_ROOM = "Abrir o war room"
+_FOLLOW_UP_KINDS = (
+    NotificationKind.FOLLOW_UP_UPDATE,
+    NotificationKind.AGENT_PROPOSAL,
+    NotificationKind.ALERT_REOPENED,
+)
 
 _NOTHING = "- nenhuma consulta concluída"
 VERIFYING = "Estou validando as hipóteses; a causa raiz vem em seguida."
@@ -90,7 +127,13 @@ def adaptive_card(notification: Notification) -> dict[str, Any]:
     analysis = notification.analysis
     verification = notification.verification
     source_title: str | None = None  # o card da causa raiz só leva ao incidente
-    if notification.kind is NotificationKind.ROOT_CAUSE and verification is not None:
+    page_title = "Abrir incidente"
+    if notification.kind in _FOLLOW_UP_KINDS:
+        body = _follow_up_body(notification)
+        page_title = _WAR_ROOM
+        if notification.kind is NotificationKind.ALERT_REOPENED:
+            source_title = "Ver alerta na origem"
+    elif notification.kind is NotificationKind.ROOT_CAUSE and verification is not None:
         body = _verification_body(notification, verification)
     elif notification.kind is NotificationKind.ANALYSIS_READY and analysis is not None:
         body = _analysis_body(notification, analysis)
@@ -98,7 +141,7 @@ def adaptive_card(notification: Notification) -> dict[str, Any]:
     else:
         body = _alert_body(notification)
         source_title = "Ver alerta na origem"
-    actions = [{"type": "Action.OpenUrl", "title": "Abrir incidente", "url": notification.page_url}]
+    actions = [{"type": "Action.OpenUrl", "title": page_title, "url": notification.page_url}]
     if notification.source_url and source_title:
         actions.append(
             {"type": "Action.OpenUrl", "title": source_title, "url": notification.source_url}
@@ -132,6 +175,65 @@ def _alert_body(notification: Notification) -> list[dict[str, Any]]:
     if kind is NotificationKind.INCIDENT_RESOLVED and verification and verification.root_cause:
         body.append(_section("Causa raiz", [_clip(verification.root_cause)]))
     return body
+
+
+def _follow_up_body(notification: Notification) -> list[dict[str, Any]]:
+    """Cards do acompanhamento: o texto vem pronto do núcleo; o card só o organiza."""
+    kind = notification.kind
+    cycle = notification.cycle
+    if kind is NotificationKind.FOLLOW_UP_UPDATE and cycle is not None:
+        return _cycle_body(notification, cycle)
+    if kind is NotificationKind.FOLLOW_UP_UPDATE:  # card curto: o resumo já diz o estado
+        body = [
+            _headline(NO_CHANGE, notification, "Default"),
+            {"type": "TextBlock", "text": notification.title, "weight": "Bolder", "wrap": True},
+            _text(notification.summary),
+        ]
+        if notification.impact:
+            body.append({"type": "FactSet", "facts": [_impact(notification.impact)]})
+        return body
+    headline = notification.summary if kind is NotificationKind.AGENT_PROPOSAL else None
+    body = [
+        _headline(headline or _HEADLINES[kind], notification, _COLORS[kind]),
+        *_identity(notification),
+    ]
+    if kind is NotificationKind.ALERT_REOPENED and notification.summary.strip():
+        body.append(_text(notification.summary))
+    if notification.evidence.strip():
+        body.append(_text(notification.evidence))
+    if kind is NotificationKind.AGENT_PROPOSAL:
+        body.append({"type": "TextBlock", "text": PROPOSAL_NOTE, "wrap": True, "isSubtle": True})
+    return body
+
+
+def _cycle_body(notification: Notification, cycle: Cycle) -> list[dict[str, Any]]:
+    trend = cycle.trend or Trend.STABLE  # ciclo postado sempre tem tendência
+    rate = NOT_MEASURED if cycle.error_rate is None else _percent(cycle.error_rate)
+    facts = [
+        {"title": "Tendência", "value": TREND_LABELS[trend]},
+        {"title": "Taxa de erro", "value": rate},
+    ]
+    if notification.impact:
+        facts.append(_impact(notification.impact))
+    body = [
+        _headline("Atualização", notification, _TREND_COLORS[trend]),
+        {"type": "TextBlock", "text": notification.title, "weight": "Bolder", "wrap": True},
+        {"type": "FactSet", "facts": facts},
+        _text(cycle.summary),
+    ]
+    if cycle.evidence:
+        body.append(_section("Evidências", [f"- {_evidence(e)}" for e in cycle.evidence]))
+    return body
+
+
+def _impact(impact: str) -> dict[str, str]:
+    return {"title": "Impacto", "value": impact}
+
+
+def _percent(rate: float) -> str:
+    """12.5 → "12,5%"; 10.0 → "10%"."""
+    text = f"{rate:.1f}".rstrip("0").rstrip(".")
+    return f"{text.replace('.', ',')}%"
 
 
 def _outcome(verification: Verification) -> list[dict[str, Any]]:

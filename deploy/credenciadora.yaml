@@ -67,3 +67,17 @@ memory:
     run_max_tokens: 400000      # teto de uma rodada inteira
     service_max_tokens: 100000  # teto do estudo de um serviço
     lookback_days: 7            # janela de deploys, traces e métricas do estudo
+
+# ---- Acompanhamento da crise (S5) ----
+# P0/P1 abertos recebem um ciclo a cada 5 min: card só quando muda, curto a cada 15 min, e a
+# proposta de mitigar ou encerrar depois de 15 min normalizado (quem decide é o time).
+follow_up:
+  severities: [P0, P1]
+  cycle_minutes: 5
+  quiet_minutes: 15
+  stable_minutes: 15
+  max_cycles: 24
+# Impacto financeiro estimado: valor em risco por minuto com 100% de erro, por serviço.
+impact:
+  currency: BRL
+  services: {}              # ex.: autorizador: { per_minute: 25000 }

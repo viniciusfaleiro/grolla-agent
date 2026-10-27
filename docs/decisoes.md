@@ -22,3 +22,9 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 15 | 27/10 | RAG | Busca híbrida: determinístico primeiro, depois RRF de vetor e texto | No incidente, mesmo serviço e regra é o sinal mais forte; o vetor acha a paráfrase e o texto acha o nome exato |
 | 16 | 27/10 | RAG | Texto da busca com OU e sem os nomes do serviço e da regra | Com E nada casava; com OU sem filtro, as palavras genéricas afogavam o vetor. Medido no eval |
 | 17 | 27/10 | RAG | Modelo `small` como padrão | Medido: o e5-large comprime as similaridades em português técnico e falhou no aceite |
+| 18 | 27/10 | S4 | Acionamento do on-call (Spike.sh) fica para depois | Precisa de conta, API key, política de escalonamento e webhook de ack para testar ponta a ponta |
+| 19 | 27/10 | S5 | Ciclos de acompanhamento por varredura (`schedule_cycles` a cada 30 s), não por timer por incidente | Reiniciar o worker não perde nada, e a antecipação por alerta ou mensagem é só um campo |
+| 20 | 27/10 | S5 | O modelo devolve dados (tendência, taxa de erro); o núcleo decide card, proposta e impacto | Mantém "o núcleo decide": o agente propõe mitigar ou encerrar, e a pessoa confirma |
+| 21 | 27/10 | S5 | Mitigado volta para em tratamento só quando um alerta volta a disparar | É fato objetivo; o "piorou" do modelo é julgamento e só vira card |
+| 22 | 27/10 | S5 | Proposta de mitigar só em tratamento | Mitigar pressupõe alguém conduzindo, como na ação humana |
+| 23 | 27/10 | S5 | Impacto financeiro estimado por valor por minuto no YAML vezes a taxa de erro | Simples, auditável e sempre rotulado "estimado"; métrica de negócio real fica para quando existir |

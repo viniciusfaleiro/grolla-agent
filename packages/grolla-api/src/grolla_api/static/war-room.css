@@ -540,3 +540,42 @@ a.chip:hover { color: var(--brand); }
   .memory-intro .avatar-big { display: none; }
   .panel-link { margin-left: 0; }
 }
+
+/* Acompanhamento da crise: ciclos, impacto estimado e a sugestão do Grolla */
+.impact {
+  font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 0.15rem 0.55rem; border-radius: 999px;
+  background: var(--warn-soft); color: var(--warn);
+}
+
+.proposal {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border-left: 4px solid var(--ok); background: var(--ok-soft); border-radius: var(--radius);
+}
+.proposal .avatar { width: 32px; height: 32px; flex: none; }
+.proposal-text { flex: 1 1 14rem; display: grid; gap: 0.15rem; min-width: 0; }
+.proposal-head { font-weight: 700; }
+.proposal-text .muted { font-size: 0.92rem; overflow-wrap: anywhere; }
+.proposal form { display: contents; }
+
+.follow-up .panel-head h2 { margin: 0; }
+.cycles { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.cycle { display: grid; grid-template-columns: 3rem auto minmax(0, 1fr); gap: 0.2rem 0.65rem; align-items: baseline; font-size: 0.92rem; }
+.cycle time { color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.cycle-body { display: grid; gap: 0.1rem; overflow-wrap: anywhere; }
+.cycle-body .rate { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cycle-old { color: var(--muted); }
+.trend {
+  font-size: 0.76rem; font-weight: 700; white-space: nowrap;
+  padding: 0.1rem 0.5rem; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+}
+.trend-piorando { background: var(--danger-soft); color: var(--danger); }
+.trend-melhorando { background: var(--brand-soft); color: var(--brand); }
+.trend-normalizado { background: var(--ok-soft); color: var(--ok); }
+.trend-parcial { background: var(--warn-soft); color: var(--warn); }
+@media (max-width: 34rem) {
+  .cycle { grid-template-columns: auto minmax(0, 1fr); }
+  .cycle-body { grid-column: 1 / -1; }
+}

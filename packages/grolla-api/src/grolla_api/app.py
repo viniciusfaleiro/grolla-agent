@@ -1,6 +1,6 @@
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from grolla.application import follow_up
 from grolla.application.clock import Clock
 from grolla.application.incidents import (
     AlertIngress,
@@ -65,11 +66,13 @@ from grolla_api.war_room import (
     action_from,
     ago,
     chat_version,
+    current_proposal,
     decode_author,
     discarded_hypotheses,
     display_name,
     encode_author,
     event_detail,
+    event_label,
     header_of,
     initials,
     is_agent,
@@ -77,8 +80,12 @@ from grolla_api.war_room import (
     is_quiet,
     is_waiting,
     parse_form,
+    partial_text,
+    percent,
+    recent_cycles,
     rich_text,
     safe_redirect,
+    trend_label,
     visible_events,
 )
 
@@ -113,6 +120,10 @@ EVENT_LABELS = {
     EventType.INCIDENT_DISCARDED: "Incidente descartado",
     EventType.HUMAN_MESSAGE: "Mensagem no chat",
     EventType.AGENT_MESSAGE: "Resposta do agente",
+    EventType.CYCLE_COMPLETED: "Acompanhamento",
+    EventType.CYCLE_PARTIAL: "Acompanhamento parcial",
+    EventType.FOLLOW_UP_STOPPED: "Acompanhamento parado",
+    EventType.AGENT_PROPOSAL: "Proposta do Grolla",
 }
 
 ANALYSIS_STATUS_LABELS = {
@@ -145,11 +156,15 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "ago": ago,
     "display_name": display_name,
     "event_detail": event_detail,
+    "event_label": event_label,
     "initials": initials,
     "is_agent": is_agent,
     "is_failure": is_failure,
     "is_quiet": is_quiet,
     "is_waiting": is_waiting,
+    "partial_text": partial_text,
+    "percent": percent,
+    "trend_label": trend_label,
     "rich_text": rich_text,
     "visible_events": visible_events,
     "source_of": source_of,
@@ -194,6 +209,7 @@ class Services:
     studies: StudyQueue
     learning_queue: LearningQueue
     study_enabled: bool  # sem `memory.study` no YAML nenhum estudo roda
+    impact: follow_up.ImpactPolicy = field(default_factory=follow_up.ImpactPolicy)
 
 
 # Mudança num registro: (registro, autor, campos do form) → registro gravado.
@@ -232,11 +248,20 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             raise HTTPException(status.HTTP_404_NOT_FOUND, "incidente não encontrado")
         return found
 
-    async def war_room_context(incident: Incident, author: str | None) -> dict[str, Any]:
+    async def follow_up_context(incident: Incident, author: str | None) -> dict[str, Any]:
+        """Acompanhamento, impacto e proposta: no war room e no polling da timeline."""
         return {
             "incident": incident,
             "header": header_of(incident, services.clock.now(), author),
             "author": author,
+            "cycles": recent_cycles(await repository.cycles_of(incident.id)),
+            "impact": await follow_up.impact_of(repository, incident, services.impact),
+            "proposal": current_proposal(incident, await repository.events_of(incident.id)),
+        }
+
+    async def war_room_context(incident: Incident, author: str | None) -> dict[str, Any]:
+        return {
+            **await follow_up_context(incident, author),
             "analysis": await repository.analysis_of(incident.id),
             "verification": await repository.verification_of(incident.id),
             "discarded": discarded_hypotheses(await repository.events_of(incident.id)),
@@ -358,9 +383,13 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
 
     @app.get("/incidents/{incident_id}/timeline", response_class=HTMLResponse)
     async def timeline(request: Request, incident_id: str, visto: str = "") -> Response:  # pyright: ignore[reportUnusedFunction]
-        context = await timeline_context(await incident_or_404(incident_id))
+        found = await incident_or_404(incident_id)
+        context = await timeline_context(found)
         if visto == str(len(context["events"])):
             return Response(status_code=status.HTTP_204_NO_CONTENT)  # nada novo: o HTMX não troca
+        # Ciclo e proposta chegam como evento: o acompanhamento vem junto, fora da timeline.
+        author = decode_author(request.cookies.get(AUTHOR_COOKIE))
+        context |= {**await follow_up_context(found, author), "oob": True}
         return templates.TemplateResponse(request, "_timeline.html", context)
 
     memory = services.memory

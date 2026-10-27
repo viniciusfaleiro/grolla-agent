@@ -44,7 +44,9 @@ agente investiga sob demanda. `memoria-viva` (S3.2): base de conhecimento do amb
 agente monta e mantém sozinho (estudo inicial e diário), episódios de cada incidente, aprendizado
 no chat, "já vi isso" na análise, página `/memoria` e reaprender do zero. `memoria-com-rag` (S3.3): embeddings locais (fastembed,
 `small`/`large`), pgvector, documentação dos repositórios indexada e busca híbrida (determinístico
-→ RRF de vetor e texto). Próximo: S4
+→ RRF de vetor e texto). `acompanha-a-crise` (S5): ciclos de acompanhamento em P0/P1, card só
+quando muda, propostas de mitigar e encerrar, volta de mitigado com o alerta e impacto estimado.
+S4 (on-call) adiado até haver conta no Spike.sh. Próximo: S6
 (on-call acionado sozinho) — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 

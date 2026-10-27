@@ -4,12 +4,16 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from grolla.domain.analysis import Analysis, Verification
 
+if TYPE_CHECKING:  # o acompanhamento importa este módulo
+    from grolla.domain.follow_up import Cycle
+
 UNKNOWN_SERVICE = "desconhecido"
+ALERT_REOPENED_REASON = "alerta voltou a disparar"  # mitigado volta para em tratamento
 
 
 class Severity(StrEnum):
@@ -111,6 +115,10 @@ class EventType(StrEnum):
     INCIDENT_DISCARDED = "incident_discarded"
     HUMAN_MESSAGE = "human_message"
     AGENT_MESSAGE = "agent_message"
+    CYCLE_COMPLETED = "cycle_completed"
+    CYCLE_PARTIAL = "cycle_partial"
+    FOLLOW_UP_STOPPED = "follow_up_stopped"
+    AGENT_PROPOSAL = "agent_proposal"
 
 
 @dataclass(frozen=True)
@@ -133,6 +141,9 @@ class NotificationKind(StrEnum):
     INCIDENT_MITIGATED = "incident_mitigated"
     INCIDENT_RESOLVED = "incident_resolved"
     INCIDENT_DISCARDED = "incident_discarded"
+    FOLLOW_UP_UPDATE = "follow_up_update"  # "Atualização" ou "Sem mudança"
+    AGENT_PROPOSAL = "agent_proposal"  # "Grolla sugere marcar como mitigado/encerrar"
+    ALERT_REOPENED = "alert_reopened"  # mitigado voltou para em tratamento
 
 
 @dataclass(frozen=True)
@@ -148,6 +159,8 @@ class Notification:
     page_url: str
     analysis: Analysis | None = None  # só em ANALYSIS_READY
     verification: Verification | None = None  # só em ROOT_CAUSE
+    cycle: "Cycle | None" = None  # só em FOLLOW_UP_UPDATE
+    impact: str | None = None  # impacto estimado já formatado ("R$ 3.000,00 estimado")
 
 
 @dataclass(frozen=True)
@@ -254,23 +267,27 @@ def decide_firing(  # noqa: PLR0913 — decisão pura: tudo entra por parâmetro
             )
             kind = NotificationKind.SEVERITY_RAISED
 
-    # Só Detectado e Informado seguem a severidade; Em tratamento e Mitigado são do humano.
+    # Só Detectado e Informado seguem a severidade; Em tratamento é do humano. Mitigado volta
+    # para Em tratamento quando um alerta volta a disparar, mantendo IC, TTA e TTM.
     waiting = incident.state in (IncidentState.DETECTED, IncidentState.INFORMED)
+    reopened = incident.state is IncidentState.MITIGATED
     target = state_for(incident.severity) if waiting else incident.state
+    if reopened:
+        target = IncidentState.HANDLING
     if target != incident.state:
-        events.append(
-            _event(
-                incident,
-                now,
-                EventType.STATE_CHANGED,
-                {"from": incident.state.value, "to": target.value},
-            )
-        )
+        change = {"from": incident.state.value, "to": target.value}
+        if reopened:
+            change["reason"] = ALERT_REOPENED_REASON
+        events.append(_event(incident, now, EventType.STATE_CHANGED, change))
         incident = replace(incident, state=target)
 
     if current is None:
         events.append(_event(incident, now, EventType.ANALYSIS_REQUESTED, {}))
     notifications = () if kind is None else (_notification(kind, incident, alert, page_url),)
+    if reopened:
+        card = _notification(NotificationKind.ALERT_REOPENED, incident, alert, page_url)
+        summary = f"{ALERT_REOPENED_REASON}: {alert.rule_name}; incidente volta a em tratamento"
+        notifications = (*notifications, replace(card, summary=summary))
     return replace(
         decision_with_cards(incident, events, notifications, now), request_analysis=current is None
     )

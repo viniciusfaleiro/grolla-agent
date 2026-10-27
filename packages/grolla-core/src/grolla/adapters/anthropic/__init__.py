@@ -10,6 +10,10 @@ validação das hipóteses até a causa raiz (`verify`, etapa `verification`, co
 resultado no schema `{"reply": string}`). Na validação, um plano com passo de investigação
 ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
 
+O acompanhamento da crise (`follow_up`, etapa `follow_up`) roda o mesmo laço, fechando no
+orçamento como o chat, e devolve a tendência, a taxa de erro, o resumo, se algo mudou e até três
+evidências.
+
 A memória usa mais três chamadas: o estudo de um serviço (`study_service`, etapa `study`) roda
 o mesmo laço, fechando no orçamento como o chat, e devolve o dossiê; o aprendizado ao encerrar
 (`learn`, etapa `learning`) e a síntese do ambiente (`synthesize`, etapa `study`) são uma
@@ -37,7 +41,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from grolla.application.investigation import (
     CHAT_PROMPT,
+    FOLLOW_UP_PROMPT,
     LEARNING_PROMPT,
+    STAGE_FOLLOW_UP,
     STAGE_INVESTIGATION,
     STAGE_LEARNING,
     STAGE_STUDY,
@@ -57,6 +63,7 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
     brief_text,
+    follow_up_text,
     learning_text,
     study_text,
     synthesis_text,
@@ -76,6 +83,7 @@ from grolla.domain.analysis import (
     check_plan,
 )
 from grolla.domain.chat import ChatDraft
+from grolla.domain.follow_up import Cycle, CycleDraft, Trend
 from grolla.domain.memory import (
     ENVIRONMENT,
     DossierDraft,
@@ -239,6 +247,20 @@ SYNTHESIS_SCHEMA = _object(
     integrations={"type": "array", "items": _object(subject=_TEXT, body=_TEXT)},
 )
 
+# Ciclo de acompanhamento. Sem limites numéricos no structured outputs: a taxa de erro entre 0 e
+# 100 é conferida na validação, e só as três primeiras evidências ficam.
+FOLLOW_UP_SCHEMA = _object(
+    trend={"type": "string", "enum": [t.value for t in Trend]},
+    error_rate={"type": ["number", "null"]},
+    summary=_TEXT,
+    changed={"type": "boolean"},
+    evidence={
+        "type": "array",
+        "items": _object(text=_TEXT, url={"type": ["string", "null"]}),
+    },
+)
+MAX_CYCLE_EVIDENCE = 3
+
 NOT_CONCRETE = (
     "O plano tem passo de investigação: troque por ações concretas, ou deixe sem plano se a "
     "causa não foi confirmada."
@@ -358,6 +380,14 @@ class _Reply(_Strict):
     reply: str
 
 
+class _Cycle(_Strict):
+    trend: Trend
+    error_rate: float | None = Field(ge=0, le=100)
+    summary: str
+    changed: bool
+    evidence: list[_Evidence]
+
+
 class ClaudeLanguageModel:
     def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
@@ -370,6 +400,7 @@ class ClaudeLanguageModel:
         chat: ModelSettings | None = None,
         learning: ModelSettings | None = None,
         study: ModelSettings | None = None,
+        follow_up: ModelSettings | None = None,
     ) -> None:
         self._api_key = api_key
         self._settings = settings
@@ -377,6 +408,7 @@ class ClaudeLanguageModel:
         self._chat = chat or settings  # etapa `warroom_chat` também herda
         self._learning = learning or settings  # etapas da memória também herdam
         self._study = study or settings
+        self._follow_up = follow_up or settings
         self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
@@ -425,6 +457,38 @@ class ClaudeLanguageModel:
                 return await _concrete(client, phase, messages, toolbox, budget)
             except anthropic.APIError as error:
                 raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+
+    async def follow_up(
+        self,
+        brief: InvestigationBrief,
+        context: str,
+        previous: Cycle | None,
+        toolbox: Toolbox,
+        budget: TokenBudget,
+    ) -> CycleDraft:
+        del brief  # o contexto montado pela application já traz o incidente
+        phase = _Phase(
+            FOLLOW_UP_PROMPT, FOLLOW_UP_SCHEMA, self._follow_up, STAGE_FOLLOW_UP, wrap_up=True
+        )
+        text = follow_up_text(context, previous)
+        messages: list[MessageParam] = [{"role": "user", "content": text}]
+        async with self._client() as client:
+            try:
+                response = await _loop(client, phase, messages, toolbox, budget)
+            except anthropic.APIError as error:
+                raise LanguageModelError(f"API do modelo falhou: {_describe(error)}") from error
+        cycle = _parsed(_Cycle, response, "do acompanhamento")
+        if not cycle.summary.strip():
+            raise InvalidAnalysisError("resumo do ciclo vazio")
+        return CycleDraft(
+            trend=cycle.trend,
+            error_rate=cycle.error_rate,
+            summary=cycle.summary.strip(),
+            changed=cycle.changed,
+            evidence=tuple(
+                Evidence(text=e.text, url=e.url) for e in cycle.evidence[:MAX_CYCLE_EVIDENCE]
+            ),
+        )
 
     async def learn(self, brief: LearningBrief, budget: TokenBudget) -> LearningDraft:
         phase = _Phase(LEARNING_PROMPT, LEARNING_SCHEMA, self._learning, STAGE_LEARNING)

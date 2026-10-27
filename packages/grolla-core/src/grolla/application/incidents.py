@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from grolla.application.clock import Clock
 from grolla.domain.analysis import Analysis, Verification
 from grolla.domain.chat import ChatMessage
+from grolla.domain.follow_up import Cycle
 from grolla.domain.incidents import (
     Alert,
     AlertStatus,
@@ -89,6 +90,13 @@ class IncidentUnitOfWork(Protocol):
         """Grava o pedido de análise inicial do incidente, pendente desde `at`."""
         ...
 
+    async def request_cycle(self, incident_id: UUID, at: datetime) -> None:
+        """Pede um ciclo de acompanhamento antecipado (alerta agrupado ou mensagem no chat).
+
+        Pedido de incidente não acompanhado é ignorado pelo agendador.
+        """
+        ...
+
     async def request_learning(self, incident_id: UUID, at: datetime) -> None:
         """Pede o aprendizado do incidente encerrado, pendente desde `at`.
 
@@ -123,6 +131,10 @@ class IncidentRepository(Protocol):
 
     async def events_of(self, incident_id: UUID) -> list[IncidentEvent]:
         """Em ordem cronológica."""
+        ...
+
+    async def cycles_of(self, incident_id: UUID) -> list[Cycle]:
+        """Ciclos de acompanhamento do incidente em qualquer estado, em ordem de número."""
         ...
 
 
@@ -206,6 +218,8 @@ async def _receive(
     await uow.link_alert(alert, decision.incident.id)
     if decision.request_analysis:
         await uow.request_analysis(decision.incident.id, now)
+    elif alert.status is AlertStatus.FIRING:  # alerta agrupado antecipa o próximo ciclo
+        await uow.request_cycle(decision.incident.id, now)
     for notification in decision.notifications:
         if notification.kind is NotificationKind.INCIDENT_NORMALIZED:
             # A normalização fecha a história: leva o desfecho da validação, se houver.

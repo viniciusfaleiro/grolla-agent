@@ -3,6 +3,7 @@
 from grolla.adapters.postgres.analysis import PostgresAnalysisQueue
 from grolla.adapters.postgres.chat import PostgresChatQueue
 from grolla.adapters.postgres.database import PostgresDatabase
+from grolla.adapters.postgres.follow_up import PostgresCycleQueue
 from grolla.adapters.postgres.incidents import (
     PostgresIncidentRepository,
     PostgresNotificationOutbox,
@@ -17,6 +18,7 @@ from grolla.adapters.postgres.migrate import migrate
 __all__ = [
     "PostgresAnalysisQueue",
     "PostgresChatQueue",
+    "PostgresCycleQueue",
     "PostgresDatabase",
     "PostgresIncidentRepository",
     "PostgresLearningQueue",

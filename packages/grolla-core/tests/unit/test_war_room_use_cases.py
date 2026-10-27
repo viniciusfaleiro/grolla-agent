@@ -157,6 +157,7 @@ async def test_question_is_recorded_pending_with_its_event(world: World) -> None
             "Ana",
         )
     ]
+    assert world.repository.cycle_requests == {incident_id: now}  # antecipa o próximo ciclo
 
 
 @pytest.mark.parametrize(("author", "text"), [("Ana", "  "), (" ", "pergunta")])
