@@ -123,15 +123,20 @@ from grolla_api.post_mortem_pages import (
     ACTION_STATUS_LABELS,
     PM_STATUS_LABELS,
     TRANSITIONS,
+    ListExtras,
     can_edit,
     can_regenerate,
     changed_action,
     has_pdf,
+    list_extras,
     list_filters,
     new_action,
     not_generated,
+    outline_of,
+    pm_row,
     section_key,
     target_status,
+    totals_of,
 )
 from grolla_api.war_room import (
     AUTHOR_COOKIE,
@@ -934,13 +939,24 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
     @app.get("/postmortems", response_class=HTMLResponse)
     async def post_mortem_list(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         filters = list_filters(request.query_params)
+        extras = list_extras(request.query_params)
+        today = clock.now().date()
+        everything = await post_mortems.summaries(PostMortemFilters(), today)
+        found = await post_mortems.summaries(filters, today)
+        rows = [pm_row(s, await post_mortems.get(s.incident.id)) for s in found]
+        rows = [row for row in rows if extras.matches(row)]
         context = {
             "author": decode_author(request.cookies.get(AUTHOR_COOKIE)),
             "nav": "postmortems",
             "back_to": "/postmortems",
             "filters": filters,
-            "filtered": filters != PostMortemFilters(),
-            "summaries": await post_mortems.summaries(filters, clock.now().date()),
+            "extras": extras,
+            "filtered": filters != PostMortemFilters() or extras != ListExtras(),
+            "summaries": [row.summary for row in rows],
+            "rows": rows,
+            "total": len(everything),
+            "totals": totals_of(everything, today),
+            "services_seen": sorted({x for s in everything for x in s.incident.services}),
         }
         return templates.TemplateResponse(request, "postmortems.html", context)
 
@@ -981,6 +997,8 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
             "resolved": found.state is IncidentState.RESOLVED,
             "pm": pm,
             "overdue": {item.id for item in overdue},
+            "outline": outline_of(pm, len(overdue)) if pm else (),
+            "header": header_of(found, clock.now()),
         }
         return templates.TemplateResponse(request, "postmortem.html", context)
 
