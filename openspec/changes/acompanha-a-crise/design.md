@@ -233,6 +233,32 @@ contexto.
 | `grolla-web` | seção "Acompanhamento" no war room, impacto no cabeçalho, aviso da proposta |
 | `grolla-e2e` | cenários: ciclo com card, proposta após normalizado, mitigado volta com o alerta |
 
+## Desvios de contrato combinados na implementação
+
+**Núcleo:**
+- `schedule_cycles` recebe `repository`, para registrar `FOLLOW_UP_STOPPED` uma vez quando o
+  teto de tokens é atingido.
+- `reap_stuck_cycles` recebe `policy`.
+- `ALERT_REOPENED_REASON` fica em `domain.incidents`.
+- Ciclo parcial não interrompe nem conta na sequência de normalizado.
+- O impacto pula ciclos sem taxa de erro.
+
+**Persistência:** o card da outbox carrega `cycle` e `impact`; cards antigos continuam legíveis.
+
+**Integrações (convenção dos cards):**
+- FOLLOW_UP_UPDATE com `cycle` é o card completo; sem `cycle`, é o card curto "Sem mudança", com
+  o texto em `summary`.
+- Em AGENT_PROPOSAL, o `summary` é o título e o `evidence` é o motivo.
+
+**Web:** a seção, o aviso e o impacto chegam pelo polling da timeline (`hx-swap-oob`), sem rota
+nova.
+
+**Code review do pai:**
+- O `finish` apaga só o pedido antecipado feito antes do início do ciclo: um pedido que chega
+  durante a execução não se perde.
+- A proposta de mitigar só vale em tratamento, como a ação humana: sem IC não há quem mitigue.
+  Spec e cenário e2e ajustados.
+
 ## Risks / Trade-offs
 
 - [Custo em incidente longo] → teto de ciclos e de tokens por incidente; só P0 e P1.

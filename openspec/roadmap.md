@@ -114,7 +114,11 @@ modelos embutidos na imagem), pgvector no mesmo Postgres, trechos por seção de
 notas e dos `.md` dos repositórios, e busca híbrida (determinístico → RRF de vetor e texto) no
 contexto da investigação e no `recall`. Medido por eval de recuperação e no laboratório real.
 
-## S4 · On-call acionado sozinho
+## S4 · On-call acionado sozinho (adiado)
+
+> Depende de conta no Spike.sh (API key, política de escalonamento e webhook de ack) para
+> testar ponta a ponta. Fica para quando a conta existir.
+
 
 - **Valor:** P0/P1 acionam o Spike.sh em minutos, com o link da página do incidente e a análise
   inicial já anexada; o time assume, reclassifica e encerra pelo war room.
@@ -126,7 +130,13 @@ contexto da investigação e no `recall`. Medido por eval de recuperação e no 
 - **Aceite:** em modo sombra, o canal mostra os acionamentos que teriam acontecido; após a
   calibração, um P0/P1 real aciona o on-call.
 
-## S5 · Agente acompanha a crise
+## S5 · Agente acompanha a crise ✅
+
+Change `acompanha-a-crise`: ciclos de acompanhamento em P0/P1 (tendência, taxa de erro, resumo), card
+só quando muda, ciclo antecipado por alerta ou mensagem, proposta de mitigar ou encerrar após
+15 min normalizado, volta determinística de mitigado para em tratamento e impacto financeiro
+estimado. Ficaram de fora a investigação profunda separada (os ciclos cumprem esse papel).
+
 
 - **Valor:** o time foca em resolver; o canal fica informado e o registro em dia.
 - **Investigação profunda (P0/P1):** depois da análise inicial, ciclos até 10 min ou confiança
