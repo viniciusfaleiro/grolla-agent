@@ -2,11 +2,11 @@
 
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from grolla.application.analysis import AnalysisPolicy
 from grolla.application.console import ConsolePolicy
@@ -95,6 +95,30 @@ class CloudAccountConfig(_Section):
     name: str = Field(min_length=1)
     role_arn: str = Field(pattern=r"^arn:aws:iam::\d{12}:role/.+$")
     regions: list[str] = Field(min_length=1)
+
+
+class ClusterConfig(_Section):
+    """Um cluster consultado só para leitura; `enabled: false` o tira da investigação."""
+
+    name: str = Field(min_length=1)
+    enabled: bool = True
+    access: Literal["kubeconfig", "in_cluster", "eks"] = "kubeconfig"
+    context: str | None = None
+    eks_name: str | None = None
+    region: str | None = None
+    role_arn: str | None = Field(default=None, pattern=r"^arn:aws:iam::\d{12}:role/.+$")
+    namespaces: list[str] = Field(min_length=1)
+    service_label: str | None = None  # None: app.kubernetes.io/name, depois app
+    workload_map: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
+    show_values: bool = True  # false nos clusters PCI: nenhum valor de configuração sai
+
+    @model_validator(mode="after")
+    def _eks_needs_name_and_region(self) -> Self:
+        if self.access == "eks" and (self.eks_name is None or self.region is None):
+            raise ValueError("cluster com access eks precisa de eks_name e region")
+        if self.role_arn is not None and self.access != "eks":
+            raise ValueError("role_arn só vale com access eks")
+        return self
 
 
 class CloudConfig(_Section):
@@ -203,6 +227,16 @@ class TeamConfig(BaseModel):
     post_mortem: PostMortemConfig = Field(default_factory=PostMortemConfig)
     noise: NoiseConfig | None = None  # sem a seção, nenhuma triagem
     console: ConsoleConfig | None = None  # sem a seção, o console fica desligado
+    clusters: list[ClusterConfig] = Field(default_factory=list[ClusterConfig])
+
+    @model_validator(mode="after")
+    def _unique_cluster_names(self) -> Self:
+        names = [cluster.name for cluster in self.clusters]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"nome de cluster repetido: {', '.join(repeated)}")
+        return self
+
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
 
     def page_url(self, incident_id: UUID) -> str:

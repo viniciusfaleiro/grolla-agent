@@ -50,3 +50,10 @@ change arquivada em `openspec/changes/archive/`. Novas decisões entram no fim, 
 | 43 | 27/10 | S11 | Várias contas por STS AssumeRole numa role `grolla-somente-leitura`, com cache da credencial e falha isolada por conta | Nenhuma credencial no YAML; uma conta quebrada não cega o agente nas outras |
 | 44 | 27/10 | S11 | Conta citada em cada item só quando há mais de uma conta | Com uma conta, as respostas e os evals de antes não mudam |
 | 45 | 27/10 | S11 | Teste de várias contas no laboratório sem criar identidade IAM; a role de verdade fica para o time | Criar usuário e chave na conta é decisão do dono da conta; o isolamento de falha foi provado com uma role inexistente |
+| 46 | 27/10 | cluster | Port próprio `ClusterInventory`, fora do port de nuvem | O mesmo adapter serve EKS, AKS, k3s ou kind; o cluster não é da AWS |
+| 47 | 27/10 | cluster | Mudanças pelo `managedFields` e pelas revisões do ReplicaSet, não pelo audit log | Existem em qualquer cluster e dizem quando e por qual ferramenta; o audit log (quem) fica para depois |
+| 48 | 27/10 | cluster | Vários clusters num adapter só, em paralelo, rotulados e com falha isolada; role por cluster no EKS | Separa contas PCI e não PCI sem mapa serviço → cluster; o rótulo do serviço já diz onde ele roda |
+| 49 | 27/10 | cluster | `show_values: false` oculta os valores no próprio adapter | O valor do PCI nunca sai do adapter: nem memória, nem avaliação, nem LLM. Filtrar no prompt confiaria no modelo |
+| 50 | 27/10 | cluster | Ligar e desligar cluster só pelo YAML (`enabled`) | Pedido do usuário; um interruptor na web exigiria estado e auditoria |
+| 51 | 27/10 | cluster | Secrets nunca lidos, nem os metadados | Listar Secret entrega os valores; a troca aparece como revisão ou reinício |
+| 52 | 27/10 | cluster | Token do EKS gerado no adapter (URL pré-assinada do STS), sem AWS CLI na imagem | Imagem menor e um caminho só de credencial, o da nuvem |

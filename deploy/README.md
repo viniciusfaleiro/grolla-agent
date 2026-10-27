@@ -57,6 +57,13 @@ Cada incidente passa por duas fases. A **análise inicial** gera as hipóteses e
 - Use uma role somente leitura na EC2 do agente ou um usuário IAM com a política [`iam-somente-leitura.json`](iam-somente-leitura.json). A política lista só ações de leitura (Describe, List, Get, Lookup) e o `sts:AssumeRole` das roles `grolla-somente-leitura`.
 - **Várias contas:** em cada conta extra, crie a role `grolla-somente-leitura` com a mesma política (sem o statement de AssumeRole) e a confiança de [`iam-confianca-role.json`](iam-confianca-role.json), trocando `<CONTA_PRINCIPAL>` pelo id da conta do agente. Depois liste a conta em `cloud.accounts` (`name`, `role_arn`, `regions`). A falha de uma conta aparece na resposta e não esconde as outras. Nenhuma credencial vai no YAML.
 - O AWS Health só responde com plano de suporte Business ou Enterprise; sem ele, a ferramenta diz que os eventos estão indisponíveis e a investigação segue.
+
+**Clusters (Kubernetes, somente leitura):**
+
+- Liste cada cluster em `clusters` (`name`, `access`, `namespaces`). `access: eks` usa a credencial AWS do ambiente para gerar o token (sem AWS CLI na imagem); com `role_arn`, assume antes a role somente leitura da conta do cluster, o que separa as contas PCI e não PCI. `access: kubeconfig` lê o `KUBECONFIG` montado (com `context`), e `in_cluster` usa a conta de serviço do pod.
+- Aplique [`k8s-somente-leitura.yaml`](k8s-somente-leitura.yaml) em cada cluster: só `get`/`list`/`watch` em workloads, pods, eventos, ConfigMaps, HPA e NetworkPolicies, nunca Secrets. No EKS, ligue a role IAM do agente ao grupo `grolla-somente-leitura` por um access entry.
+- `enabled: false` tira o cluster da investigação no próximo restart, sem apagar a configuração.
+- Nos clusters PCI, use `show_values: false`: o agente vê o nome da chave, quando mudou e por qual ferramenta (`kubectl-edit`, `helm`, …), nunca o valor de ConfigMap ou de variável de ambiente.
 - Marque os recursos de cada serviço com a tag `service=<nome do serviço>`. Recursos sem tag entram por `cloud.resource_map`.
 
 Não é preciso mapear todos os serviços. Sem entrada em `service_repo_map`, o agente procura um

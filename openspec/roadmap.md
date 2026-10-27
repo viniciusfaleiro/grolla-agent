@@ -208,6 +208,14 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   EKS/ECS, quotas e CloudTrail como ferramentas neutras da investigação.
 - **Ports:** `CloudInventory`.
 
+## S11.1 · Cluster somente leitura ✅
+
+- **Valor:** a causa raiz que está dentro do Kubernetes: pods quebrando e mudanças feitas fora do
+  pipeline (`kubectl edit`, `set env`, `scale`).
+- **Escopo:** estado e mudanças do serviço em vários clusters (contas PCI e não PCI), `enabled`
+  por cluster no YAML, valores ocultos nos clusters PCI, RBAC só leitura.
+- **Ports:** `ClusterInventory`.
+
 ## Fase 2 (depois do S11)
 
 SSO no war room e no post mortem (pré-requisito para um segundo time); thresholds calibrados com

@@ -33,6 +33,7 @@ from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryChatQueue, InMemoryIncidentRepository
 from grolla.testing.investigation import (
     FakeChangeHistory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
     fake_usage,
@@ -58,6 +59,7 @@ class World:
         self.queue = InMemoryChatQueue(self.repository)
         self.clock = FakeClock(T0)
         self.telemetry = FakeTelemetry()
+        self.cluster = FakeClusterInventory()
 
     async def ask(self, text: str = "o rollback resolveu?") -> UUID:
         incident = replace(
@@ -80,6 +82,7 @@ class World:
             changes=FakeChangeHistory(),
             clock=self.clock,
             policy=policy,
+            cluster=self.cluster,
         )
 
     async def reply(self, incident_id: UUID) -> tuple[ChatMessage, ChatMessage]:
@@ -280,3 +283,14 @@ def test_context_shows_a_running_validation_and_what_was_missing() -> None:
     assert "Faltou: Validação parcial: tempo esgotado." in chat_context(
         incident, None, partial, [], []
     )
+
+
+async def test_reply_can_look_at_the_cluster(world: World) -> None:
+    incident_id = await world.ask("mudou algo no cluster?")
+    model = ScriptedLanguageModel(chat_calls=[("cluster_changes", {"service": SERVICE})])
+
+    assert await world.run(model)
+
+    _, answer = await world.reply(incident_id)
+    assert [e.tool for e in answer.evaluations] == ["cluster_changes"]
+    assert world.cluster.calls == [("changes", SERVICE)]

@@ -17,6 +17,7 @@ from grolla.application.investigation import (
     SIGNALS,
     ChangeHistory,
     CloudInventory,
+    ClusterInventory,
     LanguageModel,
     LlmUsage,
     Telemetry,
@@ -148,6 +149,7 @@ async def run_next_console_reply(  # noqa: PLR0913 — o caso de uso liga os por
     cloud: CloudInventory,
     clock: Clock,
     policy: ConsolePolicy,
+    cluster: ClusterInventory | None = None,
     memory: MemoryStore | None = None,
     embedder: TextEmbedder | None = None,
 ) -> bool:
@@ -176,6 +178,7 @@ async def run_next_console_reply(  # noqa: PLR0913 — o caso de uso liga os por
         clock,
         policy.lookback,
         cloud,
+        cluster=cluster,
         memory=memory,
         embedder=embedder,
         remember_as=Source(SourceKind.CHAT, job.author, None),  # None: sem incidente

@@ -90,6 +90,8 @@ TOOL_LABELS = {
     "cloud_alarms": "Nuvem",
     "cloud_health": "Nuvem",
     "cloud_quotas": "Nuvem",
+    "cluster_state": "Cluster",
+    "cluster_changes": "Cluster",
 }
 
 # Enfileirar um card não interessa a quem conduz; a entrega aparece, discreta.

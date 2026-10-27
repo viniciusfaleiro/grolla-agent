@@ -989,3 +989,90 @@ def test_transcript_ignores_the_analysis_mode() -> None:
     client.post("/_control/llm", json={"mode": "fora_do_ar"})
 
     assert transcript_of(client, "Transcrição:\nAna: oi")["participants"] == ["Ana"]
+
+
+# ---- Cluster: `cluster_state` e `cluster_changes` quando vêm nas ferramentas
+
+CLUSTER_TOOLS = [*TOOLS, tool("cluster_state", ["service"]), tool("cluster_changes", ["service"])]
+CLUSTER_CHANGES = (
+    "2 mudança(s) no cluster para cluster-api desde 11:01 UTC, da mais recente:\n"
+    "11:56 ConfigMap cluster-config alterado por kubectl-edit no cluster nao-pci: "
+    "DB_POOL_SIZE=2\n"
+    "11:56 ConfigMap cluster-config alterado por kubectl-edit no cluster pci: "
+    "DB_POOL_SIZE (valor oculto)"
+)
+
+
+def cluster_turns(
+    payload: dict[str, Any], changes: str = CLUSTER_CHANGES
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A primeira resposta (ferramentas) e a final, com `changes` no `cluster_changes`."""
+    client = TestClient(create_app())
+    payload = {**payload, "tools": CLUSTER_TOOLS}
+    calls = client.post(PATH, json=payload).json()
+    results = [
+        {
+            "type": "tool_result",
+            "tool_use_id": block["id"],
+            "content": changes
+            if block["name"] == "cluster_changes"
+            else f"achado de {block['name']}",
+        }
+        for block in calls["content"]
+    ]
+    messages = [
+        *payload["messages"],
+        {"role": "assistant", "content": calls["content"]},
+        {"role": "user", "content": results},
+    ]
+    final = client.post(PATH, json={**payload, "messages": messages}).json()
+    return calls, json.loads(final["content"][0]["text"])
+
+
+def test_analysis_asks_for_the_cluster_and_opens_with_the_change() -> None:
+    brief = "Incidente: Erros\nServiços: cluster-api\nJanela: 60 min"
+
+    calls, draft = cluster_turns(request([{"role": "user", "content": brief}]))
+
+    asked = [(block["name"], block["input"]) for block in calls["content"]]
+    assert ("cluster_state", {"service": "cluster-api"}) in asked
+    assert ("cluster_changes", {"service": "cluster-api"}) in asked
+    first = draft["hypotheses"][0]
+    assert first["title"] == grolla_fakes.llm.CLUSTER_HYPOTHESIS
+    assert "alterado por kubectl-edit no cluster nao-pci" in first["evidence"][0]["text"]
+    assert "Deploy recente introduziu a falha" in [h["title"] for h in draft["hypotheses"]]
+
+
+def test_verification_gives_the_cluster_change_as_the_root_cause() -> None:
+    brief = VERIFICATION_BRIEF.replace("pedidos-api", "cluster-api")
+
+    calls, result = cluster_turns(verification_request([{"role": "user", "content": brief}]))
+
+    assert "cluster_changes" in [block["name"] for block in calls["content"]]
+    assert "cluster_state" not in [block["name"] for block in calls["content"]]
+    assert result["verdicts"][0]["verdict"] == "confirmada"
+    root_cause = result["root_cause"]
+    assert "kubectl-edit no cluster nao-pci: DB_POOL_SIZE=2" in root_cause
+    assert "kubectl-edit no cluster pci: DB_POOL_SIZE (valor oculto)" in root_cause
+    assert [a["action"] for a in result["actions"]] == [
+        "Reverter DB_POOL_SIZE no ConfigMap cluster-config"
+    ]
+
+
+def test_cluster_change_without_config_map_reverts_the_change() -> None:
+    changes = "1 mudança(s):\n02:45 StatefulSet fila alterado por helm: template do pod"
+
+    _, result = cluster_turns(
+        verification_request([{"role": "user", "content": VERIFICATION_BRIEF}]), changes
+    )
+
+    assert result["actions"][0]["action"] == "Reverter a mudança no cluster do pedidos-api"
+
+
+def test_without_cluster_changes_the_story_stays_the_deploy() -> None:
+    _, result = cluster_turns(
+        verification_request([{"role": "user", "content": VERIFICATION_BRIEF}]),
+        "nenhuma mudança no cluster para o serviço na janela",
+    )
+
+    assert result["actions"][0]["action"] == "Fazer rollback do pedidos-api para o deploy anterior"

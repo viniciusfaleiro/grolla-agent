@@ -64,3 +64,13 @@ noise:
 console:
   max_tokens: 60000
   daily_max_tokens: 2000000
+
+# Clusters somente leitura: dois clusters fake, o PCI sem valores de configuração.
+clusters:
+  - name: nao-pci
+    context: nao-pci
+    namespaces: [pagamentos]
+  - name: pci
+    context: pci
+    namespaces: [cartoes]
+    show_values: false

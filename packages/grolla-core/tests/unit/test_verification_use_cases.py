@@ -28,6 +28,7 @@ from grolla.testing.incidents import InMemoryAnalysisQueue, InMemoryIncidentRepo
 from grolla.testing.investigation import (
     FakeChangeHistory,
     FakeCloudInventory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
 )
@@ -57,6 +58,7 @@ class World:
         self.telemetry = FakeTelemetry()
         self.changes = FakeChangeHistory({SERVICE: "1 deploy: 2.4.1 às 09:58 por ana"})
         self.cloud = FakeCloudInventory(resources={SERVICE: "banco pedidos-db: stopped"})
+        self.cluster = FakeClusterInventory(state={SERVICE: "pod pedidos-api-1: OOMKilled"})
 
     async def analysed_incident(self) -> UUID:
         """Incidente cuja análise inicial terminou com duas hipóteses: validação pendente."""
@@ -94,6 +96,7 @@ class World:
             clock=self.clock,
             policy=policy,
             cloud=self.cloud,
+            cluster=self.cluster,
         )
 
 
@@ -259,3 +262,17 @@ async def test_verification_without_initial_analysis_is_an_error(world: World) -
 
     with pytest.raises(LookupError):
         await world.verify(ScriptedLanguageModel())
+
+
+async def test_verification_sees_the_state_in_the_cluster(world: World) -> None:
+    incident_id = await world.analysed_incident()
+    model = ScriptedLanguageModel(verification_calls=[("cluster_state", {"service": SERVICE})])
+
+    assert await world.verify(model)
+
+    [evaluation] = world.repository.verifications[incident_id].evaluations
+    assert (evaluation.tool, evaluation.finding) == (
+        "cluster_state",
+        "pod pedidos-api-1: OOMKilled",
+    )
+    assert world.cluster.calls == [("state", SERVICE)]

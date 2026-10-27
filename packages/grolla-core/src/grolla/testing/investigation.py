@@ -11,8 +11,10 @@ from typing import Any
 from grolla.application.investigation import (
     BINARY_FILE,
     NO_CLOUD_RESOURCES,
+    NO_CLUSTER_CHANGES,
     NO_DEPENDENCIES,
     NO_REPOSITORY,
+    NO_WORKLOADS,
     READ_LIMIT,
     STAGE_CONSOLE,
     STAGE_FOLLOW_UP,
@@ -663,3 +665,36 @@ class ScriptedLanguageModel:
             budget.spend(usage)
             self.tool_answers.append(await toolbox.call(name, arguments))
         budget.spend(usage)
+
+
+class FakeClusterInventory:
+    """Cluster roteirizado: `state` e `changes` mapeiam serviço → resumo.
+
+    Serviço fora do mapa responde NO_WORKLOADS no estado e NO_CLUSTER_CHANGES nas mudanças. As
+    consultas em `failing` ("state", "changes") levantam ToolUnavailableError. Cada chamada fica
+    em `calls` como (consulta, serviço) e o `since` recebido em `since`.
+    """
+
+    def __init__(
+        self,
+        state: Mapping[str, str] | None = None,
+        changes: Mapping[str, str] | None = None,
+        failing: Iterable[str] = (),
+    ) -> None:
+        self.answers = {"state": dict(state or {}), "changes": dict(changes or {})}
+        self.failing = set(failing)
+        self.calls: list[tuple[str, str]] = []
+        self.since: list[datetime] = []
+
+    async def state(self, service: str, since: datetime) -> ToolResult:
+        return self._answer("state", service, since, NO_WORKLOADS)
+
+    async def changes(self, service: str, since: datetime) -> ToolResult:
+        return self._answer("changes", service, since, NO_CLUSTER_CHANGES)
+
+    def _answer(self, query: str, service: str, since: datetime, default: str) -> ToolResult:
+        self.calls.append((query, service))
+        self.since.append(since)
+        if query in self.failing:
+            raise ToolUnavailableError(f"{query} do cluster fora do ar no fake")
+        return ToolResult(self.answers[query].get(service, default), None)

@@ -21,6 +21,7 @@ from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryAnalysisQueue, InMemoryIncidentRepository
 from grolla.testing.investigation import (
     FakeChangeHistory,
+    FakeClusterInventory,
     FakeTelemetry,
     ScriptedLanguageModel,
     fake_usage,
@@ -35,6 +36,7 @@ POLICY = AnalysisPolicy(
     page_url=lambda incident_id: f"https://grolla.interno/incidents/{incident_id}",
     telemetry_url=TELEMETRY_URL,
 )
+CLUSTER_CHANGE = "03:10 ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE=2"
 TOOLS = [
     ("query_metric", {"service": SERVICE, "signal": "taxa_de_erro"}),
     ("recent_deploys", {"service": SERVICE}),
@@ -48,6 +50,7 @@ class World:
         self.clock = FakeClock(T0)
         self.telemetry = FakeTelemetry()
         self.changes = FakeChangeHistory({SERVICE: "1 deploy: 2.4.1 às 09:58 por ana"})
+        self.cluster = FakeClusterInventory(changes={SERVICE: CLUSTER_CHANGE})
 
     async def open_incident(self) -> UUID:
         incident = make_incident(services=(SERVICE,), severity=Severity.P2)
@@ -68,6 +71,7 @@ class World:
             changes=self.changes,
             clock=self.clock,
             policy=policy,
+            cluster=self.cluster,
         )
 
 
@@ -247,3 +251,14 @@ async def test_request_without_incident_is_an_error() -> None:
 
     with pytest.raises(LookupError):
         await world.run(ScriptedLanguageModel())
+
+
+async def test_analysis_sees_the_changes_in_the_cluster(world: World) -> None:
+    incident_id = await world.open_incident()
+    model = ScriptedLanguageModel(calls=[("cluster_changes", {"service": SERVICE})])
+
+    assert await world.run(model)
+
+    [evaluation] = world.repository.analyses[incident_id].evaluations
+    assert (evaluation.tool, evaluation.finding) == ("cluster_changes", CLUSTER_CHANGE)
+    assert world.cluster.since == [T0 - POLICY.lookback]

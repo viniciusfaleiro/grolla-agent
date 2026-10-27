@@ -5,6 +5,7 @@ from grolla.adapters.aws import AwsCloudInventory, CloudAccount
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.fastembed import FastembedTextEmbedder
 from grolla.adapters.fpdf import FpdfDocumentRenderer
+from grolla.adapters.kubernetes import ClusterTarget, KubernetesClusterInventory
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresChatQueue,
@@ -51,8 +52,10 @@ from grolla.application.investigation import (
     STAGE_WARROOM_CHAT,
     ChangeHistory,
     CloudInventory,
+    ClusterInventory,
     LanguageModel,
     NoCloudInventory,
+    NoCluster,
     Telemetry,
 )
 from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
@@ -126,6 +129,7 @@ class WorkerContainer:
     console_policy: ConsolePolicy | None = None
     transcripts: TranscriptStore | None = None
     transcript_policy: TranscriptPolicy = field(default_factory=TranscriptPolicy)
+    cluster: ClusterInventory = field(default_factory=NoCluster)  # NoCluster sem clusters ligados
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -223,6 +227,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
                 for account in config.cloud.accounts
             ],
         ),
+        cluster=_cluster(config),
         analysis=config.analysis_policy(),
         memory=PostgresMemoryStore(database),
         learning_queue=PostgresLearningQueue(database),
@@ -270,3 +275,26 @@ def prepare_worker() -> WorkerContainer:
     """Lê ambiente e YAML, valida tudo e monta o worker; levanta ConfigError."""
     settings = load_settings(WorkerSettings)
     return build_worker(settings, load_team_config(settings.config_file))
+
+
+def _cluster(config: TeamConfig) -> ClusterInventory:
+    """Só os clusters ligados vão ao adapter; sem nenhum, NoCluster."""
+    targets = [
+        ClusterTarget(
+            name=cluster.name,
+            mode=cluster.access,
+            namespaces=tuple(cluster.namespaces),
+            context=cluster.context,
+            eks_name=cluster.eks_name,
+            region=cluster.region,
+            role_arn=cluster.role_arn,
+            service_labels=(cluster.service_label,)
+            if cluster.service_label
+            else ("app.kubernetes.io/name", "app"),
+            workload_map={k: tuple(v) for k, v in cluster.workload_map.items()},
+            show_values=cluster.show_values,
+        )
+        for cluster in config.clusters
+        if cluster.enabled
+    ]
+    return KubernetesClusterInventory(targets) if targets else NoCluster()
