@@ -7,13 +7,16 @@ import grolla_worker.app
 import pytest
 from grolla.adapters.postgres import PostgresDatabase
 from grolla.application.clock import Clock
+from grolla.application.follow_up import ImpactPolicy
 from grolla.application.incidents import ChatNotifier, NotificationOutbox
 from grolla.application.investigation import NoCloudInventory
 from grolla.application.memory import STUDY_AUTHOR_SYSTEM, StudyMode
 from grolla.application.memory_retrieval import RagPolicy
 from grolla.bootstrap import TeamConfig, WorkerContainer, WorkerSettings
 from grolla.bootstrap.team_config import MemoryConfig, StudyConfig
+from grolla.domain.follow_up import FollowUpPolicy
 from grolla.testing.clock import FakeClock
+from grolla.testing.follow_up import InMemoryCycleQueue
 from grolla.testing.incidents import (
     FakeChatNotifier,
     InMemoryAnalysisQueue,
@@ -31,12 +34,14 @@ from grolla.testing.memory import (
 from grolla_worker.app import (
     ANALYSES_CRON,
     ANALYSIS_QUEUE,
+    CYCLES_CRON,
     DEFAULT_QUEUE,
     DELIVERY_CRON,
     INDEX_CRON,
     LEARNINGS_CRON,
     REAPER_CRON,
     REPLIES_CRON,
+    SCHEDULE_CYCLES_CRON,
     STUDIES_CRON,
     VERIFICATIONS_CRON,
     build_app,
@@ -509,3 +514,126 @@ async def test_daily_study_is_scheduled_on_the_yaml_cron_and_asks_for_a_daily_ro
     studies = container.studies
     assert isinstance(studies, InMemoryStudyQueue)
     assert [(r.mode, r.author) for r in studies.runs] == [(StudyMode.DAILY, STUDY_AUTHOR_SYSTEM)]
+
+
+def test_cycles_are_not_scheduled_without_the_follow_up_section(
+    container: WorkerContainer,
+) -> None:
+    app = registered(container)
+
+    assert {"schedule_cycles", "run_cycles", "reap_stuck_cycles"}.isdisjoint(app.tasks)
+
+
+def following(container: WorkerContainer) -> WorkerContainer:
+    repository = container.repository
+    assert isinstance(repository, InMemoryIncidentRepository)
+    return replace(
+        container,
+        cycle_queue=InMemoryCycleQueue(repository),
+        follow_up_policy=FollowUpPolicy(),
+        impact_policy=ImpactPolicy(per_minute={"pedidos-api": 1000}),
+    )
+
+
+async def test_cycles_are_scheduled_every_thirty_seconds_with_the_container_ports(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = following(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def schedule(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "schedule_cycles", schedule)
+    app = registered(container)
+
+    task = app.tasks["schedule_cycles"]
+    assert (task.queue, task.queueing_lock) == (DEFAULT_QUEUE, "schedule_cycles")
+    periodic = app.periodic_registry.periodic_tasks
+    assert periodic[("schedule_cycles", "")].cron == SCHEDULE_CYCLES_CRON == "* * * * * */30"
+
+    await task.func(timestamp=0)
+
+    assert calls == [
+        (
+            container.cycle_queue,
+            container.repository,
+            container.clock,
+            container.follow_up_policy,
+            container.follow_up_limits,
+        )
+    ]
+
+
+async def test_cycles_run_every_ten_seconds_one_round_at_a_time_until_none_is_pending(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = following(container)
+    pending = [True, False]
+    calls: list[dict[str, Any]] = []
+
+    async def run_next(**ports: Any) -> bool:
+        calls.append(ports)
+        return pending.pop(0)
+
+    monkeypatch.setattr(grolla_worker.app, "run_next_cycle", run_next)
+    app = registered(container)
+
+    task = app.tasks["run_cycles"]
+    assert (task.queue, task.queueing_lock, task.lock) == (
+        ANALYSIS_QUEUE,
+        "run_cycles",
+        "run_cycles",
+    )
+    assert app.periodic_registry.periodic_tasks[("run_cycles", "")].cron == CYCLES_CRON
+    assert CYCLES_CRON == "* * * * * */10"
+
+    await task.func(timestamp=0)
+
+    assert len(calls) == 2
+    assert calls[0] == {
+        "queue": container.cycle_queue,
+        "repository": container.repository,
+        "model": container.model,
+        "telemetry": container.telemetry,
+        "changes": container.changes,
+        "cloud": container.cloud,
+        "clock": container.clock,
+        "policy": container.follow_up_policy,
+        "limits": container.follow_up_limits,
+        "impact": container.impact_policy,
+        "page_url": container.analysis.page_url,
+        "memory": container.memory,
+        "embedder": container.embedder,
+    }
+
+
+async def test_stuck_cycles_are_reaped_once_a_minute(
+    container: WorkerContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = following(container)
+    calls: list[tuple[Any, ...]] = []
+
+    async def reap(*args: Any) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(grolla_worker.app, "reap_stuck_cycles", reap)
+    app = registered(container)
+
+    task = app.tasks["reap_stuck_cycles"]
+    assert (task.queue, task.lock) == (ANALYSIS_QUEUE, "reap_stuck_cycles")
+    assert app.periodic_registry.periodic_tasks[("reap_stuck_cycles", "")].cron == REAPER_CRON
+
+    await task.func(timestamp=0)
+
+    assert calls == [
+        (
+            container.cycle_queue,
+            container.repository,
+            container.clock,
+            container.follow_up_policy,
+            container.follow_up_limits,
+        )
+    ]
