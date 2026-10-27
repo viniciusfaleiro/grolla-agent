@@ -1,12 +1,16 @@
-"""Fakes em memória dos ports da memória viva: `MemoryStore`, `LearningQueue` e `StudyQueue`.
+"""Fakes em memória dos ports da memória viva: `MemoryStore`, `TextEmbedder`, `LearningQueue`
+e `StudyQueue`.
 
-A busca textual do fake é simples: um registro casa quando tem alguma palavra (de 3 letras ou
-mais, sem diferenciar maiúsculas) da busca.
+A busca textual do fake é simples: um registro (ou trecho) casa quando tem alguma palavra (de 3
+letras ou mais, sem diferenciar maiúsculas) da busca. A busca híbrida dos trechos junta, por
+RRF (k=60), o ranking do cosseno com o da sobreposição de palavras, como o adapter real.
 """
 
+import math
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+import zlib
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from uuid import UUID
 
@@ -20,10 +24,20 @@ from grolla.application.memory import (
     StudyRun,
     StudyStatus,
 )
-from grolla.application.memory_store import SubjectSummary
+from grolla.application.memory_store import (
+    Embedded,
+    EmbeddingError,
+    EmbeddingKind,
+    Query,
+    SubjectSummary,
+)
 from grolla.domain.memory import (
+    DOCUMENT_LIMIT,
     ENVIRONMENT,
     EPISODE_LIMIT,
+    Chunk,
+    ChunkHit,
+    ChunkOrigin,
     Confidence,
     Memory,
     MemoryContext,
@@ -38,12 +52,98 @@ _KIND_ORDER = {SubjectKind.ENVIRONMENT: 0, SubjectKind.SERVICE: 1, SubjectKind.I
 _RECORD_ORDER = {MemoryKind.DOSSIER: 0, MemoryKind.EPISODE: 1, MemoryKind.NOTE: 2}
 
 
+def _words_in_order(text: str) -> list[str]:
+    return [match.group() for match in _WORD.finditer(text.casefold())]
+
+
 def _words(text: str) -> set[str]:
-    return set(_WORD.findall(text.casefold()))
+    return set(_words_in_order(text))
 
 
 def _overlap(record: Memory, words: set[str]) -> int:
     return len(words & _words(f"{record.title} {record.body}"))
+
+
+FAKE_EMBEDDING_MODEL = "fake-bag-of-words"
+FAKE_EMBEDDING_DIMENSION = 512
+RRF_K = 60
+VECTOR_CANDIDATES = 50  # trechos mais próximos que entram na fusão
+
+
+class FakeTextEmbedder:
+    """Embeddings determinísticos e sem rede: saco de palavras normalizado.
+
+    Cada palavra (3 letras ou mais, sem diferenciar maiúsculas) cai numa dimensão por hash. Com
+    `concepts` (palavra → conceito), palavras diferentes caem na dimensão do mesmo conceito, o
+    que roteiriza paráfrases que só o vetor acha. Texto sem palavra vira um vetor fixo. Com
+    `failing`, toda chamada levanta EmbeddingError. Cada chamada fica em `calls`.
+    """
+
+    def __init__(
+        self,
+        concepts: Mapping[str, str] | None = None,
+        *,
+        model: str = FAKE_EMBEDDING_MODEL,
+        failing: bool = False,
+    ) -> None:
+        self.concepts = {w.casefold(): c.casefold() for w, c in (concepts or {}).items()}
+        self._model = model
+        self.failing = failing
+        self.calls: list[tuple[tuple[str, ...], EmbeddingKind]] = []
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def embed(self, texts: Sequence[str], kind: EmbeddingKind) -> list[list[float]]:
+        self.calls.append((tuple(texts), kind))
+        if self.failing:
+            raise EmbeddingError("modelo de embeddings fora do ar no fake")
+        return [self._vector(text) for text in texts]
+
+    def _vector(self, text: str) -> list[float]:
+        vector = [0.0] * FAKE_EMBEDDING_DIMENSION
+        for word in _words_in_order(text):
+            token = self.concepts.get(word, word)
+            vector[zlib.crc32(token.encode()) % FAKE_EMBEDDING_DIMENSION] += 1.0
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm == 0:
+            vector[0] = 1.0
+            return vector
+        return [v / norm for v in vector]
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    return sum(x * y for x, y in zip(a, b, strict=True))
+
+
+@dataclass
+class _Indexed:
+    """Os trechos de um registro, ou da documentação de um serviço, com um modelo."""
+
+    model: str
+    at: datetime
+    chunks: list[Embedded] = field(default_factory=list[Embedded])
+
+
+def _fused(entries: Sequence[Embedded], query: Query) -> list[ChunkHit]:
+    """RRF (k=60) do ranking por cosseno (os VECTOR_CANDIDATES mais próximos) e do ranking por
+    palavras em comum (só os que têm alguma); maior primeiro. Sem vetor, só o textual.
+    """
+    scores: dict[int, float] = {}
+    words = _words(query.text)
+    overlaps = [len(words & _words(f"{c.heading} {c.text}")) for c, _ in entries]
+    textual = sorted((i for i, o in enumerate(overlaps) if o > 0), key=lambda i: -overlaps[i])
+    rankings = [textual]
+    if query.vector is not None:
+        vector = query.vector
+        nearest = sorted(range(len(entries)), key=lambda i: -_cosine(entries[i][1], vector))
+        rankings.append(nearest[:VECTOR_CANDIDATES])
+    for ranking in rankings:
+        for rank, i in enumerate(ranking, start=1):
+            scores[i] = scores.get(i, 0.0) + 1 / (RRF_K + rank)
+    ranked = sorted(scores, key=lambda i: -scores[i])
+    return [ChunkHit(entries[i][0], scores[i]) for i in ranked]
 
 
 class InMemoryMemoryStore:
@@ -52,12 +152,18 @@ class InMemoryMemoryStore:
     def __init__(self) -> None:
         self.records: dict[UUID, Memory] = {}
         self.history: list[MemoryVersion] = []
+        self.chunks: dict[UUID, _Indexed] = {}  # trechos de cada registro
+        self.documents: dict[str, _Indexed] = {}  # trechos da documentação de cada serviço
 
     def _active(self, kind: MemoryKind) -> list[Memory]:
         return [r for r in self.records.values() if r.active and r.kind is kind]
 
     async def context_for(
-        self, services: Sequence[str], alert_names: Sequence[str], text: str
+        self,
+        services: Sequence[str],
+        alert_names: Sequence[str],
+        text: str,
+        query: Query | None = None,
     ) -> MemoryContext:
         dossiers = {d.subject: d for d in self._active(MemoryKind.DOSSIER)}
         mine = [dossiers[s] for s in (ENVIRONMENT, *services) if s in dossiers]
@@ -88,16 +194,30 @@ class InMemoryMemoryStore:
             content = f"{episode.title} {episode.body}".casefold()
             return episode.subject in services and any(name in content for name in names)
 
+        dossiers_found = tuple(mine + integrations)
+        all_episodes = self._active(MemoryKind.EPISODE)
+        if query is not None and query.vector is not None:
+            first = sorted(
+                (e for e in all_episodes if same_rule(e)), key=lambda e: e.updated_at, reverse=True
+            )
+            hits = self._hybrid(None, query, lambda c: c.kind is MemoryKind.EPISODE)
+            similar = [self.records[h.chunk.memory_id] for h in hits if h.chunk.memory_id]
+            episodes = list(dict.fromkeys([*first, *similar]))[:EPISODE_LIMIT]
+            documents = [
+                h
+                for h in self._hybrid(None, query, lambda c: c.origin is ChunkOrigin.DOCUMENT)
+                if h.chunk.subject in services
+            ]
+            return MemoryContext(
+                dossiers_found, tuple(notes), tuple(episodes), tuple(documents[:DOCUMENT_LIMIT])
+            )
         ranked = sorted(
-            (
-                (same_rule(e), _overlap(e, words), e.updated_at, e)
-                for e in self._active(MemoryKind.EPISODE)
-            ),
+            ((same_rule(e), _overlap(e, words), e.updated_at, e) for e in all_episodes),
             key=lambda item: item[:3],
             reverse=True,
         )
         episodes = [e for rule, score, _, e in ranked if rule or score > 0][:EPISODE_LIMIT]
-        return MemoryContext(tuple(mine + integrations), tuple(notes), tuple(episodes))
+        return MemoryContext(dossiers_found, tuple(notes), tuple(episodes))
 
     async def search(self, subject: str | None, query: str, limit: int) -> list[Memory]:
         words = _words(query)
@@ -167,6 +287,58 @@ class InMemoryMemoryStore:
     async def versions(self, memory_id: UUID) -> list[MemoryVersion]:
         mine = [v for v in self.history if v.memory_id == memory_id]
         return sorted(mine, key=lambda v: v.at, reverse=True)
+
+    # ---- memória com RAG ----
+
+    def _hybrid(
+        self, subject: str | None, query: Query, keep: Callable[[Chunk], bool]
+    ) -> list[ChunkHit]:
+        """A busca híbrida nos trechos que `keep` aceita, de registros ativos e de documentação,
+        do modelo da query (de qualquer modelo sem ele) e do assunto (todos com None).
+        """
+        indexed = [e for memory_id, e in self.chunks.items() if self.records[memory_id].active]
+        indexed += self.documents.values()
+        entries = [
+            item
+            for entry in indexed
+            if query.model in {None, entry.model}
+            for item in entry.chunks
+            if (subject is None or item[0].subject == subject) and keep(item[0])
+        ]
+        return _fused(entries, query)
+
+    async def search_chunks(self, subject: str | None, query: Query, limit: int) -> list[ChunkHit]:
+        return self._hybrid(subject, query, lambda _: True)[:limit]
+
+    async def unindexed(self, model: str, limit: int) -> list[Memory]:
+        def pending(record: Memory) -> bool:
+            entry = self.chunks.get(record.id)
+            return entry is None or entry.model != model or record.updated_at > entry.at
+
+        found = [r for r in self.records.values() if r.active and pending(r)]
+        return sorted(found, key=lambda r: r.updated_at)[:limit]
+
+    async def replace_chunks(
+        self, memory_id: UUID, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        self.chunks[memory_id] = _Indexed(model, at, list(chunks))
+
+    async def replace_documents(
+        self, service: str, model: str, chunks: Sequence[Embedded], at: datetime
+    ) -> None:
+        self.documents[service] = _Indexed(model, at, list(chunks))
+
+    async def drop_stale_chunks(self, model: str) -> int:
+        dropped = 0
+        for memory_id, entry in list(self.chunks.items()):
+            if entry.model != model or not self.records[memory_id].active:
+                dropped += len(entry.chunks)
+                del self.chunks[memory_id]
+        for service, entry in list(self.documents.items()):
+            if entry.model != model:
+                dropped += len(entry.chunks)
+                del self.documents[service]
+        return dropped
 
 
 @dataclass

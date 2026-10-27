@@ -69,6 +69,29 @@ docker compose exec db psql -U grolla -c \
   "SELECT date(at), model, sum(input_tokens), sum(output_tokens) FROM llm_usage GROUP BY 1, 2 ORDER BY 1 DESC"
 ```
 
+## 🧠 Memória viva e RAG
+
+A seção `memory` do `credenciadora.yaml` liga o estudo do ambiente (`memory.study`) e o RAG
+(`memory.rag`). Com `memory.rag`, o worker gera embeddings localmente: os modelos vêm dentro da
+imagem e nada é baixado em produção, o que funciona mesmo sem internet.
+
+| `memory.rag.size` | Modelo | Tamanho | Quando usar |
+|---|---|---|---|
+| `small` (padrão) | `paraphrase-multilingual-MiniLM-L12-v2` | 384 dimensões · 0,22 GB | máquina pequena; bom em português |
+| `large` | `intfloat/multilingual-e5-large` | 1024 dimensões · 2,2 GB | mais precisão na busca por significado |
+
+A imagem do worker embute os dois. Para uma imagem menor, construa só com um:
+
+```bash
+docker compose build --build-arg GROLLA_RAG_MODELS=small worker
+```
+
+Trocar o `size` e reiniciar o worker reindexa a memória sozinho. Sem `memory.rag`, a memória usa
+só a busca textual.
+
+O banco precisa da extensão **pgvector**. O compose já usa `pgvector/pgvector:pg16`, e no RDS a
+extensão vem incluída.
+
 ## 🚀 Primeiro deploy
 
 ```bash
@@ -111,6 +134,10 @@ alertas, comece com `alert_filter: {}`.
 cd agent-grolla && git pull            # ou git checkout <commit>
 cd deploy && docker compose up -d --build
 ```
+
+**A partir da memória com RAG (0.0.10):** a imagem do banco muda de `postgres:16-alpine` para
+`pgvector/pgvector:pg16`. É o mesmo Postgres 16, e o volume continua. Faça o backup, rode
+`docker compose up -d --build` e a migração 0007 cria a extensão.
 
 Rollback: volte para o commit anterior e rode o mesmo comando. As migrações só avançam, então
 volte só para commits que já rodaram com o schema atual. Na dúvida, restaure o backup.

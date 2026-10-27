@@ -30,7 +30,8 @@ from grolla.application.investigation import (
     ToolUnavailableError,
     note_title,
 )
-from grolla.application.memory_store import MemoryStore, memory_for
+from grolla.application.memory_retrieval import RagPolicy, index_documents
+from grolla.application.memory_store import MemoryStore, TextEmbedder, memory_for
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, Evaluation
 from grolla.domain.incidents import (
     UNKNOWN_SERVICE,
@@ -72,6 +73,7 @@ class MemoryPolicy:
     learning_max_tokens: int = 60_000
     learning_timeout: timedelta = timedelta(minutes=3)
     study: "StudyPolicy | None" = None  # None: nenhum estudo do ambiente roda
+    rag: RagPolicy | None = None  # None: sem embeddings, só a busca textual
 
 
 @dataclass(frozen=True)
@@ -445,6 +447,8 @@ class _Study:
     changes: ChangeHistory
     cloud: CloudInventory
     clock: Clock
+    rag: RagPolicy | None = None
+    embedder: TextEmbedder | None = None
 
 
 async def run_next_study(  # noqa: PLR0913 — o caso de uso liga os ports do estudo
@@ -457,12 +461,16 @@ async def run_next_study(  # noqa: PLR0913 — o caso de uso liga os ports do es
     cloud: CloudInventory,
     clock: Clock,
     policy: MemoryPolicy,
+    embedder: TextEmbedder | None = None,
 ) -> bool:
     """Executa a próxima rodada de estudo; False se não havia.
 
     Ordem: regras do domínio → serviços (das regras e os ativos com repositório) → estudo de
     cada serviço com teto próprio, parando no teto da rodada → síntese do ambiente e das
     integrações. Falha num serviço é registrada e não para os outros.
+
+    Com `policy.rag` e o `embedder`, cada serviço estudado com sucesso tem a documentação do
+    repositório indexada; falha nessa indexação fica no motivo do serviço, que segue estudado.
     """
     run = await studies.claim(clock.now())
     if run is None:
@@ -470,7 +478,10 @@ async def run_next_study(  # noqa: PLR0913 — o caso de uso liga os ports do es
     if policy.study is None:
         await studies.finish(run, StudyStatus.FAILED, STUDY_OFF, clock.now())
         return True
-    study = _Study(run, policy.study, studies, memory, model, telemetry, changes, cloud, clock)
+    rag = policy.rag if embedder is not None else None
+    study = _Study(
+        run, policy.study, studies, memory, model, telemetry, changes, cloud, clock, rag, embedder
+    )
     try:
         rules = domain_rules(await telemetry.alert_rules(), policy.study.alert_filter)
     except ToolUnavailableError as error:
@@ -485,6 +496,8 @@ async def run_next_study(  # noqa: PLR0913 — o caso de uso liga os ports do es
             await studies.service_done(run, ServiceStudy(service, None, False, NO_BUDGET), ())
             continue
         result, usages = await _study_service(study, service, rules, records)
+        if result.ok:
+            result = await _index_documents(study, result)
         spent += _tokens(usages)
         changed = changed or result.ok
         await studies.service_done(run, result, usages)
@@ -494,6 +507,28 @@ async def run_next_study(  # noqa: PLR0913 — o caso de uso liga os ports do es
     status = StudyStatus.DONE if reason is None else StudyStatus.FAILED
     await studies.finish(run, status, reason, clock.now())
     return True
+
+
+DOCUMENTS_NOT_INDEXED = "documentação não indexada"
+
+
+async def _index_documents(study: _Study, result: ServiceStudy) -> ServiceStudy:
+    """Indexa os `.md` do serviço estudado, com RAG; a falha vai para o motivo do serviço."""
+    if study.rag is None or study.embedder is None:
+        return result
+    try:
+        await index_documents(
+            service=result.service,
+            memory=study.memory,
+            changes=study.changes,
+            embedder=study.embedder,
+            clock=study.clock,
+            policy=study.rag,
+        )
+    except Exception as error:  # a documentação não derruba o estudo do serviço
+        reason = f"{DOCUMENTS_NOT_INDEXED}: {error or type(error).__name__}"
+        return replace(result, reason=reason[:REASON_LIMIT])
+    return result
 
 
 async def _services(study: _Study, rules: Sequence[AlertRule]) -> list[str]:
@@ -567,7 +602,13 @@ async def _study_service(
     service_rules = tuple(rule for rule in rules if rule.service == service)
     brief = ServiceStudyBrief(service, service_rules, context, now=clock.now())
     toolbox = Toolbox(
-        study.telemetry, study.changes, clock, policy.lookback, study.cloud, memory=study.memory
+        study.telemetry,
+        study.changes,
+        clock,
+        policy.lookback,
+        study.cloud,
+        memory=study.memory,
+        embedder=study.embedder,
     )
     budget = TokenBudget(policy.service_max_tokens)
     deadline = asyncio.timeout(policy.service_timeout.total_seconds())

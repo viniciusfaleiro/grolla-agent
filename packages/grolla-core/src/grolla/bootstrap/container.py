@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
 from grolla.adapters.aws import AwsCloudInventory
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
+from grolla.adapters.fastembed import FastembedTextEmbedder
 from grolla.adapters.postgres import (
     PostgresAnalysisQueue,
     PostgresChatQueue,
@@ -41,7 +42,7 @@ from grolla.application.investigation import (
     Telemetry,
 )
 from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
-from grolla.application.memory_store import MemoryStore
+from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
 
@@ -84,6 +85,7 @@ class WorkerContainer:
     learning_queue: LearningQueue
     studies: StudyQueue
     memory_policy: MemoryPolicy
+    embedder: TextEmbedder | None = None  # só com `memory.rag`
 
 
 def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
@@ -161,7 +163,18 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         learning_queue=PostgresLearningQueue(database),
         studies=PostgresStudyQueue(database),
         memory_policy=config.memory_policy(),
+        embedder=_embedder(settings, config),
     )
+
+
+def _embedder(settings: WorkerSettings, config: TeamConfig) -> TextEmbedder | None:
+    """O modelo de embeddings da memória com RAG; ausente na imagem, o worker não sobe."""
+    if config.memory.rag is None:
+        return None
+    try:
+        return FastembedTextEmbedder(config.memory.rag.size)
+    except EmbeddingError as error:
+        raise ConfigError(f"{settings.config_file}: memory.rag.size: {error}") from error
 
 
 def _model_settings(stage: StageConfig | None) -> ModelSettings | None:

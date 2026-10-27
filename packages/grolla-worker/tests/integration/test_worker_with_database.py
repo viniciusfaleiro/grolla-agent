@@ -18,7 +18,10 @@ async def test_worker_processes_a_deferred_heartbeat(database_url: str) -> None:
         anthropic_api_key=SecretStr("chave"),
         azure_devops_token=SecretStr("token"),
     )
-    container = build_worker(settings, load_team_config(E2E_CONFIG))
+    config = load_team_config(E2E_CONFIG)
+    # O modelo de embeddings só existe na imagem do worker: aqui o RAG fica desligado.
+    config = config.model_copy(update={"memory": config.memory.model_copy(update={"rag": None})})
+    container = build_worker(settings, config)
     app = build_app(container)
     try:
         async with app.open_async():

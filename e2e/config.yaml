@@ -42,3 +42,6 @@ memory:
   study:
     run_max_tokens: 400000
     service_max_tokens: 100000
+  # RAG: embeddings locais (modelo small embutido na imagem do worker) e busca híbrida.
+  rag:
+    size: small

@@ -96,7 +96,7 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
 paths = ["packages/grolla-core/src/grolla/domain", "packages/grolla-core/src/grolla/application"]
 forbidden = [
     "signoz", "teams", "spike", "azure", "ado", "aws", "boto",
-    "anthropic", "claude", "postgres", "postgresql",
+    "anthropic", "claude", "postgres", "postgresql", "fastembed", "onnx", "pgvector",
 ]
 
 # ---- Arquitetura (import-linter) ----
@@ -116,6 +116,7 @@ source_modules = ["grolla.domain", "grolla.application"]
 forbidden_modules = [
     "fastapi", "starlette", "sqlalchemy", "psycopg", "alembic", "procrastinate",
     "httpx", "boto3", "mcp", "anthropic", "pydantic_settings", "uvicorn",
+    "fastembed", "onnxruntime",
 ]
 
 [[tool.importlinter.contracts]]

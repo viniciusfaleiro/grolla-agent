@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from testcontainers.community.postgres import PostgresContainer
 
-POSTGRES_IMAGE = "postgres:16-alpine"
+POSTGRES_IMAGE = "pgvector/pgvector:pg16"  # Postgres 16 com a extensão vector
 
 
 def needs_network(path: Path) -> bool:

@@ -118,8 +118,23 @@ def test_root_listing_and_missing_file() -> None:
     missing = client.get(ITEMS, params={"path": "/nao-existe.md"}, headers=AUTH)
 
     paths = [item["path"] for item in listing.json()["value"]]
-    assert paths == ["/", "/README.md", "/azure-pipelines.yml", "/src"]
+    assert paths == ["/", "/README.md", "/azure-pipelines.yml", "/docs", "/src"]
     assert missing.status_code == 404
+
+
+def test_full_listing_brings_the_runbook_with_the_pool_section() -> None:
+    client = TestClient(create_app())
+
+    listing = client.get(ITEMS, params={"scopePath": "/", "recursionLevel": "Full"}, headers=AUTH)
+    runbook = client.get(
+        ITEMS, params={"path": "/docs/runbook.md", "includeContent": "true"}, headers=AUTH
+    )
+
+    files = [item["path"] for item in listing.json()["value"] if not item.get("isFolder")]
+    assert files == ["/README.md", "/azure-pipelines.yml", "/docs/runbook.md"]
+    content = runbook.json()["content"]
+    assert "## Pool de conexões esgotado" in content
+    assert "pausar a rotina de reconciliação" in content
 
 
 def test_items_require_the_pat_and_follow_the_failure_script() -> None:

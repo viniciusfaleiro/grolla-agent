@@ -98,7 +98,7 @@ tag, CloudTrail e CloudWatch. É o S11 adiantado com escopo mínimo. Também cor
 logs (WARN e acima), as séries (1 min, com o minuto da mudança) e os deploys (com a mensagem do
 commit).
 
-## S3.2 · Memória viva
+## S3.2 · Memória viva ✅
 
 Change `memoria-viva`, adiantada antes do S4 e no lugar do antigo S7. O agente monta a própria
 base de conhecimento estudando o ambiente na primeira subida (alertas do domínio → serviços →
@@ -106,6 +106,13 @@ repositórios → pipelines → AWS → integrações nos traces), mantém em di
 aprende com cada incidente encerrado (episódio + dossiês) e com o que o time ensina no chat,
 lembra na análise ("já vi isso"), na validação e no chat, e pode reaprender do zero pela página
 `/memoria`. Aprende sozinho; o time corrige.
+
+## S3.3 · Memória com RAG ✅
+
+Change `memoria-com-rag`: embeddings locais (fastembed/ONNX, `memory.rag.size: small | large`,
+modelos embutidos na imagem), pgvector no mesmo Postgres, trechos por seção de dossiês, episódios,
+notas e dos `.md` dos repositórios, e busca híbrida (determinístico → RRF de vetor e texto) no
+contexto da investigação e no `recall`. Medido por eval de recuperação e no laboratório real.
 
 ## S4 · On-call acionado sozinho
 

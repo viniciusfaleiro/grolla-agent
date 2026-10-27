@@ -8,7 +8,11 @@ from typing import Any
 
 import httpx2
 import pytest
-from contracts.change_history_contract import ChangeHistoryContract, RepositoryFilesContract
+from contracts.change_history_contract import (
+    ChangeHistoryContract,
+    RepositoryDocumentsContract,
+    RepositoryFilesContract,
+)
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.application.investigation import (
     BINARY_FILE,
@@ -41,6 +45,7 @@ class FakeAzureDevOps:
         self.commit_status = 200
         self.files: dict[str, Any] = {"/README.md": fixture("item_file")}  # Git Items por caminho
         self.listing: Any = fixture("items_root")
+        self.empty: set[str] = set()  # repositórios sem nenhum branch
         self.requests: list[httpx2.Request] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
@@ -52,17 +57,23 @@ class FakeAzureDevOps:
         if "/commits/" in request.url.path:
             return httpx2.Response(self.commit_status, json=fixture("commit"))
         if request.url.path.endswith("/items"):
-            return self._items(request.url.params)
+            return self._items(request.url.params, empty=parts[-2] in self.empty)
         if "/_apis/git/repositories/" in request.url.path:
             if (project, parts[-1]) not in self.repositories:
                 return httpx2.Response(404, json={"message": "TF401019: repository not found"})
-            return httpx2.Response(200, json={**fixture("repository"), "name": parts[-1]})
+            repository = {**fixture("repository"), "name": parts[-1]}
+            if parts[-1] in self.empty:
+                repository |= {"defaultBranch": None, "size": 0}
+            return httpx2.Response(200, json=repository)
         return httpx2.Response(200, json=self.builds)
 
-    def _items(self, params: httpx2.QueryParams) -> httpx2.Response:
+    def _items(self, params: httpx2.QueryParams, *, empty: bool = False) -> httpx2.Response:
         """Git Items: a listagem com `recursionLevel` (a pasta em `scopePath`; com `path` a API
         real responde 400), senão o arquivo do caminho (ou 404).
         """
+        if empty:  # como a API real com um repositório sem nenhum branch
+            body = {"message": "VS403403: Cannot find any branches for the repository."}
+            return httpx2.Response(404, json=body)
         if "recursionLevel" in params:
             if "scopePath" not in params:
                 return httpx2.Response(400, json={"message": "VS403403: scopePath obrigatório"})
@@ -450,3 +461,98 @@ async def test_read_file_with_refused_api_is_unavailable() -> None:
 
     with pytest.raises(ToolUnavailableError, match="HTTP 203"):
         await fake.history().read_file("authorizer-api", "README.md")
+
+
+def documented() -> FakeAzureDevOps:
+    """O repositório inteiro com três `.md` (um em maiúsculas) e arquivos que não são `.md`."""
+    fake = FakeAzureDevOps()
+    fake.listing = fixture("items_full")
+    fake.files["/docs/runbook.md"] = {
+        "path": "/docs/runbook.md",
+        "content": "# Runbook\n\n## Pool de conexões esgotado\n\nPause a reconciliação.\n",
+    }
+    fake.files["/docs/ADR-001.MD"] = {"path": "/docs/ADR-001.MD", "content": "# ADR 1\n"}
+    return fake
+
+
+class TestAzureDevOpsRepositoryDocumentsContract(RepositoryDocumentsContract):
+    @pytest.fixture
+    def changes(self) -> ChangeHistory:
+        return documented().history()
+
+    @pytest.fixture
+    def unavailable_changes(self) -> ChangeHistory:
+        fake = documented()
+        fake.status = 503
+        return fake.history()
+
+
+async def test_documents_are_the_md_files_smallest_first_with_their_links() -> None:
+    fake = documented()
+
+    documents = await fake.history().documents("authorizer-api", 10, 100_000)
+
+    [listing] = [r for r in fake.requests if "recursionLevel" in r.url.params]
+    assert dict(listing.url.params) == {
+        "$format": "json",
+        "scopePath": "/",
+        "recursionLevel": "Full",
+        "versionDescriptor.version": "main",
+        "versionDescriptor.versionType": "branch",
+        "api-version": "7.1",
+    }
+    assert [d.path for d in documents] == ["docs/ADR-001.MD", "docs/runbook.md", "README.md"]
+    assert documents[1].url == f"{WEB}?path=/docs/runbook.md&version=GBmain"
+    assert "## Pool de conexões esgotado" in documents[1].content
+    fetched = sorted(r.url.params["path"] for r in fake.requests if "path" in r.url.params)
+    assert fetched == ["/README.md", "/docs/ADR-001.MD", "/docs/runbook.md"]
+
+
+async def test_documents_stop_at_the_file_and_byte_limits() -> None:
+    history = documented().history()
+    smallest = len(b"# ADR 1\n")
+
+    assert [d.path for d in await history.documents("authorizer-api", 1, 100_000)] == [
+        "docs/ADR-001.MD"
+    ]
+    assert [d.path for d in await history.documents("authorizer-api", 10, smallest)] == [
+        "docs/ADR-001.MD"
+    ]
+    assert await history.documents("authorizer-api", 10, smallest - 1) == []
+
+
+async def test_documents_skip_binary_and_vanished_files() -> None:
+    fake = documented()
+    fake.files["/docs/ADR-001.MD"] = {"path": "/docs/ADR-001.MD", "content": "PNG\x00"}
+    del fake.files["/docs/runbook.md"]
+
+    documents = await fake.history().documents("authorizer-api", 10, 100_000)
+
+    assert [d.path for d in documents] == ["README.md"]
+
+
+async def test_documents_of_service_without_repository_are_empty() -> None:
+    assert await documented().history().documents("servico-sem-repositorio", 10, 1000) == []
+
+
+async def test_documents_of_an_empty_repository_are_empty() -> None:
+    fake = documented()
+    fake.empty = {"authorizer-api"}
+
+    assert await fake.history().documents("authorizer-api", 10, 1000) == []
+    assert not any(r.url.path.endswith("/items") for r in fake.requests)
+
+
+async def test_documents_with_failing_api_or_network_are_unavailable() -> None:
+    fake = documented()
+    fake.status = 503
+
+    with pytest.raises(ToolUnavailableError, match="HTTP 503"):
+        await fake.history().documents("authorizer-api", 10, 1000)
+
+    def refuse(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("recusada")
+
+    history = AzureDevOpsChangeHistory(BASE, TOKEN, ["Core"], {}, httpx2.MockTransport(refuse))
+    with pytest.raises(ToolUnavailableError, match="falha de rede"):
+        await history.documents("authorizer-api", 10, 1000)

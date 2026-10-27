@@ -8,6 +8,7 @@ dependencies = [
     "alembic",
     "anthropic",
     "boto3",
+    "fastembed>=0.9.1",
     "httpx2",
     "mcp",
     "procrastinate",

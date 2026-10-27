@@ -24,7 +24,7 @@ from grolla.application.investigation import (
     TokenBudget,
     Toolbox,
 )
-from grolla.application.memory_store import MemoryStore
+from grolla.application.memory_store import MemoryStore, TextEmbedder
 from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
@@ -159,6 +159,7 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
     policy: AnalysisPolicy,
     cloud: CloudInventory | None = None,
     memory: MemoryStore | None = None,
+    embedder: TextEmbedder | None = None,
 ) -> bool:
     """Responde a próxima pergunta; False se não havia. A resposta sempre chega.
 
@@ -177,7 +178,7 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
     incident = await repository.get_incident(job.incident_id)
     if incident is None:  # a pergunta referencia o incidente: só acontece com dado corrompido
         raise LookupError(f"incidente {job.incident_id} da pergunta não existe")
-    brief = await investigation_brief(repository, memory, incident, clock)
+    brief = await investigation_brief(repository, memory, incident, clock, embedder)
     context = chat_context(
         incident,
         await repository.analysis_of(incident.id),
@@ -193,6 +194,7 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
         policy.lookback,
         cloud,
         memory=memory,
+        embedder=embedder,
         remember_as=Source(SourceKind.CHAT, job.author, str(incident.id)),
     )
     budget = TokenBudget(policy.chat_max_tokens)

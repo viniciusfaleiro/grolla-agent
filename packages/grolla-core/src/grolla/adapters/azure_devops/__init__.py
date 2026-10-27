@@ -6,6 +6,10 @@ do serviço nos projetos configurados. O resultado da busca fica em memória.
 
 `read_file` lê no branch padrão do repositório: um arquivo vem com o conteúdo, cortado em
 READ_LIMIT caracteres; o caminho vazio ou de pasta devolve a listagem de um nível.
+
+`documents` lista o repositório inteiro (`recursionLevel=Full`), busca o conteúdo dos `.md`
+(até MAX_DOCUMENT_CANDIDATES, porque a listagem não traz o tamanho) e devolve os menores
+primeiro, até os limites.
 """
 
 import asyncio
@@ -23,6 +27,7 @@ from grolla.application.investigation import (
     NO_REPOSITORY,
     READ_LIMIT,
     TRUNCATED,
+    RepositoryDocument,
     ToolResult,
     ToolUnavailableError,
 )
@@ -34,6 +39,7 @@ MESSAGE_CHARS = 120
 HTTP_NOT_FOUND = 404
 HTTP_OK = 200
 MAX_ENTRIES = 200  # itens de uma listagem de pasta que vão para o modelo
+MAX_DOCUMENT_CANDIDATES = 100  # `.md` buscados para escolher os menores
 
 _RESULTS = {
     "succeeded": "sucesso",
@@ -90,6 +96,37 @@ class AzureDevOpsChangeHistory:
             raise ToolUnavailableError(f"falha de rede: {type(error).__name__}") from error
         return self._summary(repository, builds, since)
 
+    async def documents(
+        self, service: str, max_files: int, max_bytes: int
+    ) -> list[RepositoryDocument]:
+        try:
+            async with self._http() as client:
+                repository = await self._repository(client, service)
+                if repository is None or repository.branch is None:
+                    return []  # sem repositório, ou repositório vazio (sem nenhum branch)
+                listing = await self._items(client, repository, "/", file=False, full=True)
+                paths = sorted(
+                    item.path
+                    for item in _validate(_Items, listing).value
+                    if not item.is_folder and item.path.lower().endswith(".md")
+                )[:MAX_DOCUMENT_CANDIDATES]
+                items = await asyncio.gather(
+                    *(self._items(client, repository, path, file=True) for path in paths)
+                )
+        except httpx2.HTTPError as error:
+            raise ToolUnavailableError(f"falha de rede: {type(error).__name__}") from error
+        found: list[RepositoryDocument] = []
+        for path, payload in zip(paths, items, strict=True):
+            if payload is None:  # sumiu entre a listagem e a leitura
+                continue
+            item = _validate(_Item, payload)
+            content = item.content or ""
+            if (item.metadata and item.metadata.is_binary) or "\x00" in content:
+                continue
+            web = self._web(repository, path)
+            found.append(RepositoryDocument(path.lstrip("/"), web, content))
+        return _smallest(found, max_files, max_bytes)
+
     async def read_file(self, service: str, path: str) -> ToolResult:
         try:
             async with self._http() as client:
@@ -121,14 +158,22 @@ class AzureDevOpsChangeHistory:
         )
 
     async def _items(
-        self, client: httpx2.AsyncClient, repository: _Repository, path: str, *, file: bool
+        self,
+        client: httpx2.AsyncClient,
+        repository: _Repository,
+        path: str,
+        *,
+        file: bool,
+        full: bool = False,
     ) -> Any:
-        """Git Items API no branch padrão: o arquivo com o conteúdo, ou a listagem da pasta."""
+        """Git Items API no branch padrão: o arquivo com o conteúdo, ou a listagem da pasta
+        (de um nível, ou com `full` a árvore inteira).
+        """
         params = {"$format": "json"}
         if file:
             params |= {"path": path, "includeContent": "true", "includeContentMetadata": "true"}
         else:  # a listagem de pasta usa `scopePath`: com `path` a API responde 400
-            params |= {"scopePath": path, "recursionLevel": "OneLevel"}
+            params |= {"scopePath": path, "recursionLevel": "Full" if full else "OneLevel"}
         if repository.branch:
             params |= {
                 "versionDescriptor.version": repository.branch,
@@ -339,6 +384,21 @@ def _validate[T: BaseModel](model: type[T], payload: Any) -> T:
         return model.model_validate(payload)
     except ValidationError as error:
         raise ToolUnavailableError("resposta do Azure DevOps em formato inesperado") from error
+
+
+def _smallest(
+    documents: list[RepositoryDocument], max_files: int, max_bytes: int
+) -> list[RepositoryDocument]:
+    """Os menores primeiro, até `max_files` arquivos e `max_bytes` no total."""
+    chosen: list[RepositoryDocument] = []
+    total = 0
+    for document in sorted(documents, key=lambda d: (len(d.content.encode()), d.path)):
+        size = len(document.content.encode())
+        if len(chosen) == max_files or total + size > max_bytes:
+            break
+        chosen.append(document)
+        total += size
+    return chosen
 
 
 def _line(build: _Build) -> str:
