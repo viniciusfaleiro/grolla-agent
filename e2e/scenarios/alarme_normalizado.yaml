@@ -75,7 +75,7 @@ then:
   - expect_page:
       service: api
       path: /incidents
-      contains: [✅ alarme normalizado]
+      contains: [alarme normalizado, Normalizado há]
   - http:
       service: api
       method: POST
