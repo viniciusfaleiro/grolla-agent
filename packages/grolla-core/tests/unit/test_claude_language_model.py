@@ -16,6 +16,7 @@ from contracts.language_model_contract import (
     LanguageModelContract,
     MemoryModelContract,
     PostMortemModelContract,
+    TranscriptModelContract,
     TriageModelContract,
 )
 from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
@@ -1856,3 +1857,16 @@ async def test_extract_transcript_api_error_refusal_and_budget() -> None:
         await extract(ScriptedApi(ok(final("", stop_reason="refusal"))))
     with pytest.raises(BudgetExceededError):
         await extract(ScriptedApi(ok(final(EXTRACTED))), RecordingBudget(fail_at=1))
+
+
+class TestClaudeTranscriptModelContract(TranscriptModelContract):
+    @pytest.fixture
+    def transcript_model(self) -> LanguageModel:
+        return memory_model(lambda _request: ok(final(EXTRACTED)))
+
+    @pytest.fixture
+    def failing_transcript_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        return memory_model(
+            lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        )
