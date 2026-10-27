@@ -57,6 +57,7 @@ NO_CLOUD = "consulta à nuvem não configurada nesta instância"
 HEALTH_UNAVAILABLE = "eventos da nuvem indisponíveis no plano de suporte desta conta"
 NO_CLUSTER = "consulta ao cluster não configurada nesta instância"
 NO_WORKLOADS = "nenhum workload encontrado no cluster para o serviço"
+NO_CLUSTER_CHANGES = "nenhuma mudança no cluster para o serviço na janela"
 NO_CLOUD_RESOURCES = "nenhum recurso de nuvem encontrado para o serviço"  # resposta, não erro
 UNAVAILABLE = "não foi possível consultar"
 NO_REPOSITORY = "serviço sem repositório mapeado"  # resumo de `recent_deploys`, não um erro
