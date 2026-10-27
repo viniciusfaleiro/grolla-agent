@@ -28,6 +28,10 @@ A resposta do console (`consult`) tem a suíte `ConsoleModelContract`, com as fi
 `consulting_model` (chama ao menos uma ferramenta e responde em texto, com ou sem gráficos) e
 `failing_consultant` (a API responde erro).
 
+A extração da transcrição de call (`extract_transcript`) tem a suíte `TranscriptModelContract`,
+com as fixtures `transcript_model` (devolve uma extração válida) e `failing_transcript_model`
+(a API responde erro).
+
 `toolbox`, `budget` e `brief` vêm prontos, sobre os fakes de telemetria e de mudanças.
 """
 
@@ -42,6 +46,7 @@ from grolla.application.investigation import (
     STAGE_LEARNING,
     STAGE_POST_MORTEM,
     STAGE_STUDY,
+    STAGE_TRANSCRIPT,
     STAGE_TRIAGE,
     STAGE_VERIFICATION,
     STAGE_WARROOM_CHAT,
@@ -71,6 +76,11 @@ from grolla.domain.post_mortem import (
     PostMortemDraft,
     PostMortemStatus,
     SectionKey,
+)
+from grolla.domain.transcript import (
+    HypothesisVerdict,
+    TranscriptDraft,
+    TranscriptItemKind,
 )
 from grolla.domain.triage import TriageDraft
 from grolla.testing.builders import T0, make_alert, make_analysis, make_incident
@@ -705,3 +715,68 @@ class ConsoleModelContract(LanguageModelFixtures):
     ) -> None:
         with pytest.raises(LanguageModelError):
             await failing_consultant.consult(CONSOLE_CONTEXT, CONSOLE_QUESTION, toolbox, budget)
+
+
+TRANSCRIPT_CONTEXT = (
+    f"Incidente: Taxa de erro alta\nServiços: {SERVICE}\nEstado: informado\n"
+    "Hipóteses da análise:\n- deploy 20261027.1"
+)
+TRANSCRIPT = (
+    "Pedro: não foi o deploy, o banco caiu às 03:07\n"
+    "Ana: vamos fazer o rollback agora, 03:12\n"
+    "Ana: o Pedro fica com olhar o pool de conexões"
+)
+
+
+class TranscriptModelContract(LanguageModelFixtures):
+    """A extração da transcrição de call, sem ferramentas: decisões, ações, horários,
+    participantes e o que a call disse das hipóteses.
+
+    O adapter sobrescreve `transcript_model` (devolve uma extração válida) e
+    `failing_transcript_model` (a API responde erro).
+    """
+
+    @pytest.fixture
+    def transcript_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    @pytest.fixture
+    def failing_transcript_model(self) -> LanguageModel:
+        raise NotImplementedError
+
+    async def test_extraction_returns_a_valid_draft(
+        self, transcript_model: LanguageModel, budget: TokenBudget
+    ) -> None:
+        draft = await transcript_model.extract_transcript(TRANSCRIPT_CONTEXT, TRANSCRIPT, budget)
+
+        assert isinstance(draft, TranscriptDraft)
+        assert draft.items
+        for item in draft.items:
+            assert isinstance(item.kind, TranscriptItemKind)
+            assert item.text.strip()
+            assert item.excerpt.strip()
+            assert item.owner is None or item.owner.strip()
+            assert item.said_at is None or item.said_at.strip()
+        assert all(name.strip() for name in draft.participants)
+        for check in draft.hypotheses:
+            assert check.hypothesis.strip()
+            assert isinstance(check.verdict, HypothesisVerdict)
+            assert check.excerpt.strip()
+        assert budget.usages
+        assert {usage.stage for usage in budget.usages} == {STAGE_TRANSCRIPT}
+
+    async def test_exhausted_budget_stops_the_extraction(
+        self, transcript_model: LanguageModel
+    ) -> None:
+        with pytest.raises(BudgetExceededError):
+            await transcript_model.extract_transcript(
+                TRANSCRIPT_CONTEXT, TRANSCRIPT, TokenBudget(limit=1)
+            )
+
+    async def test_api_failure_raises_language_model_error(
+        self, failing_transcript_model: LanguageModel, budget: TokenBudget
+    ) -> None:
+        with pytest.raises(LanguageModelError):
+            await failing_transcript_model.extract_transcript(
+                TRANSCRIPT_CONTEXT, TRANSCRIPT, budget
+            )
