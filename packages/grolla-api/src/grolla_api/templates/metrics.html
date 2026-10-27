@@ -5,7 +5,7 @@
 <div class="list-head">
   <div class="list-title">
     <h1>Como o Grolla está indo</h1>
-    <p class="muted">Métricas do agente. Tudo sai das respostas do time e do log dos incidentes: o acerto vem da avaliação nos post mortems, e o "já vi isso" das respostas na página do incidente.</p>
+    <p class="muted">Métricas do agente. Tudo sai das respostas do time e do log dos incidentes: o acerto vem da avaliação nos post mortems, o "já vi isso" das respostas na página do incidente e os pedidos recusados do chat e do console.</p>
   </div>
   <nav class="segmented metrics-periods" aria-label="Período">
     {% for value, label in granularity_labels.items() %}
@@ -20,6 +20,7 @@
   <div class="total"><dt>Acerto da hipótese principal</dt><dd{% if not now_row.evaluated %} class="muted"{% endif %}>{{ hit_rate(now_row) if now_row.evaluated else "—" }}</dd>
     {% if not now_row.evaluated %}<span class="metrics-hint">{% if unevaluated %}0 avaliações: <a href="/postmortems?sem_avaliacao=1">avaliar {{ unevaluated }} {{ "post mortem" if unevaluated == 1 else "post mortems" }}</a>{% else %}sem avaliações no período{% endif %}</span>{% endif %}</div>
   <div class="total"><dt>"Já vi isso" confirmados</dt><dd>{{ now_row.seen_before_confirmed }}</dd><span class="muted">{{ now_row.seen_before_rejected }} {{ "recusado" if now_row.seen_before_rejected == 1 else "recusados" }}</span></div>
+  <div class="total"><dt>Pedidos recusados</dt><dd>{{ now_row.refused }}</dd><span class="muted">fora do escopo ou pedido de execução</span></div>
   <div class="total"><dt>Post mortems aprovados</dt><dd>{{ now_row.approved }}</dd><span class="muted">mediana até a hipótese certa: {{ median_minutes(now_row) }}</span></div>
 </dl>
 
@@ -47,6 +48,7 @@
           <th scope="col">"Já vi isso" confirmados</th>
           <th scope="col">"Já vi isso" recusados</th>
           <th scope="col">Memória ajudou</th>
+          <th scope="col">Pedidos recusados</th>
         </tr>
       </thead>
       <tbody>
@@ -60,6 +62,7 @@
           <td>{{ row.seen_before_confirmed }}</td>
           <td>{{ row.seen_before_rejected }}</td>
           <td>{{ row.memory_helped }}</td>
+          <td>{{ row.refused }}</td>
         </tr>
         {% endfor %}
       </tbody>
