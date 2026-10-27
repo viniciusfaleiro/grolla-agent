@@ -1,5 +1,6 @@
 """Transcrição da call no war room: envio, itens na timeline com a origem e reprocessar."""
 
+import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
@@ -29,17 +30,6 @@ NOW = T0 + timedelta(minutes=20)
 MAX_CHARS = 1_000
 
 
-class StoreWithGet(InMemoryTranscriptStore):
-    """O fake com só o `get` que as rotas usam: o resto é do caso de uso, dublado abaixo."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.saved: dict[int, Transcript] = {}
-
-    async def get(self, transcript_id: int) -> Transcript | None:
-        return self.saved.get(transcript_id)
-
-
 @dataclass
 class TranscriptStub:
     """Dublê do `upload_transcript` e do `retry_transcript`: registra a chamada ou levanta."""
@@ -67,8 +57,9 @@ def repository() -> InMemoryIncidentRepository:
 
 
 @pytest.fixture
-def store() -> StoreWithGet:
-    return StoreWithGet()
+def store(repository: InMemoryIncidentRepository) -> InMemoryTranscriptStore:
+    """O fake do port; os casos de uso que o usam são dublados abaixo."""
+    return InMemoryTranscriptStore(repository)
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +79,7 @@ def incident(repository: InMemoryIncidentRepository) -> Incident:
 
 @pytest.fixture
 def client(
-    services: Services, repository: InMemoryIncidentRepository, store: StoreWithGet
+    services: Services, repository: InMemoryIncidentRepository, store: InMemoryTranscriptStore
 ) -> TestClient:
     app = create_app(
         replace(
@@ -247,18 +238,19 @@ def test_war_room_offers_the_upload_with_a_name(
 # ---- reprocessar
 
 
-def saved(store: StoreWithGet, incident_id: UUID, transcript_id: int = 7) -> Transcript:
-    transcript = Transcript(transcript_id, incident_id, "Ana", "Pedro: vamos", T0)
-    store.saved[transcript_id] = transcript
-    return transcript
+def saved(store: InMemoryTranscriptStore, incident_id: UUID) -> Transcript:
+    """Grava pelo fake: a primeira transcrição recebe o id 1."""
+    transcript = Transcript(0, incident_id, "Ana", "Pedro: vamos", T0)
+    received = IncidentEvent(incident_id, T0, EventType.TRANSCRIPT_RECEIVED, {}, author="Ana")
+    return asyncio.run(store.add(transcript, received))
 
 
-def retry_url(incident: Incident, transcript_id: object = 7) -> str:
+def retry_url(incident: Incident, transcript_id: object = 1) -> str:
     return f"{url(incident)}/{transcript_id}/reprocessar"
 
 
 def test_retry_asks_again_and_goes_back(
-    ana: TestClient, incident: Incident, store: StoreWithGet, stub: TranscriptStub
+    ana: TestClient, incident: Incident, store: InMemoryTranscriptStore, stub: TranscriptStub
 ) -> None:
     saved(store, incident.id)
 
@@ -266,11 +258,11 @@ def test_retry_asks_again_and_goes_back(
 
     assert response.status_code == 303
     assert response.headers["location"] == f"/incidents/{incident.id}"
-    assert stub.retries == [(7, "Ana")]
+    assert stub.retries == [(1, "Ana")]
 
 
 def test_retry_of_one_that_did_not_fail_shows_the_message(
-    ana: TestClient, incident: Incident, store: StoreWithGet, stub: TranscriptStub
+    ana: TestClient, incident: Incident, store: InMemoryTranscriptStore, stub: TranscriptStub
 ) -> None:
     saved(store, incident.id)
     stub.error = InvalidActionError("esta transcrição não falhou")
@@ -279,14 +271,14 @@ def test_retry_of_one_that_did_not_fail_shows_the_message(
 
     assert response.status_code == 422
     assert "esta transcrição não falhou" in response.text
-    assert response.headers["HX-Retarget"] == "#erro-transcricao-7"
+    assert response.headers["HX-Retarget"] == "#erro-transcricao-1"
 
 
 @pytest.mark.parametrize("transcript_id", ["8", "abc"])
 def test_retry_of_unknown_transcript_is_404(
     ana: TestClient,
     incident: Incident,
-    store: StoreWithGet,
+    store: InMemoryTranscriptStore,
     stub: TranscriptStub,
     transcript_id: str,
 ) -> None:
@@ -297,7 +289,7 @@ def test_retry_of_unknown_transcript_is_404(
 
 
 def test_retry_of_another_incidents_transcript_is_404(
-    ana: TestClient, incident: Incident, store: StoreWithGet, stub: TranscriptStub
+    ana: TestClient, incident: Incident, store: InMemoryTranscriptStore, stub: TranscriptStub
 ) -> None:
     saved(store, uuid4())
 
@@ -305,13 +297,15 @@ def test_retry_of_another_incidents_transcript_is_404(
     assert stub.retries == []
 
 
-def test_retry_needs_a_name(client: TestClient, incident: Incident, store: StoreWithGet) -> None:
+def test_retry_needs_a_name(
+    client: TestClient, incident: Incident, store: InMemoryTranscriptStore
+) -> None:
     saved(store, incident.id)
 
     response = client.post(retry_url(incident))
 
     assert response.status_code == 401
-    assert response.headers["HX-Retarget"] == "#erro-transcricao-7"
+    assert response.headers["HX-Retarget"] == "#erro-transcricao-1"
 
 
 # ---- timeline
