@@ -677,6 +677,7 @@ class LearningBrief:
     events: tuple[IncidentEvent, ...]
     memory: MemoryContext  # dossiês e notas pendentes dos serviços e integrações do incidente
     now: datetime
+    post_mortem: str | None = None  # o post mortem aprovado, quando é ele que ensina
 
 
 @dataclass(frozen=True)

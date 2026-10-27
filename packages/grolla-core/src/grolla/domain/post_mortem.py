@@ -7,7 +7,7 @@ são mostradas ao time.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -92,6 +92,17 @@ class ActionItem:
 
 
 @dataclass(frozen=True)
+class AgentEvaluation:
+    """O que o time responde sobre o agente no post mortem; base das métricas de acerto."""
+
+    main_hypothesis_correct: bool | None = None
+    minutes_to_right: int | None = None
+    memory_helped: bool | None = None
+    author: str | None = None
+    at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PostMortem:
     incident_id: UUID
     status: PostMortemStatus
@@ -101,6 +112,7 @@ class PostMortem:
     updated_at: datetime
     status_by: str = AGENT_AUTHOR  # quem moveu para o status atual
     status_at: datetime | None = None
+    evaluation: AgentEvaluation = field(default_factory=AgentEvaluation)
 
 
 @dataclass(frozen=True)
@@ -444,3 +456,14 @@ def overdue(pm: PostMortem, today: date) -> tuple[ActionItem, ...]:
         for a in pm.actions
         if a.status is ActionStatus.OPEN and a.due is not None and a.due < today
     )
+
+
+def evaluated(
+    pm: PostMortem, evaluation: AgentEvaluation, author: str, now: datetime
+) -> PostMortem:
+    """A avaliação do agente preenchida por uma pessoa; levanta InvalidPostMortemError em post
+    mortem encerrado, sem autor ou com minutos negativos.
+
+    Contrato das métricas do agente: o corpo é do grolla-dominio.
+    """
+    raise NotImplementedError

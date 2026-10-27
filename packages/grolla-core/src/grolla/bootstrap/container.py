@@ -13,6 +13,7 @@ from grolla.adapters.postgres import (
     PostgresIncidentRepository,
     PostgresLearningQueue,
     PostgresMemoryStore,
+    PostgresMetricsReader,
     PostgresNotificationOutbox,
     PostgresPostMortemStore,
     PostgresStudyQueue,
@@ -49,6 +50,7 @@ from grolla.application.investigation import (
 )
 from grolla.application.memory import LearningQueue, MemoryPolicy, StudyQueue
 from grolla.application.memory_store import EmbeddingError, MemoryStore, TextEmbedder
+from grolla.application.metrics import MetricsReader
 from grolla.application.post_mortem import DocumentRenderer, PostMortemPolicy, PostMortemStore
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
 from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
@@ -72,6 +74,7 @@ class ApiContainer:
     impact_policy: ImpactPolicy
     post_mortems: PostMortemStore
     renderer: DocumentRenderer
+    metrics: MetricsReader
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,7 @@ def build_api(settings: ApiSettings, config: TeamConfig) -> ApiContainer:
         impact_policy=config.impact_policy(),
         post_mortems=PostgresPostMortemStore(database),
         renderer=FpdfDocumentRenderer(),
+        metrics=PostgresMetricsReader(database),
     )
 
 

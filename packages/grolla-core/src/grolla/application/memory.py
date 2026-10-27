@@ -32,6 +32,7 @@ from grolla.application.investigation import (
 )
 from grolla.application.memory_retrieval import RagPolicy, index_documents
 from grolla.application.memory_store import MemoryStore, TextEmbedder, memory_for
+from grolla.application.post_mortem import PostMortemStore
 from grolla.domain.analysis import PARTIAL_REASON_TEXT, Evaluation
 from grolla.domain.incidents import (
     UNKNOWN_SERVICE,
@@ -198,13 +199,18 @@ async def run_next_learning(  # noqa: PLR0913 — o caso de uso liga os ports do
     model: LanguageModel,
     clock: Clock,
     policy: MemoryPolicy,
+    post_mortems: PostMortemStore | None = None,
 ) -> bool:
     """Aprende com o próximo incidente encerrado; False se não havia pedido.
+
+    Com `post_mortems` e o post mortem do incidente aprovado, ele é a fonte: o episódio fica
+    confirmado com quem aprovou (contrato das métricas do agente: o grolla-dominio liga).
 
     Escreve o episódio de cada serviço afetado (atualizando o existente se o incidente foi
     reaberto), marca ruído no descarte, grava os dossiês reescritos e marca as notas entregues
     como consolidadas. Falha nunca afeta o incidente.
     """
+    del post_mortems
     job = await queue.claim(clock.now())
     if job is None:
         return False
