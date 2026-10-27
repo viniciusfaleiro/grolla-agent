@@ -14,6 +14,7 @@ from grolla.domain.analysis import (
     AnalysisStatus,
     Evidence,
     PartialReason,
+    Verdict,
     Verification,
 )
 from grolla.domain.chat import AGENT_AUTHOR, ChatMessage, ReplyStatus
@@ -41,6 +42,8 @@ from grolla.domain.war_room import (
     Resolve,
 )
 from markupsafe import Markup, escape
+
+from grolla_api.post_mortem_pages import first_sentence
 
 AUTHOR_COOKIE = "grolla_author"
 AUTHOR_COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 dias
@@ -775,7 +778,8 @@ class Situation:
     """O que o cartão "Agora" diz: a frase, a confiança e o plano, do que a investigação tem."""
 
     kind: str  # causa, hipotese, investigando, validando, sem_causa, sem_analise
-    text: str
+    title: str  # a causa numa linha, em letra grande
+    text: str  # a explicação abaixo; vazia quando repetiria o título
     confidence: int | None
     missing: str
     steps: tuple[Step, ...]
@@ -794,21 +798,40 @@ def situation_of(analysis: Analysis | None, verification: Verification | None) -
             Step(a.action, a.target, a.expected, a.link, _command(a.action))
             for a in verification.actions
         )
-        return Situation("causa", verification.root_cause, None, "", steps, False)
+        confirmed = [v.hypothesis for v in verification.verdicts if v.verdict is Verdict.CONFIRMED]
+        title, text = _title_and_text(
+            confirmed[0] if confirmed else first_sentence(verification.root_cause),
+            verification.root_cause,
+        )
+        return Situation("causa", title, text, None, "", steps, False)
     plan = () if analysis is None else analysis.plan
     analysis_steps = tuple(Step(p, "", "", None, _command(p)) for p in plan)
     if analysis is None:
-        return Situation("sem_analise", "", None, "", (), False)
+        return Situation("sem_analise", "", "", None, "", (), False)
     if analysis.status in _RUNNING:
-        return Situation("investigando", "", None, "", (), False)
+        return Situation("investigando", "", "", None, "", (), False)
     top = analysis.hypotheses[0] if analysis.hypotheses else None
     confidence = None if top is None else round(top.confidence * 100)
-    text = analysis.summary or (top.title if top else "")
+    title, text = _title_and_text(
+        top.title if top else first_sentence(analysis.summary), analysis.summary
+    )
     if verification is not None and verification.status in _RUNNING:
-        return Situation("validando", text, confidence, "", analysis_steps, True)
+        return Situation("validando", title, text, confidence, "", analysis_steps, True)
     if verification is not None and verification.finished_at is not None:
-        return Situation("sem_causa", text, confidence, verification.missing, analysis_steps, True)
-    return Situation("hipotese", text, confidence, "", analysis_steps, True)
+        missing = verification.missing
+        return Situation("sem_causa", title, text, confidence, missing, analysis_steps, True)
+    return Situation("hipotese", title, text, confidence, "", analysis_steps, True)
+
+
+_SHORT_TITLE = 20  # abaixo disso, cortar na vírgula deixaria o título sem sentido
+
+
+def _title_and_text(title: str, text: str) -> tuple[str, str]:
+    """Título até a primeira vírgula; o texto só aparece abaixo quando diz mais que ele."""
+    title = title.strip()
+    head = title.split(", ", 1)[0]
+    title = head if len(head) >= _SHORT_TITLE else title
+    return (title or text.strip()), ("" if _key(text) in ("", _key(title)) else text.strip())
 
 
 @dataclass(frozen=True)
@@ -994,7 +1017,7 @@ def open_card(
         incident=incident,
         alarm=alarm,
         since=since,
-        cause=situation.text,
+        cause=situation.text or situation.title,
         cause_confirmed=situation.kind == "causa",
         forgotten=forgotten,
         next_step=step,
