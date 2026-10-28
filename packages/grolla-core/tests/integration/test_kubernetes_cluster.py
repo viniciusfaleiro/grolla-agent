@@ -123,19 +123,22 @@ class TestKubernetesClusterInventoryContract(ClusterInventoryContract):
 async def test_changes_find_the_edit_and_the_new_revision(k3s_client: Any, since: datetime) -> None:
     summary = (await inventory(k3s_client).changes(SERVICE, since)).summary
 
-    assert "ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE=2" in summary
-    assert "revisão 2 por kubectl-set: limite de memória 512Mi → 128Mi" in summary
+    assert (
+        "ConfigMap pedidos-config alterado por kubectl-edit no cluster k3s: DB_POOL_SIZE=2"
+        in summary
+    )
+    assert "revisão 2 por kubectl-set no cluster k3s: limite de memória 512Mi → 128Mi" in summary
 
 
 async def test_hidden_values_on_a_real_cluster(k3s_client: Any, since: datetime) -> None:
     summary = (await inventory(k3s_client, show_values=False).changes(SERVICE, since)).summary
 
-    assert "alterado por kubectl-edit: DB_POOL_SIZE (valor oculto)" in summary
+    assert "alterado por kubectl-edit no cluster k3s: DB_POOL_SIZE (valor oculto)" in summary
     assert "=2" not in summary
 
 
 async def test_state_shows_the_deployment(k3s_client: Any, since: datetime) -> None:
     summary = (await inventory(k3s_client).state(SERVICE, since)).summary
 
-    assert "Deployment pedidos-api em pagamentos:" in summary
+    assert "Deployment pedidos-api em pagamentos no cluster k3s:" in summary
     assert "limites memória 128Mi" in summary or "nenhum pod" in summary
