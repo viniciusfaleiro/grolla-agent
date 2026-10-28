@@ -11,10 +11,10 @@
 
 ## 1. grolla-dominio
 
-- [ ] 1.1 `usable_commands`: limpa espaços e crases em volta, descarta comando de mais de uma linha, com mais de 300 caracteres ou sem `run_in` (encadeado curto é aceito), e mantém os 5 primeiros na ordem; testes de cada regra.
-- [ ] 1.2 `VERIFICATION_PROMPT`: regras de `commands` (passo a passo em ordem, cada um com `run_in`, encadear só o que roda no mesmo lugar e faz sentido junto, só nomes e valores vistos, sem `<placeholder>`, comando fora quando falta dado e `expected` dizendo o quê, lugares diferentes no mesmo passo) e os exemplos do design; testes do texto.
-- [ ] 1.3 Comando aplicado: o item da timeline do post mortem e o card de encerramento ("Ações do time") mostram "Aplicou: <passo> — <comando> (<onde rodar>)"; o dado do rascunho do post mortem leva o comando e o lugar; testes.
-- [ ] 1.4 `make check` verde no worktree.
+- [x] 1.1 `usable_commands`: limpa espaços e crases em volta, descarta comando de mais de uma linha, com mais de 300 caracteres ou sem `run_in` (encadeado curto é aceito), e mantém os 5 primeiros na ordem; testes de cada regra.
+- [x] 1.2 `VERIFICATION_PROMPT`: regras de `commands` (passo a passo em ordem, cada um com `run_in`, encadear só o que roda no mesmo lugar e faz sentido junto, só nomes e valores vistos, sem `<placeholder>`, comando fora quando falta dado e `expected` dizendo o quê, lugares diferentes no mesmo passo) e os exemplos do design; testes do texto.
+- [x] 1.3 Comando aplicado: o item da timeline do post mortem e o card de encerramento ("Ações do time") mostram "Aplicou: <passo> — <comando> (<onde rodar>)"; o dado do rascunho do post mortem leva o comando e o lugar; testes.
+- [x] 1.4 `make check` verde no worktree.
 
 ## 2. grolla-integracoes
 

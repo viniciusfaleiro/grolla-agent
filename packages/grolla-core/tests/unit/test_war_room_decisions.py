@@ -24,6 +24,7 @@ from grolla.domain.war_room import (
     RecordAction,
     Reopen,
     Resolve,
+    action_text,
     decide_action,
 )
 from grolla.testing.builders import T0, make_incident
@@ -134,6 +135,35 @@ def test_recording_an_action_only_goes_to_the_timeline() -> None:
     assert decision.events[0].data == {"text": "fiz rollback do build 20261025.3"}
     assert decision.events[0].author == "Ana"
     assert decision.notifications == ()
+
+
+def test_applying_a_command_records_the_step_the_command_and_where() -> None:
+    applied = RecordAction(
+        " Restaurar as réplicas ", " kubectl scale deploy/a --replicas=2 ", " cluster loja-prod "
+    )
+
+    decision = act(make_incident(state=IncidentState.HANDLING), applied)
+
+    assert types(decision) == [EventType.ACTION_RECORDED]
+    assert decision.events[0].data == {
+        "text": "Restaurar as réplicas",
+        "command": "kubectl scale deploy/a --replicas=2",
+        "run_in": "cluster loja-prod",
+    }
+
+
+def test_blank_command_is_a_plain_recorded_action() -> None:
+    decision = act(make_incident(), RecordAction("religuei o banco", "  ", "cluster x"))
+
+    assert decision.events[0].data == {"text": "religuei o banco"}
+
+
+def test_action_text_says_what_was_applied_and_where() -> None:
+    data = {"text": "Restaurar", "command": "kubectl scale deploy/a", "run_in": "cluster x"}
+
+    assert action_text(data) == "Aplicou: Restaurar — kubectl scale deploy/a (cluster x)"
+    assert action_text(data | {"run_in": ""}) == "Aplicou: Restaurar — kubectl scale deploy/a"
+    assert action_text({"text": "religuei o banco"}) == "religuei o banco"
 
 
 def test_discarding_a_hypothesis_records_title_and_reason() -> None:

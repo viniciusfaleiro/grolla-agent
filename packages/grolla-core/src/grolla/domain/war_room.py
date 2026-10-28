@@ -140,6 +140,14 @@ def decide_action(
     return decision
 
 
+def action_text(data: Mapping[str, Any]) -> str:
+    """O que a pessoa registrou; no "Apliquei", "Aplicou: <passo> — <comando> (<onde rodar>)"."""
+    if not data.get("command"):
+        return str(data["text"])
+    where = f" ({data['run_in']})" if data.get("run_in") else ""
+    return f"Aplicou: {data['text']} — {data['command']}{where}"
+
+
 def _required(text: str, message: str) -> str:
     stripped = text.strip()
     if not stripped:

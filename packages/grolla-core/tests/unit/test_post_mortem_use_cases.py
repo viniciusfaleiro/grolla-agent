@@ -172,6 +172,31 @@ async def test_model_receives_the_war_room_context_cycles_and_impact() -> None:
     assert brief.impact in post_mortem_text(brief)
 
 
+async def test_draft_data_carries_the_applied_command_and_where() -> None:
+    world = World()
+    incident_id = await world.resolved()
+    applied = {
+        "text": "Restaurar as réplicas",
+        "command": "kubectl scale deploy/antifraude-api --replicas=2 -n loja",
+        "run_in": "cluster loja-prod, namespace loja",
+    }
+    async with world.repository.transaction() as uow:
+        await uow.append(
+            [IncidentEvent(incident_id, T0, EventType.ACTION_RECORDED, applied, "Ana")]
+        )
+
+    await world.run()
+
+    (brief,) = world.model.post_mortem_briefs
+    line = (
+        "[pessoa] Ana: Aplicou: Restaurar as réplicas — "
+        "kubectl scale deploy/antifraude-api --replicas=2 -n loja "
+        "(cluster loja-prod, namespace loja)"
+    )
+    assert line in post_mortem_text(brief)
+    assert line in body_of(await world.document(incident_id), SectionKey.TIMELINE)
+
+
 async def test_model_failure_still_writes_the_post_mortem_with_the_reason() -> None:
     world = World(ScriptedLanguageModel(post_mortem_error=LanguageModelError("fora do ar")))
     incident_id = await world.resolved()
@@ -531,6 +556,7 @@ def test_prompt_is_blameless_and_lists_the_model_sections() -> None:
         assert (f"- {key.value}:" in POST_MORTEM_PROMPT) is (key not in DETERMINISTIC)
     assert "prevenir" in POST_MORTEM_PROMPT
     assert "Não atribua dono nem prazo" in POST_MORTEM_PROMPT
+    assert "cite o comando e o lugar" in POST_MORTEM_PROMPT
 
 
 def test_messages_carry_the_context_and_say_when_something_is_missing() -> None:
