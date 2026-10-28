@@ -153,6 +153,38 @@ mortem leva o evento na timeline. "Apliquei" reaproveita tudo isso:
   porque ninguém redigita o comando e o lugar durante um incidente, e sem o comando exato o war
   room não sabe o que já foi aplicado.
 
+### 8. O chat e o console usam o mesmo `Command`
+
+`ChatDraft` e `ConsoleDraft` ganham `commands: tuple[Command, ...] = ()`, preenchidos pelo
+schema de resposta (o mesmo item `{command, run_in}` do plano) e limpos por `usable_commands`.
+`ChatMessage` e `ConsoleMessage` guardam a lista (migração 0015: `commands jsonb NOT NULL
+DEFAULT '[]'` nas duas tabelas). A resposta recusada não leva comandos.
+
+Na tela, o chat e o console desenham os comandos com o mesmo macro do plano (`step_commands`,
+num arquivo de macros compartilhado). No chat do war room, o "Apliquei" registra a ação feita
+com o texto "Sugerido no chat", o comando e o lugar. No console não há "Apliquei".
+
+O prompt do chat troca "no máximo uma sugestão" por:
+- as ações que tiram o time da crise, em ordem;
+- os comandos dessas ações no campo `commands`, não no texto;
+- o pedido da evidência que falta: o que colar e onde conseguir;
+- o objetivo explícito de resolver o incidente o mais rápido possível.
+
+O limite de cerca de 60 palavras vale para o texto, e o passo a passo fica fora da conta. O
+console recebe as mesmas regras de comandos e de evidência.
+
+- *Alternativa mais simples:* desenhar blocos ```` ``` ```` de markdown no texto da resposta.
+  Foi descartada porque não haveria "onde rodar" garantido por comando, nem "Apliquei", nem
+  descarte pelo núcleo, e o texto do chat voltaria a carregar o que o plano já separa.
+
+### 9. O plano fica recolhido na barra "O que o Grolla faria?"
+
+O cartão "Agora" fica limpo: a causa, os números e as sugestões. O plano vai para um
+`<details id="grolla-faria">` fechado de início, cujo `summary` diz "O que o Grolla faria?" e
+quantos passos e comandos há. Como uma ação redesenha o `#war-room` inteiro, o `war-room.js`
+lembra, na própria página, quais `details[data-keep-open]` estavam abertos e os reabre depois do
+swap.
+
 ## Contratos
 
 Change multiagente. O commit de contrato do agente pai traz:
@@ -195,7 +227,13 @@ Change multiagente. O commit de contrato do agente pai traz:
   run_in: str | None = None)`; dados do `ACTION_RECORDED` com `command` e `run_in` opcionais.
 - **Formulário** de `/incidents/{id}/actions/record`: campos `texto`, `comando` e `onde`, os dois
   últimos opcionais.
-- **Sem** port, tipo de evento, endpoint ou migração novos.
+- **Chat e console** (`grolla/domain/chat.py`, `grolla/domain/console.py`):
+  `ChatDraft.commands`, `ChatMessage.commands`, `ConsoleDraft.commands` e
+  `ConsoleMessage.commands`, todos `tuple[Command, ...] = ()`. Os schemas de resposta do chat
+  (`reply`) e do console (`text`) ganham `commands` no mesmo formato do plano, em `required`.
+- **Migração 0015** (`0015_comandos_no_chat`): `commands jsonb NOT NULL DEFAULT '[]'` em
+  `chat_messages` e `console_messages`.
+- **Sem** port, tipo de evento ou endpoint novos.
 
 ## Risks / Trade-offs
 

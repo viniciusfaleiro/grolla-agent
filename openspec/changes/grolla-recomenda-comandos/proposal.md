@@ -36,6 +36,14 @@ caro de um comando certo: por isso o "onde executar" vem junto e explícito.
   "aplicado por Ana às 15:31". O registro entra na linha do tempo, no card de encerramento
   ("Ações do time") e no post mortem, na timeline e no dado do rascunho. É o mesmo evento de
   "registrar uma ação feita", com o comando e o lugar como dados a mais.
+- O chat do war room e o console ganham a mesma capacidade de tirar o time da crise. Quando
+  sugerem comandos, a resposta traz o passo a passo, cada comando com onde rodar, pelas mesmas
+  regras, desenhado como no plano: bloco escuro, Copiar e, no war room, "Apliquei". O prompt
+  deixa de limitar a uma sugestão só, passa a dizer que o objetivo é resolver o incidente o mais
+  rápido possível e pede ao time a evidência que o Grolla não alcança (o que colar e onde
+  conseguir).
+- No war room, o plano fica recolhido numa barra "O que o Grolla faria?", fechada de início,
+  com o número de passos e de comandos. Aberta, mostra o passo a passo.
 - Verificações antigas, sem os campos novos, continuam mostrando o comando tirado das crases,
   como hoje.
 - O agente continua somente leitura: o comando é sugestão para o time rodar, e nenhuma
@@ -47,8 +55,6 @@ caro de um comando certo: por isso o "onde executar" vem junto e explícito.
   do war room leva ao comando.
 - Separar no plano os passos "para voltar ao normal" dos passos "para não voltar". Só o
   primeiro passo ganha o título do design. O resto segue em "Depois: mais N passos".
-- Comandos estruturados no chat e no console. Lá o comando continua no texto da resposta, com
-  o selo de destrutivo.
 - Executar os comandos, preencher com credenciais ou gerar um script que rode o passo a passo
   sozinho.
 - Evals novos de comando com o modelo real, que gastam crédito. Ficam para quando houver dados
@@ -69,6 +75,10 @@ Nenhuma.
 - `war-room-actions`: o botão "Apliquei" registra o comando aplicado, com o passo e o lugar.
 - `post-mortem`: os comandos aplicados entram na timeline, no rascunho e no card de
   encerramento.
+- `war-room-chat`: a resposta pode trazer ações e o passo a passo de comandos, pede a evidência
+  que falta e tem como objetivo resolver rápido.
+- `operations-console`: a resposta pode trazer o passo a passo de comandos e pede a evidência
+  que falta.
 - `cluster-investigation`: toda resposta das ferramentas do cluster diz de que cluster veio,
   mesmo com um cluster só.
 
@@ -84,9 +94,13 @@ Nenhuma.
   ele lê uma lista vazia.
 - `grolla.domain.war_room`: `RecordAction` aceita o comando e o lugar. `grolla.domain.post_mortem`
   e o card de encerramento mostram os dois.
+- `grolla.domain.chat` e `grolla.domain.console`: `commands` no rascunho e na mensagem do
+  agente. `CHAT_PROMPT` e `CONSOLE_PROMPT` com as regras novas.
+- `grolla.adapters.postgres`: migração 0015 com `commands jsonb` em `chat_messages` e
+  `console_messages`.
 - `grolla-api`: `Step` com os comandos vindos da ação, o botão "Apliquei", a marca de aplicado, o
   template do "Agora" e o CSS.
 - `e2e/fakes`: o roteiro da validação devolve um passo com dois comandos em lugares diferentes.
   Um cenário confere o war room.
-- Sem port novo, sem tipo de evento novo, sem endpoint novo: "Apliquei" usa a rota de registrar
+- Sem port novo, sem tipo de evento novo, sem endpoint novo (a única migração é a 0015): "Apliquei" usa a rota de registrar
   ação que já existe.

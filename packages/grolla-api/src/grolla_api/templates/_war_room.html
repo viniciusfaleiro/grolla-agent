@@ -1,5 +1,5 @@
 {# Barra do incidente, cartão "Agora" e a investigação; é o fragmento devolvido pelas rotas de ação. #}
-{% from "_macros.html" import lookups, evidence_list, hhmm, icon %}
+{% from "_macros.html" import lookups, evidence_list, hhmm, icon, step_commands %}
 {% from "_follow_up.html" import proposal_notice, follow_up_section %}
 {% from "_live.html" import incident_status %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
@@ -7,28 +7,6 @@
 {% set s = situation %}
 {# "Apliquei" só no plano da causa confirmada: o da análise é o que investigar, não o que rodar. #}
 {% set can_apply = author and "record" in header.actions and s and not s.steps_from_analysis %}
-{# O passo a passo do passo: onde rodar, o comando com Copiar e o "Apliquei" (ou quem já aplicou). #}
-{% macro step_commands(step, applied, can_apply, record_url) %}
-<ol class="step-commands">
-  {% for c in step.commands %}
-  {% set done = applied.get(c.command) %}
-  <li class="step-command">
-    {% if c.run_in %}<p class="run-in">Onde rodar: <strong>{{ c.run_in }}</strong></p>{% endif %}
-    <div class="command{% if c.destructive %} command-destructive{% endif %}"><code>{{ c.command }}</code><button type="button" class="button-copy" data-copy="{{ c.command }}"{% if c.destructive %} data-confirm="Este comando apaga, derruba ou zera algo. Confira o alvo antes de rodar. Copiar mesmo assim?"{% endif %}>{{ icon("copy") }}<span>Copiar</span></button></div>
-    {% if done %}
-    <p class="applied">{{ icon("check") }}aplicado por {{ display_name(done.author) }} às {{ hhmm(done.at) }}</p>
-    {% elif can_apply %}
-    <form class="apply" hx-post="{{ record_url }}" hx-target="#war-room" hx-swap="outerHTML">
-      <input type="hidden" name="texto" value="{{ step.what }}">
-      <input type="hidden" name="comando" value="{{ c.command }}">
-      {% if c.run_in %}<input type="hidden" name="onde" value="{{ c.run_in }}">{% endif %}
-      <button class="button-quiet button-small">Apliquei</button>
-    </form>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ol>
-{% endmacro %}
 <section id="war-room">
 {{ incident_status(incident, header, impact, alarm, author, now, alerts, merge_candidates | length > 0) }}
 

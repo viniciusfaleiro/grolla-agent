@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from grolla.domain.analysis import Evaluation
+from grolla.domain.analysis import Command, Evaluation
 from grolla.domain.safety import Scope
 
 AGENT_AUTHOR = "agente"
@@ -29,6 +29,7 @@ class ChatMessage:
     reply_status: ReplyStatus | None = None  # só nas perguntas das pessoas
     reply_to: int | None = None  # só nas respostas: a pergunta respondida
     refusal: Scope | None = None  # só nas respostas recusadas: o escopo do pedido
+    commands: tuple[Command, ...] = ()  # só nas respostas: o passo a passo sugerido
 
 
 @dataclass(frozen=True)
@@ -37,3 +38,4 @@ class ChatDraft:
 
     text: str
     scope: Scope = Scope.DOMAIN
+    commands: tuple[Command, ...] = ()  # o passo a passo sugerido, já limpo por usable_commands

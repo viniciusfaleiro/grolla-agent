@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from grolla.domain.analysis import Evaluation
+from grolla.domain.analysis import Command, Evaluation
 from grolla.domain.chat import ReplyStatus
 from grolla.domain.safety import Scope
 
@@ -34,6 +34,7 @@ class ConsoleDraft:
     text: str
     charts: tuple[ChartRequest, ...] = ()
     scope: Scope = Scope.DOMAIN
+    commands: tuple[Command, ...] = ()  # o passo a passo sugerido, já limpo por usable_commands
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class ConsoleMessage:
     reply_status: ReplyStatus | None = None  # só na pergunta
     reply_to: int | None = None  # só na resposta
     refusal: Scope | None = None  # só na resposta recusada
+    commands: tuple[Command, ...] = ()  # só na resposta: o passo a passo sugerido
 
 
 def session_title(question: str) -> str:
