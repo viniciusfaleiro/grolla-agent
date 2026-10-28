@@ -60,6 +60,7 @@ from grolla.domain.analysis import (
     Action,
     Analysis,
     AnalysisDraft,
+    Command,
     Evaluation,
     Evidence,
     Hypothesis,
@@ -389,17 +390,19 @@ async def test_truncated_result_is_invalid() -> None:
 VERIFICATION_SETTINGS = ModelSettings(model="claude-opus-5-5", max_tokens=32000, effort="high")
 DEPLOY_LINK = "https://dev.azure.com/org/Core/_build/results?buildId=7"
 ROOT_CAUSE = "Deploy 1.4.2 introduziu KeyError em POST /authorize às 10:04"
-ROLLBACK = {
+ROLLBACK: dict[str, Any] = {
     "action": "Fazer rollback do authorizer-api para o build 1.4.1",
     "target": "authorizer-api",
     "expected": "taxa de erro volta para 0,4%",
     "link": DEPLOY_LINK,
+    "commands": [],
 }
-INVESTIGATE_STEP = {
+INVESTIGATE_STEP: dict[str, Any] = {
     "action": "Investigar o banco",
     "target": "authorizer-db",
     "expected": "saber se está lento",
     "link": None,
+    "commands": [],
 }
 
 
@@ -513,6 +516,44 @@ async def test_verification_without_its_own_stage_inherits_the_investigation_set
     assert api.bodies[0]["output_config"]["effort"] == "medium"
 
 
+async def test_verification_schema_asks_for_the_commands_of_each_action() -> None:
+    api = ScriptedApi(ok(final(verification())))
+
+    await verify(api)
+
+    action = api.bodies[0]["output_config"]["format"]["schema"]["properties"]["actions"]["items"]
+
+    assert action["required"] == ["action", "target", "expected", "link", "commands"]
+    assert action["properties"]["commands"] == {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {"command": {"type": "string"}, "run_in": {"type": "string"}},
+            "required": ["command", "run_in"],
+            "additionalProperties": False,
+        },
+    }
+
+
+async def test_commands_become_the_steps_of_the_action_in_order() -> None:
+    commands = [
+        {"command": "az pipelines run --name authorizer-cd", "run_in": "Azure DevOps"},
+        {
+            "command": "`kubectl rollout status deploy/authorizer-api -n pagamentos`",
+            "run_in": "eks",
+        },
+        {"command": "kubectl get pods", "run_in": " "},  # sem onde rodar: fora
+    ]
+    api = ScriptedApi(ok(final(verification(actions=[{**ROLLBACK, "commands": commands}]))))
+
+    [action] = (await verify(api)).actions
+
+    assert action.commands == (
+        Command("az pipelines run --name authorizer-cd", "Azure DevOps"),
+        Command("kubectl rollout status deploy/authorizer-api -n pagamentos", "eks"),
+    )
+
+
 async def test_unconfirmed_cause_has_no_plan_and_says_what_was_missing() -> None:
     api = ScriptedApi(ok(final(verification(actions=[], root_cause=""))))
 
@@ -568,6 +609,7 @@ INVALID_VERIFICATIONS: list[object] = [
     _with(verdicts=[{**verification()["verdicts"][0], "verdict": "provável"}]),
     _with(verdicts=[{**verification()["verdicts"][0], "evidence": []}]),
     _with(extra=1),
+    _with(actions=[{key: value for key, value in ROLLBACK.items() if key != "commands"}]),
     {key: value for key, value in verification().items() if key != "missing"},
 ]
 

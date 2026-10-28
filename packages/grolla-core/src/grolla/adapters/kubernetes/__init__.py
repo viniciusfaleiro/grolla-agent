@@ -141,10 +141,7 @@ class KubernetesClusterInventory:
         api_clients: _Json = None,  # testes injetam um ApiClient por cluster
     ) -> None:
         injected = dict(api_clients or _NONE)
-        many = len(clusters) > 1
-        self._clusters = [
-            _Cluster(target, injected.get(target.name), labeled=many) for target in clusters
-        ]
+        self._clusters = [_Cluster(target, injected.get(target.name)) for target in clusters]
 
     async def state(self, service: str, since: datetime) -> ToolResult:
         answers, failures = await self._across(lambda cluster: cluster.state(service, since))
@@ -226,11 +223,11 @@ class _Workload:
 class _Cluster:
     """Um cluster: o acesso dele, as leituras e o que ele responde sobre o serviço."""
 
-    def __init__(self, target: ClusterTarget, api_client: Any, *, labeled: bool) -> None:
+    def __init__(self, target: ClusterTarget, api_client: Any) -> None:
         self.target = target
         self._client: Any = api_client
         self._lock = threading.Lock()
-        self._on = f" no cluster {target.name}" if labeled else ""
+        self._on = f" no cluster {target.name}"  # sempre: o comando sugerido precisa do lugar
 
     def attempt[T](self, query: Callable[["_Cluster"], T]) -> T | _Failure:
         try:

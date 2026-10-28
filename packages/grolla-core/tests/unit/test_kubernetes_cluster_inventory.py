@@ -149,7 +149,9 @@ async def test_state_shows_replicas_pods_hpa_and_events(api: FakeKubeApi) -> Non
     summary = (await inventory(api).state("pedidos-api", SINCE)).summary
 
     assert summary.startswith("1 workload(s) de pedidos-api no cluster:\n")
-    assert "Deployment pedidos-api em pagamentos: 1 de 3 réplicas prontas." in summary
+    assert "Deployment pedidos-api em pagamentos no cluster nao-pci: 1 de 3 réplicas prontas." in (
+        summary
+    )
     assert "rollout em andamento" not in summary
     assert (
         "pod pedidos-api-7c9b4f6d8e-k2x9p: Running, pronto, 4 reinício(s), último término "
@@ -234,15 +236,21 @@ async def test_statefulset_and_daemonset_are_workloads_too(api: FakeKubeApi) -> 
     summary = (await inventory(api).state("fila-api", SINCE)).summary
 
     assert (
-        "StatefulSet fila em pagamentos: 2 de 2 réplicas prontas, rollout em andamento" in summary
+        "StatefulSet fila em pagamentos no cluster nao-pci: 2 de 2 réplicas prontas, "
+        "rollout em andamento"
+    ) in summary
+    assert (
+        "DaemonSet fila-agente em pagamentos no cluster nao-pci: 3 de 3 réplicas prontas. "
+        "nenhum pod" in summary
     )
-    assert "DaemonSet fila-agente em pagamentos: 3 de 3 réplicas prontas. nenhum pod" in summary
 
 
 async def test_the_second_label_is_the_fallback(api: FakeKubeApi) -> None:
     summary = (await inventory(api).state("outro-api", SINCE)).summary
 
-    assert "Deployment outro-api em pagamentos: 1 de 1 réplicas prontas" in summary
+    assert (
+        "Deployment outro-api em pagamentos no cluster nao-pci: 1 de 1 réplicas prontas" in summary
+    )
     assert "pedidos-api" not in summary
 
 
@@ -266,9 +274,9 @@ async def test_denied_events_keep_the_rest_of_the_state(api: FakeKubeApi) -> Non
 
     summary = (await inventory(api).state("pedidos-api", SINCE)).summary
 
-    assert "Deployment pedidos-api em pagamentos" in summary
+    assert "Deployment pedidos-api em pagamentos no cluster nao-pci" in summary
     assert summary.endswith(
-        "eventos: não foi possível consultar (o cluster recusou: 403 Forbidden)"
+        "eventos no cluster nao-pci: não foi possível consultar (o cluster recusou: 403 Forbidden)"
     )
 
 
@@ -287,12 +295,13 @@ async def test_changes_from_the_most_recent(api: FakeKubeApi) -> None:
 
     assert summary.split("\n") == [
         "4 mudança(s) no cluster para pedidos-api desde 02:00 UTC, da mais recente:",
-        "03:10 ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE=2",
-        "03:00 Deployment pedidos-api réplicas por kubectl-scale: agora 3",
-        "02:50 Deployment pedidos-api revisão 5 por kubectl-set: env LOG_LEVEL: info → debug, "
-        "limite de memória 512Mi → 128Mi",
+        "03:10 ConfigMap pedidos-config alterado por kubectl-edit no cluster nao-pci: "
+        "DB_POOL_SIZE=2",
+        "03:00 Deployment pedidos-api réplicas por kubectl-scale no cluster nao-pci: agora 3",
+        "02:50 Deployment pedidos-api revisão 5 por kubectl-set no cluster nao-pci: "
+        "env LOG_LEVEL: info → debug, limite de memória 512Mi → 128Mi",
         "02:30 NetworkPolicy pagamentos-padrao em pagamentos alterada por "
-        "kubectl-client-side-apply",
+        "kubectl-client-side-apply no cluster nao-pci",
     ]
 
 
@@ -304,8 +313,12 @@ async def test_hidden_values_never_leave_the_adapter(api: FakeKubeApi) -> None:
     summary = (await pci.changes("pedidos-api", SINCE)).summary
 
     assert (
-        "03:10 ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE (valor oculto)"
-        in (summary)
+        "03:10 ConfigMap pedidos-config alterado por kubectl-edit no cluster pci: "
+        "DB_POOL_SIZE (valor oculto)"
+    ) in summary
+    assert (
+        "02:30 NetworkPolicy pagamentos-padrao em pagamentos alterada por "
+        "kubectl-client-side-apply no cluster pci" in summary
     )
     assert "env LOG_LEVEL alterado (valor oculto)" in summary
     assert "=2" not in summary
@@ -364,8 +377,14 @@ async def test_first_revision_and_unchanged_template(api: FakeKubeApi) -> None:
 
     summary = (await inventory(api).changes("pedidos-api", SINCE)).summary
 
-    assert "02:40 Deployment pedidos-api revisão 4 por kubectl-set: primeira revisão" in summary
-    assert "02:50 Deployment pedidos-api revisão 5 por kubectl-set: template alterado" in summary
+    assert (
+        "02:40 Deployment pedidos-api revisão 4 por kubectl-set no cluster nao-pci: "
+        "primeira revisão"
+    ) in summary
+    assert (
+        "02:50 Deployment pedidos-api revisão 5 por kubectl-set no cluster nao-pci: "
+        "template alterado"
+    ) in summary
 
 
 async def test_hpa_and_statefulset_changes(api: FakeKubeApi) -> None:
@@ -398,8 +417,14 @@ async def test_hpa_and_statefulset_changes(api: FakeKubeApi) -> None:
 
     summary = (await inventory(api).changes("pedidos-api", SINCE)).summary
 
-    assert "03:01 HPA pedidos-api alterado por kubectl-patch: mínimo 1, máximo 3" in summary
-    assert "02:45 StatefulSet pedidos-cache alterado por helm: template do pod" in summary
+    assert (
+        "03:01 HPA pedidos-api alterado por kubectl-patch no cluster nao-pci: mínimo 1, máximo 3"
+        in summary
+    )
+    assert (
+        "02:45 StatefulSet pedidos-cache alterado por helm no cluster nao-pci: template do pod"
+        in summary
+    )
     assert "StatefulSet pedidos-cache réplicas" not in summary  # veio junto do template
 
 
@@ -419,8 +444,14 @@ async def test_config_maps_from_variables_and_projected_volumes(api: FakeKubeApi
 
     summary = (await inventory(api).changes("pedidos-api", SINCE)).summary
 
-    assert "ConfigMap pedidos-config alterado por kubectl-edit: DB_POOL_SIZE=2" in summary
-    assert "02:20 ConfigMap pedidos-arquivos alterado por helm: regras.yaml removida" in summary
+    assert (
+        "ConfigMap pedidos-config alterado por kubectl-edit no cluster nao-pci: DB_POOL_SIZE=2"
+        in summary
+    )
+    assert (
+        "02:20 ConfigMap pedidos-arquivos alterado por helm no cluster nao-pci: "
+        "regras.yaml removida"
+    ) in summary
 
 
 async def test_no_changes_in_the_window(api: FakeKubeApi) -> None:
@@ -436,9 +467,13 @@ async def test_denied_config_maps_keep_the_other_changes(api: FakeKubeApi) -> No
     summary = (await inventory(api).changes("pedidos-api", SINCE)).summary
 
     assert "revisão 5 por kubectl-set" in summary
-    assert "ConfigMap pedidos-config: não foi possível consultar (o cluster recusou: 403" in summary
     assert (
-        "NetworkPolicies: não foi possível consultar (o cluster recusou: 403 Forbidden)" in summary
+        "ConfigMap pedidos-config no cluster nao-pci: não foi possível consultar "
+        "(o cluster recusou: 403"
+    ) in summary
+    assert (
+        "NetworkPolicies no cluster nao-pci: não foi possível consultar "
+        "(o cluster recusou: 403 Forbidden)" in summary
     )
 
 
@@ -447,7 +482,10 @@ async def test_without_field_records(api: FakeKubeApi) -> None:
 
     summary = (await inventory(api).changes("pedidos-api", SINCE)).summary
 
-    assert "02:50 Deployment pedidos-api revisão 5 por sem registro de campo" in summary
+    assert (
+        "02:50 Deployment pedidos-api revisão 5 por sem registro de campo no cluster nao-pci"
+        in (summary)
+    )
 
 
 # ---- Vários clusters

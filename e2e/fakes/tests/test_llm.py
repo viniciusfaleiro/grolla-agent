@@ -218,6 +218,17 @@ def test_complete_verification_confirms_the_first_hypothesis_and_plans_a_rollbac
             "target": "pedidos-api",
             "expected": "A taxa de erro volta ao patamar anterior ao deploy",
             "link": None,
+            "commands": [
+                {
+                    "command": "az pipelines build queue --definition-name pedidos-api-cd "
+                    "--branch main",
+                    "run_in": "Azure DevOps, pipeline pedidos-api-cd",
+                },
+                {
+                    "command": "kubectl rollout status deploy/pedidos-api -n loja",
+                    "run_in": "cluster loja-e2e, namespace loja",
+                },
+            ],
         }
     ]
     assert result["missing"] == ""
@@ -1174,6 +1185,12 @@ def test_destructive_plan_script_deletes_a_pod_in_the_first_step() -> None:
     [step] = json.loads(final["content"][0]["text"])["actions"]
     assert step["action"] == "Apagar o pod travado: `kubectl delete pod pedidos-api-7d4f -n loja`"
     assert step["target"] == "pedidos-api"
+    assert step["commands"] == [
+        {
+            "command": "kubectl delete pod -l app=pedidos-api -n loja",
+            "run_in": "cluster loja-e2e, namespace loja",
+        }
+    ]
 
 
 def test_destructive_plan_script_does_not_change_the_chat_nor_an_inconclusive_plan() -> None:

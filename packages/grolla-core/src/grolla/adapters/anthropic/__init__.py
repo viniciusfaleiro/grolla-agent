@@ -119,6 +119,7 @@ from grolla.domain.analysis import (
     Verdict,
     VerificationDraft,
     check_plan,
+    usable_commands,
 )
 from grolla.domain.chat import ChatDraft
 from grolla.domain.console import CHART_SIGNALS, ChartRequest, ConsoleDraft
@@ -238,8 +239,20 @@ VERIFICATION_SCHEMA: dict[str, object] = {
                     "target": {"type": "string"},
                     "expected": {"type": "string"},
                     "link": {"type": ["string", "null"]},
+                    "commands": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "run_in": {"type": "string"},
+                            },
+                            "required": ["command", "run_in"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
-                "required": ["action", "target", "expected", "link"],
+                "required": ["action", "target", "expected", "link", "commands"],
                 "additionalProperties": False,
             },
         },
@@ -478,11 +491,17 @@ class _Verdict(_Strict):
     evidence: list[_Evidence] = Field(min_length=1)
 
 
+class _Command(_Strict):
+    command: str
+    run_in: str
+
+
 class _Action(_Strict):
     action: str
     target: str
     expected: str
     link: str | None
+    commands: list[_Command]
 
 
 class _Verification(_Strict):
@@ -1058,7 +1077,16 @@ def _verification(response: Message) -> VerificationDraft:
             for item in draft.verdicts
         ),
         root_cause=draft.root_cause or None,  # texto vazio também é "não confirmada"
-        actions=tuple(Action(a.action, a.target, a.expected, a.link) for a in draft.actions),
+        actions=tuple(
+            Action(
+                a.action,
+                a.target,
+                a.expected,
+                a.link,
+                commands=usable_commands((c.command, c.run_in) for c in a.commands),
+            )
+            for a in draft.actions
+        ),
         missing=draft.missing,
     )
 

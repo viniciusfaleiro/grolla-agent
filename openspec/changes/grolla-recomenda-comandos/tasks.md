@@ -18,10 +18,10 @@
 
 ## 2. grolla-integracoes
 
-- [ ] 2.1 Adapter Anthropic: `commands` no schema da validação (em `required`), o `_Action` lê a lista e monta `Action.commands` com `usable_commands`; testes, incluindo comando descartado e as suítes de contrato.
-- [ ] 2.2 `KubernetesClusterInventory`: toda resposta diz "no cluster <nome>", mesmo com um cluster só; testes.
-- [ ] 2.3 `grolla-fakes`: o roteiro da validação confirmada devolve, na primeira ação, dois comandos em lugares diferentes (pipeline e cluster), no schema novo.
-- [ ] 2.4 `make check` verde no worktree.
+- [x] 2.1 Adapter Anthropic: `commands` no schema da validação (em `required`), o `_Action` lê a lista e monta `Action.commands` com `usable_commands`; testes, incluindo comando descartado e as suítes de contrato.
+- [x] 2.2 `KubernetesClusterInventory`: toda resposta diz "no cluster <nome>", mesmo com um cluster só; testes.
+- [x] 2.3 `grolla-fakes`: o roteiro da validação confirmada devolve, na primeira ação, dois comandos em lugares diferentes (pipeline e cluster), no schema novo.
+- [x] 2.4 `make check` verde no worktree.
 
 ## 3. grolla-persistencia
 
