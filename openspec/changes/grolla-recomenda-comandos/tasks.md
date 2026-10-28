@@ -25,8 +25,8 @@
 
 ## 3. grolla-persistencia
 
-- [ ] 3.1 `actions_data` grava `commands` e a leitura usa `a.get("commands", [])`; teste de integração com ação com e sem comandos e com linha antiga sem a chave.
-- [ ] 3.2 `make check` verde no worktree.
+- [x] 3.1 `actions_data` grava `commands` e a leitura usa `a.get("commands", [])`; teste de integração com ação com e sem comandos e com linha antiga sem a chave.
+- [x] 3.2 `make check` verde no worktree.
 
 ## 4. grolla-web
 

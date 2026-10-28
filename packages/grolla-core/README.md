@@ -138,7 +138,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 
 | Tabela | O que guarda | Regra imposta pelo banco |
 |---|---|---|
-| `verifications` | A validação das hipóteses de cada incidente, com a mesma forma da `analyses`: é a fila (`pendente` → `em_andamento`) e a projeção do resultado (`concluida`/`parcial`), com `verdicts`, `actions` e `evaluations` em `jsonb`, a `root_cause`, o que faltou (`missing`) e o `partial_reason` | `incident_id` é a chave: **uma validação por incidente**; índices parciais nos pendentes e nos em andamento |
+| `verifications` | A validação das hipóteses de cada incidente, com a mesma forma da `analyses`: é a fila (`pendente` → `em_andamento`) e a projeção do resultado (`concluida`/`parcial`), com `verdicts`, `actions` (cada uma com os `commands` do passo a passo; ações antigas sem a chave leem vazio) e `evaluations` em `jsonb`, a `root_cause`, o que faltou (`missing`) e o `partial_reason` | `incident_id` é a chave: **uma validação por incidente**; índices parciais nos pendentes e nos em andamento |
 
 ### War room (0005)
 

@@ -17,6 +17,7 @@ from grolla.domain.analysis import (
     Action,
     Analysis,
     AnalysisStatus,
+    Command,
     Evaluation,
     Evidence,
     Hypothesis,
@@ -148,7 +149,13 @@ def verdicts_data(verdicts: Sequence[HypothesisVerdict]) -> list[dict[str, Any]]
 
 def actions_data(actions: Sequence[Action]) -> list[dict[str, Any]]:
     return [
-        {"action": a.action, "target": a.target, "expected": a.expected, "link": a.link}
+        {
+            "action": a.action,
+            "target": a.target,
+            "expected": a.expected,
+            "link": a.link,
+            "commands": [{"command": c.command, "run_in": c.run_in} for c in a.commands],
+        }
         for a in actions
     ]
 
@@ -191,7 +198,14 @@ def _verification(data: Mapping[str, Any]) -> Verification:
         ),
         root_cause=data["root_cause"],
         actions=tuple(
-            Action(action=a["action"], target=a["target"], expected=a["expected"], link=a["link"])
+            Action(
+                action=a["action"],
+                target=a["target"],
+                expected=a["expected"],
+                link=a["link"],
+                # Ações gravadas antes dos comandos recomendados não têm a chave.
+                commands=tuple(Command(c["command"], c["run_in"]) for c in a.get("commands", [])),
+            )
             for a in data["actions"]
         ),
         missing=data["missing"],
