@@ -116,6 +116,8 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 - `0013`: transcrições de call e a fila de extração (`transcripts`, abaixo).
 - `0014`: recusas do agente: `refusal` (`fora_do_escopo`, `pedido_de_execucao`) nas respostas de
   `chat_messages` e `console_messages`, e índices `(author, at)` nas duas para o limite por pessoa.
+- `0015`: comandos no chat: `commands` (`jsonb`, padrão `[]`) em `chat_messages` e
+  `console_messages`, o passo a passo que o agente sugere na resposta.
 - `migrate(url)` segura `pg_advisory_xact_lock` durante o upgrade: api e worker podem subir juntos.
 
 ### Tabelas do S2
@@ -145,7 +147,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | Tabela | O que guarda | Regra imposta pelo banco |
 |---|---|---|
 | `incidents` (colunas novas) | `commander` e os horários `handling_at` (TTA), `mitigated_at` (TTM) e `resolved_at` (TTR, encerrado ou descartado) | nulos nos incidentes antigos |
-| `chat_messages` | Mensagens do chat, em ordem de `at` e `id`, com `evaluations` em `jsonb` nas do agente. A pergunta de uma pessoa leva `reply_status` (`pendente` → `em_andamento` → `respondida`/`falhou`) e é a fila; a resposta do agente aponta a pergunta em `reply_to` | índice parcial nas pendentes |
+| `chat_messages` | Mensagens do chat, em ordem de `at` e `id`, com `evaluations` e `commands` (o passo a passo sugerido: `command` e `run_in`, em ordem; `[]` quando não há) em `jsonb` nas do agente. A pergunta de uma pessoa leva `reply_status` (`pendente` → `em_andamento` → `respondida`/`falhou`) e é a fila; a resposta do agente aponta a pergunta em `reply_to` | índice parcial nas pendentes |
 
 ### Memória viva (0006)
 
@@ -175,7 +177,7 @@ uma linha no `bootstrap`. Nada em `domain` ou `application` muda.
 | Tabela | O que guarda | Regra imposta pelo banco |
 |---|---|---|
 | `console_sessions` | Uma conversa: título, autor, criação, última atividade (`updated_at`) e o incidente aberto a partir dela | índice em `updated_at DESC` |
-| `console_messages` | Mensagens da sessão, em ordem de `at` e `id`, com `charts` e `evaluations` em `jsonb`. Como no chat do war room, a pergunta leva `reply_status` e é a fila; a resposta aponta a pergunta em `reply_to`. O uso do modelo vai para `llm_usage` na etapa `console`, sem incidente | índice parcial nas pendentes |
+| `console_messages` | Mensagens da sessão, em ordem de `at` e `id`, com `charts`, `evaluations` e `commands` (o passo a passo sugerido na resposta, como no chat) em `jsonb`. Como no chat do war room, a pergunta leva `reply_status` e é a fila; a resposta aponta a pergunta em `reply_to`. O uso do modelo vai para `llm_usage` na etapa `console`, sem incidente | índice parcial nas pendentes |
 
 ### Transcrições de call (0013)
 
