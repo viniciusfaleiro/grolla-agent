@@ -29,7 +29,7 @@ A linha do tempo SHALL poder ser filtrada por pessoas, alertas e Grolla, e os ev
 
 #### Scenario: Agora antes da investigação
 - **WHEN** alguém abre um incidente com causa raiz confirmada e plano de ação
-- **THEN** o cartão "Agora" mostra a causa uma vez só, acima de "Como o Grolla chegou lá", com "Comece por aqui" e o primeiro passo
+- **THEN** o cartão "Agora" mostra a causa uma vez só, acima de "Como o Grolla chegou lá", com "Para voltar ao normal" e o primeiro passo
 
 #### Scenario: Eventos de sistema recolhidos
 - **WHEN** a linha do tempo tem 6 eventos de cards enviados e pedidos de análise

@@ -43,6 +43,7 @@ from grolla.domain.war_room import (
     RecordAction,
     Reopen,
     Resolve,
+    action_text,
 )
 from markupsafe import Markup, escape
 
@@ -841,10 +842,8 @@ def applied_commands(events: Iterable[IncidentEvent]) -> dict[str, IncidentEvent
 
 
 def applied_label(data: Data) -> str:
-    """'Aplicou: <passo> — <comando> (<onde rodar>)'; sem onde rodar, sem os parênteses."""
-    label = f"Aplicou: {plain_text(str(data.get('text', '')))} — {data.get('command', '')}"
-    run_in = data.get("run_in")
-    return f"{label} ({run_in})" if run_in else label
+    """O "Aplicou: <passo> — <comando> (<onde rodar>)" do domínio, com o passo sem markdown."""
+    return action_text({**data, "text": plain_text(str(data.get("text", "")))})
 
 
 def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:

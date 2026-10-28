@@ -543,6 +543,7 @@ async def test_commands_become_the_steps_of_the_action_in_order() -> None:
             "run_in": "eks",
         },
         {"command": "kubectl get pods", "run_in": " "},  # sem onde rodar: fora
+        {"command": "kubectl rollout undo deploy/x\nkubectl get pods", "run_in": "eks"},  # 2 linhas
     ]
     api = ScriptedApi(ok(final(verification(actions=[{**ROLLBACK, "commands": commands}]))))
 

@@ -5,7 +5,8 @@
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 {% set s = situation %}
-{% set can_apply = author and "record" in header.actions %}
+{# "Apliquei" só no plano da causa confirmada: o da análise é o que investigar, não o que rodar. #}
+{% set can_apply = author and "record" in header.actions and s and not s.steps_from_analysis %}
 {# O passo a passo do passo: onde rodar, o comando com Copiar e o "Apliquei" (ou quem já aplicou). #}
 {% macro step_commands(step, applied, can_apply, record_url) %}
 <ol class="step-commands">

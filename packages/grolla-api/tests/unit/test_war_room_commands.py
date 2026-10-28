@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from grolla.domain.analysis import Action, AnalysisStatus, Command, Verification
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState
-from grolla.testing.builders import T0, make_incident
+from grolla.testing.builders import T0, make_analysis, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla_api.app import Services, create_app
@@ -239,3 +239,18 @@ def test_applied_label_without_where_to_run() -> None:
     assert applied_label({"text": STEP, "command": SCALE, "run_in": ""}) == (
         f"Aplicou: {STEP} — {SCALE}"
     )
+
+
+def test_analysis_plan_shows_the_command_but_no_applied_button(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident = make_incident(state=IncidentState.HANDLING)
+    analysis = replace(make_analysis(incident.id), plan=("Conferir `kubectl get deploy -n loja`",))
+    repository.incidents = {incident.id: incident}
+    repository.analyses = {incident.id: analysis}
+
+    step = first_step(ana.get(f"/incidents/{incident.id}").text)
+
+    assert "O Grolla investigaria primeiro" in step
+    assert "kubectl get deploy -n loja" in step
+    assert "Apliquei" not in step  # o plano da análise é o que investigar, não o que rodar
