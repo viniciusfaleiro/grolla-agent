@@ -18,3 +18,12 @@ As ferramentas do cluster SHALL consultar todos os clusters com `enabled: true`,
 #### Scenario: Um cluster só
 - **WHEN** só o cluster `loja-prod` está ligado e o LLM chama `cluster_state`
 - **THEN** os pods vêm "no cluster loja-prod"
+
+## ADDED Requirements
+
+### Requirement: Réplicas do último apply
+Quando um Deployment ou StatefulSet tem a anotação do último `apply` e as réplicas dela diferem das réplicas atuais, `cluster_state` SHALL dizer as réplicas do último apply ao lado das atuais. Um `scale` manual não deixa no cluster o valor anterior, e esse é o dado que o plano precisa para sugerir o comando que volta ao normal.
+
+#### Scenario: Escalado a zero à mão
+- **WHEN** o Deployment `antifraude-api` foi aplicado com 2 réplicas e alguém o escalou para 0
+- **THEN** `cluster_state` traz "0 de 0 réplicas prontas (2 no último apply)"

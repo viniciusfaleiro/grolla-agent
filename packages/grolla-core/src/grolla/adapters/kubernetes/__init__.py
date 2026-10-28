@@ -746,7 +746,20 @@ def _replicas(workload: _Workload) -> str:
     generation = _at(workload.body, "metadata", "generation") or 0
     rolling = rolling or (status.get("observedGeneration") or 0) < generation
     text = f"{ready} de {desired} réplicas prontas"
+    applied = _applied_replicas(workload.body)
+    if applied is not None and applied != desired and workload.kind != "DaemonSet":
+        text += f" ({applied} no último apply)"  # o kubectl scale não deixa o valor anterior
     return text + (", rollout em andamento" if rolling else "")
+
+
+def _applied_replicas(body: _Json) -> int | None:
+    """As réplicas do manifesto do último `apply`, quando a anotação existe e traz o campo."""
+    raw = _at(body, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+    try:
+        replicas = _at(json.loads(raw), "spec", "replicas") if isinstance(raw, str) else None
+    except ValueError:
+        return None
+    return replicas if isinstance(replicas, int) else None
 
 
 def _ready(pod: _Json) -> bool:

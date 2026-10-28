@@ -208,6 +208,29 @@ async def test_rollout_in_progress(api: FakeKubeApi) -> None:
     assert "1 de 3 réplicas prontas, rollout em andamento" in summary
 
 
+async def test_replicas_of_the_last_apply_show_when_they_differ(api: FakeKubeApi) -> None:
+    deployment = api.objects[0]
+    deployment["spec"]["replicas"] = 0
+    deployment["status"] |= {"readyReplicas": 0, "replicas": 0, "updatedReplicas": 0}
+    applied = json.dumps({"spec": {"replicas": 2}})
+    annotations = deployment["metadata"].setdefault("annotations", {})
+    annotations["kubectl.kubernetes.io/last-applied-configuration"] = applied
+
+    summary = (await inventory(api).state("pedidos-api", SINCE)).summary
+
+    assert "0 de 0 réplicas prontas (2 no último apply)" in summary
+
+
+@pytest.mark.parametrize("applied", [json.dumps({"spec": {"replicas": 3}}), "{não é json", "[]"])
+async def test_last_apply_equal_or_unreadable_says_nothing(api: FakeKubeApi, applied: str) -> None:
+    annotations = api.objects[0]["metadata"].setdefault("annotations", {})
+    annotations["kubectl.kubernetes.io/last-applied-configuration"] = applied
+
+    summary = (await inventory(api).state("pedidos-api", SINCE)).summary
+
+    assert "último apply" not in summary
+
+
 async def test_statefulset_and_daemonset_are_workloads_too(api: FakeKubeApi) -> None:
     labels = {"app.kubernetes.io/name": "fila-api"}
     base = {"metadata": {"namespace": NAMESPACE, "labels": labels, "generation": 2}}
