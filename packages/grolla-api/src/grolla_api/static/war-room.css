@@ -720,7 +720,18 @@ a.button-primary:hover { color: var(--brand-ink); }
 .tile .tile-text { font-size: 1.05rem; line-height: 1.35; overflow-wrap: anywhere; }
 .tile .tile-bad { color: var(--danger); }
 .tile span { font-size: 0.8rem; }
-.next-move { border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 55%, var(--surface)); border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; display: grid; gap: 0.55rem; }
+.next-move { border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 55%, var(--surface)); border-radius: var(--radius-lg); }
+/* A barra "O que o Grolla faria?": fechada de início, abre o passo a passo */
+.next-move-bar { display: flex; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0.7rem 1.2rem; cursor: pointer; list-style: none; border-radius: var(--radius-lg); }
+.next-move-bar::-webkit-details-marker { display: none; }
+.next-move-bar::after { content: ""; margin-left: auto; width: 0.55rem; height: 0.55rem; border-right: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(45deg); transition: transform 0.15s; }
+.next-move[open] > .next-move-bar::after { transform: rotate(-135deg); }
+.next-move-bar:hover { background: color-mix(in srgb, var(--brand-soft) 80%, var(--surface)); }
+.next-move-bar:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.next-move-bar-title { font-weight: 700; color: var(--brand); }
+.next-move-analysis .next-move-bar-title { color: var(--ink); }
+.next-move-body { display: grid; gap: 0.55rem; padding: 0.2rem 1.2rem 1.1rem; border-top: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); padding-top: 0.9rem; }
+@media (prefers-reduced-motion: reduce) { .next-move-bar::after { transition: none; } }
 .next-move .eyebrow { color: var(--brand); }
 .next-move-analysis { border-color: var(--line); background: var(--bg); }
 .next-move-analysis .eyebrow { color: var(--muted); }

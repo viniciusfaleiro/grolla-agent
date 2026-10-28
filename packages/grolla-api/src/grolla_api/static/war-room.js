@@ -120,6 +120,17 @@
 
   document.addEventListener("DOMContentLoaded", check);
   document.addEventListener("htmx:afterSettle", check);
+
+  // Uma ação redesenha o war room inteiro; a barra "O que o Grolla faria?" aberta continua aberta.
+  const opened = new Set();
+  document.addEventListener("toggle", (event) => {
+    const box = event.target;
+    if (!(box instanceof HTMLDetailsElement) || !box.hasAttribute("data-keep-open")) return;
+    if (box.open) opened.add(box.id); else opened.delete(box.id);
+  }, true);
+  document.addEventListener("htmx:afterSettle", () => {
+    opened.forEach((id) => { const box = document.getElementById(id); if (box) box.open = true; });
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") stopFlash();
   });

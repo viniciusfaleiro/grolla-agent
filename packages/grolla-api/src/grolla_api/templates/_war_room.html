@@ -98,7 +98,11 @@
 
     {% if s.steps %}
     {% set first = s.steps[0] %}
-    <div class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}">
+    {% set commands = s.steps | map(attribute="commands") | map("length") | sum %}
+    {# Fechado de início, para o "Agora" ficar limpo; quem quer o plano abre a barra. #}
+    <details class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}" id="grolla-faria" data-keep-open>
+      <summary class="next-move-bar"><span class="next-move-bar-title">O que o Grolla faria?</span><span class="muted">{{ s.steps | length }} {{ "passo" if s.steps | length == 1 else "passos" }}{% if commands %} · {{ commands }} {{ "comando" if commands == 1 else "comandos" }}{% endif %}</span></summary>
+      <div class="next-move-body">
       <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Para voltar ao normal" }}</h3>
       <p class="next-move-what">{{ first.what }}</p>
       {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
@@ -117,7 +121,8 @@
       </details>
       {% endif %}
       {% if not s.steps_from_analysis %}<p class="next-move-note">O Grolla não executa nada; quem roda é o time.</p>{% endif %}
-    </div>
+      </div>
+    </details>
     {% endif %}
 
     {% if merge %}

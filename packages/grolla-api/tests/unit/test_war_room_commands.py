@@ -254,3 +254,17 @@ def test_analysis_plan_shows_the_command_but_no_applied_button(
     assert "O Grolla investigaria primeiro" in step
     assert "kubectl get deploy -n loja" in step
     assert "Apliquei" not in step  # o plano da análise é o que investigar, não o que rodar
+
+
+def test_plan_starts_closed_behind_the_what_would_grolla_do_bar(
+    ana: TestClient, repository: InMemoryIncidentRepository
+) -> None:
+    incident_id = with_plan(repository, TWO_COMMANDS)
+
+    page = ana.get(f"/incidents/{incident_id}").text
+
+    bar = page.split('<details class="next-move')[1].split("</summary>")[0]
+    assert "O que o Grolla faria?" in bar
+    assert "1 passo · 2 comandos" in bar
+    assert " open" not in bar.split(">")[0]  # fechado de início
+    assert page.index("O que o Grolla faria?") < page.index("Para voltar ao normal")
