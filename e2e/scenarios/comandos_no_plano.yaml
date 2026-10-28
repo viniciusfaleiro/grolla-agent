@@ -1,0 +1,140 @@
+# Comandos no plano: com a causa confirmada, o war room mostra "Para voltar ao normal" com o
+# passo a passo do primeiro passo (dois comandos em ordem, cada um com onde rodar e "Apliquei").
+# Ana confirma que aplicou o primeiro: o comando passa a "aplicado por Ana" e a timeline ganha o
+# "Aplicou: …". Ao encerrar, o card lista o comando em "Ações do time" e a timeline do post
+# mortem traz o comando aplicado. No roteiro padrão, o LLM fake devolve os dois comandos na
+# primeira ação da validação confirmada.
+name: comandos no plano e Apliquei
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no comandos-api
+              service_name: comandos-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no comandos-api
+              description: A taxa de erro HTTP 5xx do comandos-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=190
+            fingerprint: e2e-comandos-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'comandos-api' = ANY(services)
+then:
+  # A validação gravou a ação com os dois comandos no jsonb.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM verifications
+        WHERE incident_id = '{incidente}' AND status = 'concluida'
+        AND jsonb_array_length(actions -> 0 -> 'commands') = 2
+      at_least: 1
+      timeout_seconds: 90
+  # O "Agora", para quem tem nome: o passo, os dois comandos em ordem, onde rodar cada um e o
+  # "Apliquei" de cada comando.
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      cookies: { grolla_author: Ana }
+      in_order: true
+      contains:
+        - Para voltar ao normal
+        - Fazer rollback do comandos-api para o deploy anterior
+        - az pipelines build queue --definition-name comandos-api-cd --branch main
+        - "Onde rodar: Azure DevOps, pipeline comandos-api-cd"
+        - Apliquei
+        - kubectl rollout status deploy/comandos-api -n loja
+        - "Onde rodar: cluster loja-e2e, namespace loja"
+        - Apliquei
+      absent: [aplicado por]
+  # Ana clica "Apliquei" no primeiro comando.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/record
+      cookies: { grolla_author: Ana }
+      form:
+        texto: Fazer rollback do comandos-api para o deploy anterior
+        comando: az pipelines build queue --definition-name comandos-api-cd --branch main
+        onde: Azure DevOps, pipeline comandos-api-cd
+      status: 200
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}' AND author = 'Ana'
+        AND type = 'action_recorded'
+        AND data ->> 'command' = 'az pipelines build queue --definition-name comandos-api-cd --branch main'
+        AND data ->> 'run_in' = 'Azure DevOps, pipeline comandos-api-cd'
+      count: 1
+  # O primeiro comando mostra quem aplicou; o segundo segue com "Apliquei".
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      cookies: { grolla_author: Ana }
+      in_order: true
+      contains:
+        - az pipelines build queue --definition-name comandos-api-cd --branch main
+        - aplicado por Ana
+        - kubectl rollout status deploy/comandos-api -n loja
+        - Apliquei
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains:
+        - "Aplicou: Fazer rollback do comandos-api para o deploy anterior —
+          az pipelines build queue --definition-name comandos-api-cd --branch main
+          (Azure DevOps, pipeline comandos-api-cd)"
+  # Encerramento: o card lista o comando aplicado em "Ações do time".
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/assume
+      cookies: { grolla_author: Ana }
+      status: 200
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/resolve
+      cookies: { grolla_author: Ana }
+      form: { motivo: rollback pelo pipeline resolveu }
+      status: 200
+  - wait_for_fake_request:
+      path: /teams/webhook
+      contains:
+        - comandos-api
+        - Incidente encerrado
+        - "Ações do time:"
+        - az pipelines build queue --definition-name comandos-api-cd --branch main
+        - Azure DevOps, pipeline comandos-api-cd
+      timeout_seconds: 30
+  # O post mortem em rascunho traz o comando aplicado na timeline.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM post_mortems WHERE incident_id = '{incidente}'
+        AND status = 'rascunho' AND jsonb_array_length(sections) = 10
+      at_least: 1
+      timeout_seconds: 90
+  - expect_page:
+      service: api
+      path: /postmortems/{incidente}
+      contains:
+        - Timeline
+        - Ana
+        - "Aplicou: Fazer rollback do comandos-api para o deploy anterior —
+          az pipelines build queue --definition-name comandos-api-cd --branch main
+          (Azure DevOps, pipeline comandos-api-cd)"
