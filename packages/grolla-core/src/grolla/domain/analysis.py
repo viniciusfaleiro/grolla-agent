@@ -1,7 +1,7 @@
 """Análise inicial de um incidente: o que foi avaliado, hipóteses e plano proposto."""
 
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -181,6 +181,18 @@ class HypothesisVerdict:
     evidence: tuple[Evidence, ...]
 
 
+MAX_COMMANDS = 5  # comandos por ação
+MAX_COMMAND_CHARS = 300  # por comando, numa linha, para quem confere antes de rodar
+
+
+@dataclass(frozen=True)
+class Command:
+    """Um comando do passo a passo de uma ação; o agente não executa."""
+
+    command: str  # exato, numa linha, na ferramenta que o time usa
+    run_in: str  # onde rodar: "cluster loja-prod, namespace loja", "conta producao, us-east-1"
+
+
 @dataclass(frozen=True)
 class Action:
     """Ação concreta para o humano validar e executar; o agente não executa nada."""
@@ -189,6 +201,16 @@ class Action:
     target: str  # componente ou recurso: "pedidos-api", "RDS grolla-lab-db"
     expected: str  # efeito esperado
     link: str | None  # só se veio de uma avaliação
+    commands: tuple[Command, ...] = ()  # o passo a passo, em ordem; vazio quando não deu
+
+
+def usable_commands(raw: Iterable[tuple[str, str]]) -> tuple[Command, ...]:
+    """Os comandos do modelo que cabem no plano, em ordem e no máximo MAX_COMMANDS.
+
+    Provisório do contrato: só limpa as pontas e corta; as regras de descarte vêm do domínio.
+    """
+    cleaned = (Command(c.strip().strip("`").strip(), r.strip()) for c, r in raw)
+    return tuple(c for c in cleaned if c.command and c.run_in)[:MAX_COMMANDS]
 
 
 @dataclass(frozen=True)

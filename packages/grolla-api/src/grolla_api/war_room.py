@@ -163,7 +163,9 @@ def _severity(form: Mapping[str, str]) -> ChangeSeverity:
 _ACTIONS: Mapping[str, Callable[[Mapping[str, str]], HumanAction]] = {
     "assume": lambda _: AssumeCommander(),
     "severity": _severity,
-    "record": lambda form: RecordAction(form.get("texto", "")),
+    "record": lambda form: RecordAction(
+        form.get("texto", ""), form.get("comando") or None, form.get("onde") or None
+    ),
     "discard-hypothesis": lambda form: DiscardHypothesis(
         form.get("titulo", ""), form.get("motivo", "")
     ),
@@ -775,13 +777,27 @@ _RUNNING = frozenset({AnalysisStatus.PENDING, AnalysisStatus.RUNNING})
 
 
 @dataclass(frozen=True)
+class StepCommand:
+    command: str
+    run_in: str | None  # onde rodar; None no comando tirado das crases (verificação antiga)
+    destructive: bool  # apaga, derruba ou zera algo: selo e copiar confirma
+
+
+@dataclass(frozen=True)
 class Step:
     what: str
     target: str
     expected: str
     link: str | None
-    command: str | None  # primeiro trecho entre crases da ação, para copiar
-    destructive: bool = False  # o comando apaga, derruba ou zera algo: selo e copiar confirma
+    commands: tuple[StepCommand, ...] = ()  # o passo a passo da ação, ou o trecho entre crases
+
+    @property
+    def command(self) -> str | None:  # provisório do contrato: o template ainda usa um só
+        return self.commands[0].command if self.commands else None
+
+    @property
+    def destructive(self) -> bool:
+        return any(c.destructive for c in self.commands)
 
 
 @dataclass(frozen=True)
@@ -799,9 +815,8 @@ class Situation:
 
 def _step(what: str, target: str = "", expected: str = "", link: str | None = None) -> Step:
     found = _COMMAND.search(what)
-    command = found.group(1) if found else None
-    destructive = command is not None and is_destructive(command)
-    return Step(what, target, expected, link, command, destructive)
+    commands = (StepCommand(found.group(1), None, is_destructive(found.group(1))),) if found else ()
+    return Step(what, target, expected, link, commands)
 
 
 def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:

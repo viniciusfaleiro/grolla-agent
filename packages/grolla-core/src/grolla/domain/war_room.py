@@ -34,6 +34,8 @@ class ChangeSeverity:
 @dataclass(frozen=True)
 class RecordAction:
     text: str
+    command: str | None = None  # "Apliquei": o comando do plano que a pessoa diz ter rodado
+    run_in: str | None = None  # onde ela rodou
 
 
 @dataclass(frozen=True)
@@ -100,10 +102,11 @@ def decide_action(
             decision = room.assume()
         case ChangeSeverity(severity):
             decision = room.change_severity(severity)
-        case RecordAction(text):
-            decision = room.record(
-                EventType.ACTION_RECORDED, {"text": _required(text, "descreva a ação feita")}
-            )
+        case RecordAction(text, command, run_in):
+            data = {"text": _required(text, "descreva a ação feita")}
+            if command and command.strip():
+                data |= {"command": command.strip(), "run_in": (run_in or "").strip()}
+            decision = room.record(EventType.ACTION_RECORDED, data)
         case DiscardHypothesis(title, reason):
             data = {
                 "title": _required(title, "informe a hipótese descartada"),
