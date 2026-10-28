@@ -88,7 +88,7 @@ def verification(*actions: str) -> Verification:
 def test_step_with_a_destructive_command_is_flagged() -> None:
     s = situation_of(None, verification(f"Apagar o pod: `{DELETE_POD}`", "Ver `kubectl get pods`"))
 
-    assert s.steps[0].command == DELETE_POD
+    assert s.steps[0].commands[0].command == DELETE_POD
     assert s.steps[0].destructive
     assert not s.steps[1].destructive
 

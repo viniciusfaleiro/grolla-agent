@@ -325,7 +325,7 @@ def test_confirmed_verification_shows_root_cause_verdicts_plan_and_evaluations(
     assert "inconclusiva" in page
     assert "O deploy é um revert e saiu 10 min antes do problema." in page
     assert 'href="https://nuvem.interno/auditoria/1"' in page
-    assert "Comece por aqui" in page
+    assert "Para voltar ao normal" in page
     assert "Religar o banco grolla-lab-db" in page
     assert "RDS grolla-lab-db" in page
     assert "Conexões voltam e a taxa de erro cai para o normal" in page

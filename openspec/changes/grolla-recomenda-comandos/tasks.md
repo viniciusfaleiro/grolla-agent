@@ -30,11 +30,11 @@
 
 ## 4. grolla-web
 
-- [ ] 4.1 `_step`: comandos da ação viram `StepCommand` com `run_in` e `destructive`; sem comandos, o primeiro trecho entre crases como hoje, sem `run_in`; testes.
-- [ ] 4.2 Template do "Agora": "Para voltar ao normal" no primeiro passo com causa confirmada; em cada passo, a lista numerada de comandos com "Onde rodar: …", o bloco do comando e Copiar (confirmação no destrutivo, por comando); selo no passo quando algum comando é destrutivo; CSS no tema claro, no escuro e no celular.
-- [ ] 4.3 Botão "Apliquei" em cada comando (formulário em `/actions/record` com `texto`, `comando` e `onde`, só com autor); o comando com um `ACTION_RECORDED` igual mostra "aplicado por <autor> às HH:MM"; a timeline do war room mostra "Aplicou: …"; testes.
-- [ ] 4.4 Testes da página: passo com dois comandos em ordem, onde rodar de cada um, verificação antiga pelas crases.
-- [ ] 4.5 `make check` verde no worktree.
+- [x] 4.1 `_step`: comandos da ação viram `StepCommand` com `run_in` e `destructive`; sem comandos, o primeiro trecho entre crases como hoje, sem `run_in`; testes.
+- [x] 4.2 Template do "Agora": "Para voltar ao normal" no primeiro passo com causa confirmada; em cada passo, a lista numerada de comandos com "Onde rodar: …", o bloco do comando e Copiar (confirmação no destrutivo, por comando); selo no passo quando algum comando é destrutivo; CSS no tema claro, no escuro e no celular.
+- [x] 4.3 Botão "Apliquei" em cada comando (formulário em `/actions/record` com `texto`, `comando` e `onde`, só com autor); o comando com um `ACTION_RECORDED` igual mostra "aplicado por <autor> às HH:MM"; a timeline do war room mostra "Aplicou: …"; testes.
+- [x] 4.4 Testes da página: passo com dois comandos em ordem, onde rodar de cada um, verificação antiga pelas crases.
+- [x] 4.5 `make check` verde no worktree.
 
 ## 5. grolla-e2e
 

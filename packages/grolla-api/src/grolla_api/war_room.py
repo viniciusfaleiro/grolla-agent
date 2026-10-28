@@ -13,6 +13,7 @@ from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
     AnalysisStatus,
+    Command,
     Evidence,
     PartialReason,
     Verdict,
@@ -392,6 +393,8 @@ def _proposal(value: object) -> Proposal | None:
 
 def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     """O rótulo do evento; o do ciclo já diz a tendência e o resumo."""
+    if event.type is EventType.ACTION_RECORDED and event.data.get("command"):
+        return applied_label(event.data)
     build = _TRANSCRIPT_LABELS.get(event.type)
     return build(event) if build else _event_label(event, labels)
 
@@ -449,7 +452,9 @@ def event_detail(event: IncidentEvent) -> str:
     transcript = _TRANSCRIPT_DETAILS.get(event.type)
     if transcript is not None:
         return transcript(data)
-    if event.type is EventType.CYCLE_COMPLETED:
+    if event.type is EventType.CYCLE_COMPLETED or (
+        event.type is EventType.ACTION_RECORDED and data.get("command")
+    ):
         return ""  # o rótulo já diz tudo
     if event.type is EventType.CYCLE_PARTIAL:
         reason = data.get("reason")
@@ -792,10 +797,6 @@ class Step:
     commands: tuple[StepCommand, ...] = ()  # o passo a passo da ação, ou o trecho entre crases
 
     @property
-    def command(self) -> str | None:  # provisório do contrato: o template ainda usa um só
-        return self.commands[0].command if self.commands else None
-
-    @property
     def destructive(self) -> bool:
         return any(c.destructive for c in self.commands)
 
@@ -813,16 +814,45 @@ class Situation:
     steps_from_analysis: bool  # plano da análise: o que investigar, não o que executar
 
 
-def _step(what: str, target: str = "", expected: str = "", link: str | None = None) -> Step:
+def _step(
+    what: str,
+    target: str = "",
+    expected: str = "",
+    link: str | None = None,
+    commands: Sequence[Command] = (),
+) -> Step:
+    """Os comandos da ação; sem eles, o primeiro trecho entre crases, sem onde rodar."""
+    if commands:
+        steps = tuple(StepCommand(c.command, c.run_in, is_destructive(c.command)) for c in commands)
+        return Step(what, target, expected, link, steps)
     found = _COMMAND.search(what)
-    commands = (StepCommand(found.group(1), None, is_destructive(found.group(1))),) if found else ()
-    return Step(what, target, expected, link, commands)
+    quoted = found.group(1).strip() if found else ""
+    steps = (StepCommand(quoted, None, is_destructive(quoted)),) if quoted else ()
+    return Step(what, target, expected, link, steps)
+
+
+def applied_commands(events: Iterable[IncidentEvent]) -> dict[str, IncidentEvent]:
+    """Comando → o último "Apliquei" dele, para o "Agora" mostrar quem aplicou e quando."""
+    return {
+        str(event.data["command"]): event
+        for event in events
+        if event.type is EventType.ACTION_RECORDED and event.data.get("command")
+    }
+
+
+def applied_label(data: Data) -> str:
+    """'Aplicou: <passo> — <comando> (<onde rodar>)'; sem onde rodar, sem os parênteses."""
+    label = f"Aplicou: {plain_text(str(data.get('text', '')))} — {data.get('command', '')}"
+    run_in = data.get("run_in")
+    return f"{label} ({run_in})" if run_in else label
 
 
 def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:
     """Causa confirmada, validação rodando, hipótese mais provável, investigando ou sem análise."""
     if verification is not None and verification.root_cause:
-        steps = tuple(_step(a.action, a.target, a.expected, a.link) for a in verification.actions)
+        steps = tuple(
+            _step(a.action, a.target, a.expected, a.link, a.commands) for a in verification.actions
+        )
         confirmed = [v.hypothesis for v in verification.verdicts if v.verdict is Verdict.CONFIRMED]
         title, text = _title_and_text(
             confirmed[0] if confirmed else first_sentence(verification.root_cause),
