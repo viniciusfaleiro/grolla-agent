@@ -19,7 +19,13 @@ from contracts.language_model_contract import (
     TranscriptModelContract,
     TriageModelContract,
 )
-from grolla.adapters.anthropic import WRAP_UP, ClaudeLanguageModel, ModelSettings
+from grolla.adapters.anthropic import (
+    WRAP_UP,
+    AnthropicApi,
+    Bedrock,
+    ClaudeLanguageModel,
+    ModelSettings,
+)
 from grolla.application.investigation import (
     CHAT_PROMPT,
     CONSOLE_PROMPT,
@@ -89,6 +95,7 @@ from grolla.testing.clock import FakeClock
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 SETTINGS = ModelSettings(model="claude-sonnet-5-5", max_tokens=16000, effort="medium")
+CONNECTION = AnthropicApi("chave", "http://fake/anthropic")
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
 
@@ -193,9 +200,7 @@ def brief() -> InvestigationBrief:
 
 
 def claude(handler: Handler, settings: ModelSettings = SETTINGS) -> ClaudeLanguageModel:
-    return ClaudeLanguageModel(
-        "chave", settings, base_url="http://fake/anthropic", transport=httpx2.MockTransport(handler)
-    )
+    return ClaudeLanguageModel(CONNECTION, settings, transport=httpx2.MockTransport(handler))
 
 
 async def investigate(
@@ -424,9 +429,8 @@ def verification(
 
 def verifier(handler: Handler) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
-        "chave",
+        CONNECTION,
         SETTINGS,
-        base_url="http://fake/anthropic",
         transport=httpx2.MockTransport(handler),
         verification=VERIFICATION_SETTINGS,
     )
@@ -589,9 +593,8 @@ SCOPE_SCHEMA = {"type": "string", "enum": ["dominio", "fora_do_escopo", "pedido_
 
 def chatter(handler: Handler) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
-        "chave",
+        CONNECTION,
         SETTINGS,
-        base_url="http://fake/anthropic",
         transport=httpx2.MockTransport(handler),
         chat=CHAT_SETTINGS,
     )
@@ -829,9 +832,8 @@ def memory_texts(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def memory_model(handler: Handler, **stages: ModelSettings) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
-        "chave",
+        CONNECTION,
         SETTINGS,
-        base_url="http://fake/anthropic",
         transport=httpx2.MockTransport(handler),
         **stages,
     )
@@ -1107,9 +1109,8 @@ def cycle_result(**changes: object) -> dict[str, object]:
 
 def follower(handler: Handler) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
-        "chave",
+        CONNECTION,
         SETTINGS,
-        base_url="http://fake/anthropic",
         transport=httpx2.MockTransport(handler),
         follow_up=FOLLOW_UP_SETTINGS,
     )
@@ -1594,9 +1595,8 @@ def console_message(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def consultant(handler: Handler, **stages: ModelSettings) -> ClaudeLanguageModel:
     return ClaudeLanguageModel(
-        "chave",
+        CONNECTION,
         SETTINGS,
-        base_url="http://fake/anthropic",
         transport=httpx2.MockTransport(handler),
         **stages,
     )
@@ -1907,3 +1907,101 @@ class TestClaudeTranscriptModelContract(TranscriptModelContract):
         return memory_model(
             lambda _request: httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
         )
+
+
+# O mesmo adapter pelo Amazon Bedrock: o SDK troca o host, põe o modelo no caminho e assina com
+# SigV4; o corpo e a resposta são os da Messages API, então as suítes de contrato valem iguais.
+
+BEDROCK = Bedrock("us-east-1")
+
+
+@pytest.fixture
+def aws_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Credenciais falsas no ambiente, sem ler ~/.aws nem consultar a rede."""
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAFAKE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "segredo")
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "credentials"))
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+
+
+def on_bedrock(handler: Handler, **stages: ModelSettings) -> ClaudeLanguageModel:
+    return ClaudeLanguageModel(BEDROCK, SETTINGS, transport=httpx2.MockTransport(handler), **stages)
+
+
+@pytest.mark.usefixtures("aws_credentials")
+class TestClaudeOnBedrockContract(LanguageModelContract):
+    @pytest.fixture
+    def model(self) -> LanguageModel:
+        return on_bedrock(
+            ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(fixture("anthropic_final.json")))
+        )
+
+    @pytest.fixture
+    def failing_model(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return on_bedrock(ScriptedApi(response, response, response))
+
+    @pytest.fixture
+    def invalid_model(self) -> LanguageModel:
+        return on_bedrock(ScriptedApi(ok(final("não é json"))))
+
+    @pytest.fixture
+    def verifying_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return on_bedrock(
+            ScriptedApi(tool_use, ok(final(verification()))), verification=VERIFICATION_SETTINGS
+        )
+
+    @pytest.fixture
+    def failing_verifier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return on_bedrock(ScriptedApi(response, response, response))
+
+    @pytest.fixture
+    def invalid_verifier(self) -> LanguageModel:
+        return on_bedrock(ScriptedApi(ok(final({"verdicts": "não é lista"}))))
+
+
+@pytest.mark.usefixtures("aws_credentials")
+class TestClaudeOnBedrockChatReplyContract(ChatReplyContract):
+    @pytest.fixture
+    def replying_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        answer = ok(final({"reply": "Os erros pararam às 10:20."}))
+        return on_bedrock(ScriptedApi(tool_use, answer), chat=CHAT_SETTINGS)
+
+    @pytest.fixture
+    def failing_replier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return on_bedrock(ScriptedApi(response, response, response))
+
+
+@pytest.mark.usefixtures("aws_credentials")
+async def test_bedrock_signs_the_call_and_sends_the_same_request_with_the_model_in_the_path() -> (
+    None
+):
+    requests: list[httpx2.Request] = []
+    api = ScriptedApi(ok(fixture("anthropic_tool_use.json")), ok(fixture("anthropic_final.json")))
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return api(request)
+
+    await on_bedrock(handler).investigate(brief(), RecordingToolbox(), RecordingBudget())
+
+    first = requests[0]
+    assert first.url.host == "bedrock-runtime.us-east-1.amazonaws.com"
+    assert first.url.path == "/model/claude-sonnet-5-5/invoke"
+    assert first.headers["authorization"].startswith("AWS4-HMAC-SHA256 ")
+    assert "x-api-key" not in first.headers
+    body = api.bodies[0]
+    assert "model" not in body  # vai no caminho
+    assert body["thinking"] == {"type": "adaptive"}
+    assert body["output_config"]["format"]["type"] == "json_schema"
+    assert body["system"][0]["cache_control"]["ttl"] == "1h"
+    assert len(requests) == 2  # a volta com o resultado das ferramentas também vai ao Bedrock

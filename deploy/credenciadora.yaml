@@ -37,6 +37,10 @@ investigation:
 
 # Modelo por etapa; trocar é mudar aqui e reiniciar o worker.
 llm:
+  # Para chamar o Claude pelo Amazon Bedrock (role da EC2, sem chave da Anthropic), descomente e
+  # troque os IDs abaixo pelos do Bedrock na sua conta (ver deploy/README.md):
+  # provider: bedrock
+  # region: us-east-1
   stages:
     investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 16000 }
     verification: { model: claude-sonnet-5-5, effort: high, max_tokens: 16000 }

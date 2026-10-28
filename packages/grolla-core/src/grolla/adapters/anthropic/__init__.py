@@ -50,6 +50,7 @@ from uuid import UUID
 import anthropic
 import httpx2
 from anthropic import Omit, omit
+from anthropic.lib.bedrock import AsyncAnthropicBedrock
 from anthropic.types import (
     Message,
     MessageParam,
@@ -602,13 +603,29 @@ class _Transcript(_Strict):
         )
 
 
+@dataclass(frozen=True)
+class AnthropicApi:
+    api_key: str
+    base_url: str | None = None  # só o e2e aponta para o fake
+
+
+@dataclass(frozen=True)
+class Bedrock:
+    """O mesmo modelo pelo Amazon Bedrock; credenciais da cadeia padrão da AWS."""
+
+    region: str
+
+
+type Connection = AnthropicApi | Bedrock
+type _Client = anthropic.AsyncAnthropic | AsyncAnthropicBedrock
+
+
 class ClaudeLanguageModel:
     def __init__(  # noqa: PLR0913 — modelos por etapa e conexão vêm da configuração
         self,
-        api_key: str,
+        connection: Connection,
         settings: ModelSettings,
         *,
-        base_url: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
         verification: ModelSettings | None = None,
         chat: ModelSettings | None = None,
@@ -620,7 +637,7 @@ class ClaudeLanguageModel:
         console: ModelSettings | None = None,
         transcript: ModelSettings | None = None,
     ) -> None:
-        self._api_key = api_key
+        self._connection = connection
         self._settings = settings
         self._verification = verification or settings  # etapa `verification` herda a da análise
         self._chat = chat or settings  # etapa `warroom_chat` também herda
@@ -631,7 +648,6 @@ class ClaudeLanguageModel:
         self._triage = triage or settings
         self._console = console or chat or settings  # o console herda do chat
         self._transcript = transcript or post_mortem or settings  # herda do post mortem
-        self._base_url = base_url  # só o e2e aponta para o fake
         self._transport = transport  # testes injetam um transporte fake
 
     async def investigate(
@@ -851,15 +867,22 @@ class ClaudeLanguageModel:
             ),
         )
 
-    def _client(self) -> anthropic.AsyncAnthropic:
+    def _client(self) -> _Client:
         http_client = (
             None
             if self._transport is None
             else anthropic.DefaultAsyncHttpxClient(transport=self._transport)
         )
+        if isinstance(self._connection, Bedrock):
+            return AsyncAnthropicBedrock(
+                aws_region=self._connection.region,
+                http_client=http_client,
+                max_retries=MAX_RETRIES,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
         return anthropic.AsyncAnthropic(
-            api_key=self._api_key,
-            base_url=self._base_url,
+            api_key=self._connection.api_key,
+            base_url=self._connection.base_url,
             http_client=http_client,
             max_retries=MAX_RETRIES,
             timeout=REQUEST_TIMEOUT_SECONDS,
@@ -867,7 +890,7 @@ class ClaudeLanguageModel:
 
 
 async def _loop(
-    client: anthropic.AsyncAnthropic,
+    client: _Client,
     phase: _Phase,
     messages: list[MessageParam],
     toolbox: Toolbox,
@@ -907,9 +930,7 @@ async def _loop(
         messages.append({"role": "user", "content": results})
 
 
-async def _once(
-    client: anthropic.AsyncAnthropic, phase: _Phase, text: str, budget: TokenBudget
-) -> Message:
+async def _once(client: _Client, phase: _Phase, text: str, budget: TokenBudget) -> Message:
     """Uma chamada sem ferramentas, só com a saída estruturada da etapa."""
     response = await client.messages.create(
         model=phase.settings.model,
@@ -931,7 +952,7 @@ def _parsed[T: BaseModel](model: type[T], response: Message, what: str) -> T:
 
 
 async def _concrete(
-    client: anthropic.AsyncAnthropic,
+    client: _Client,
     phase: _Phase,
     messages: list[MessageParam],
     toolbox: Toolbox,

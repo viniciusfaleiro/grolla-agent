@@ -1,6 +1,12 @@
 from dataclasses import dataclass, field
 
-from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
+from grolla.adapters.anthropic import (
+    AnthropicApi,
+    Bedrock,
+    ClaudeLanguageModel,
+    Connection,
+    ModelSettings,
+)
 from grolla.adapters.aws import AwsCloudInventory, CloudAccount
 from grolla.adapters.azure_devops import AzureDevOpsChangeHistory, RepositoryRef
 from grolla.adapters.fastembed import FastembedTextEmbedder
@@ -67,7 +73,7 @@ from grolla.application.safety import MessageCounter
 from grolla.application.transcript import TranscriptPolicy, TranscriptStore
 from grolla.application.triage import TriagePolicy, TriageQueue
 from grolla.bootstrap.settings import ApiSettings, ConfigError, WorkerSettings, load_settings
-from grolla.bootstrap.team_config import StageConfig, TeamConfig, load_team_config
+from grolla.bootstrap.team_config import LlmConfig, StageConfig, TeamConfig, load_team_config
 from grolla.domain.follow_up import FollowUpPolicy
 
 
@@ -182,6 +188,7 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
     stage = config.llm.stages.get(STAGE_INVESTIGATION)
     if stage is None:
         raise ConfigError(f"{settings.config_file}: falta llm.stages.{STAGE_INVESTIGATION}")
+    connection = _connection(settings, config.llm)
     changes = config.azure_devops
     migrate(settings.database_url)
     database = PostgresDatabase(settings.database_url)
@@ -196,9 +203,8 @@ def build_worker(settings: WorkerSettings, config: TeamConfig) -> WorkerContaine
         analysis_queue=PostgresAnalysisQueue(database),
         chat_queue=PostgresChatQueue(database),
         model=ClaudeLanguageModel(
-            settings.anthropic_api_key.get_secret_value(),
+            connection,
             ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort),
-            base_url=settings.anthropic_base_url,
             verification=_model_settings(verification),
             chat=_model_settings(chat),
             learning=_model_settings(config.llm.stages.get(STAGE_LEARNING)),
@@ -261,6 +267,17 @@ def _embedder(settings: WorkerSettings, config: TeamConfig) -> TextEmbedder | No
         return FastembedTextEmbedder(config.memory.rag.size)
     except EmbeddingError as error:
         raise ConfigError(f"{settings.config_file}: memory.rag.size: {error}") from error
+
+
+def _connection(settings: WorkerSettings, llm: LlmConfig) -> Connection:
+    if llm.provider == "bedrock" and llm.region:
+        return Bedrock(llm.region)
+    if settings.anthropic_api_key is None:
+        raise ConfigError(
+            "configuração inválida — GROLLA_ANTHROPIC_API_KEY: "
+            "obrigatória com llm.provider anthropic"
+        )
+    return AnthropicApi(settings.anthropic_api_key.get_secret_value(), settings.anthropic_base_url)
 
 
 def _model_settings(stage: StageConfig | None) -> ModelSettings | None:

@@ -59,12 +59,17 @@ def test_worker_requires_its_secrets_but_not_the_api_ones(
     assert settings.anthropic_base_url is None
 
 
-def test_worker_requires_the_language_model_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_worker_settings_do_not_require_the_language_model_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("GROLLA_DATABASE_URL", "postgresql://grolla@db/grolla")
     monkeypatch.setenv("GROLLA_CONFIG_FILE", "/etc/grolla.yaml")
     monkeypatch.setenv("GROLLA_TEAMS_WEBHOOK_URL", "https://chat.example/hook")
     monkeypatch.setenv("GROLLA_AZURE_DEVOPS_TOKEN", "token")
     monkeypatch.delenv("GROLLA_ANTHROPIC_API_KEY", raising=False)
 
-    with pytest.raises(ConfigError, match="GROLLA_ANTHROPIC_API_KEY"):
-        load_settings(WorkerSettings)
+    settings = load_settings(
+        WorkerSettings
+    )  # o container exige a chave só com llm.provider anthropic
+
+    assert settings.anthropic_api_key is None
