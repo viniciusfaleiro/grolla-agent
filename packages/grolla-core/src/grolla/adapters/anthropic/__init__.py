@@ -7,8 +7,9 @@ de cada resposta passa pelo `TokenBudget` antes de qualquer outra coisa.
 As três chamadas usam o mesmo laço: a análise inicial (`investigate`, etapa `investigation`), a
 validação das hipóteses até a causa raiz (`verify`, etapa `verification`, com modelo e
 `effort` próprios) e a resposta no chat do war room (`reply`, etapa `warroom_chat`, idem, com o
-resultado no schema `{"reply": string, "scope": ...}`). Na validação, um plano com passo de
-investigação ganha uma única mensagem de correção; se vier de novo, o resultado é inválido.
+resultado no schema `{"reply": string, "scope": ..., "commands": [...]}`). Na validação, um
+plano com passo de investigação ganha uma única mensagem de correção; se vier de novo, o
+resultado é inválido.
 
 O acompanhamento da crise (`follow_up`, etapa `follow_up`) roda o mesmo laço, fechando no
 orçamento como o chat, e devolve a tendência, a taxa de erro, o resumo, se algo mudou e até três
@@ -34,7 +35,9 @@ gráficos é o domínio.
 
 O chat e o console devolvem também o escopo do pedido (`dominio`, `fora_do_escopo` ou
 `pedido_de_execucao`); quem troca o texto pela recusa fixa é o núcleo. Escopo fora do enum é
-resultado inválido; ausente (resposta anterior ao campo) vale `dominio`.
+resultado inválido; ausente (resposta anterior ao campo) vale `dominio`. E os dois devolvem os
+comandos sugeridos (`commands`, no formato dos passos do plano: `{command, run_in}`, lista vazia
+quando não há), filtrados por `usable_commands`.
 
 A transcrição de call (`extract_transcript`, etapa `transcript`, herdando o modelo do post mortem)
 é uma chamada só, sem ferramentas: as decisões, ações e horários (`items`, cada um com o dono e o
@@ -111,6 +114,7 @@ from grolla.domain.analysis import (
     Action,
     Analysis,
     AnalysisDraft,
+    Command,
     Evidence,
     Hypothesis,
     HypothesisVerdict,
@@ -166,6 +170,18 @@ _EVIDENCE_SCHEMA: dict[str, object] = {
         "type": "object",
         "properties": {"text": {"type": "string"}, "url": {"type": ["string", "null"]}},
         "required": ["text", "url"],
+        "additionalProperties": False,
+    },
+}
+
+# Comandos de uma ação do plano, de uma resposta do chat ou do console: em ordem, cada um com onde
+# rodar. Os que não cabem saem em `usable_commands`.
+_COMMANDS_SCHEMA: dict[str, object] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"command": {"type": "string"}, "run_in": {"type": "string"}},
+        "required": ["command", "run_in"],
         "additionalProperties": False,
     },
 }
@@ -239,18 +255,7 @@ VERIFICATION_SCHEMA: dict[str, object] = {
                     "target": {"type": "string"},
                     "expected": {"type": "string"},
                     "link": {"type": ["string", "null"]},
-                    "commands": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "command": {"type": "string"},
-                                "run_in": {"type": "string"},
-                            },
-                            "required": ["command", "run_in"],
-                            "additionalProperties": False,
-                        },
-                    },
+                    "commands": _COMMANDS_SCHEMA,
                 },
                 "required": ["action", "target", "expected", "link", "commands"],
                 "additionalProperties": False,
@@ -262,14 +267,14 @@ VERIFICATION_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
-# Schema da resposta do chat: só o texto, que vai para o chat como está.
+# Schema da resposta do chat: o texto, que vai para o chat como está, e os comandos sugeridos.
 # Escopo do pedido no chat e no console: quem troca o texto pela recusa fixa é o núcleo.
 _SCOPE = {"type": "string", "enum": [scope.value for scope in Scope]}
 
 CHAT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "properties": {"reply": {"type": "string"}, "scope": _SCOPE},
-    "required": ["reply", "scope"],
+    "properties": {"reply": {"type": "string"}, "scope": _SCOPE, "commands": _COMMANDS_SCHEMA},
+    "required": ["reply", "scope", "commands"],
     "additionalProperties": False,
 }
 
@@ -313,11 +318,13 @@ SYNTHESIS_SCHEMA = _object(
     integrations={"type": "array", "items": _object(subject=_TEXT, body=_TEXT)},
 )
 
-# Console de operação: a resposta e os gráficos pedidos. O modelo só diz o que mostrar; os pontos
-# vêm da telemetria. A janela e o número de gráficos são limitados pelo domínio.
+# Console de operação: a resposta, os comandos sugeridos e os gráficos pedidos. O modelo só diz o
+# que mostrar; os pontos vêm da telemetria. A janela e o número de gráficos são limitados pelo
+# domínio.
 CONSOLE_SCHEMA = _object(
     text=_TEXT,
     scope=_SCOPE,
+    commands=_COMMANDS_SCHEMA,
     charts={
         "type": "array",
         "items": _object(
@@ -514,6 +521,7 @@ class _Verification(_Strict):
 class _Reply(_Strict):
     reply: str
     scope: Scope = Scope.DOMAIN  # ausente só em resposta anterior ao campo; fora do enum é inválida
+    commands: list[_Command] = []  # ausente só em resposta anterior ao campo
 
 
 class _Chart(_Strict):
@@ -526,6 +534,7 @@ class _Console(_Strict):
     text: str
     charts: list[_Chart]
     scope: Scope = Scope.DOMAIN  # ausente só em resposta anterior ao campo; fora do enum é inválida
+    commands: list[_Command] = []  # ausente só em resposta anterior ao campo
 
 
 class _Cycle(_Strict):
@@ -814,6 +823,7 @@ class ClaudeLanguageModel:
             text=answer.text.strip(),
             charts=tuple(ChartRequest(c.service, c.signal, c.minutes) for c in answer.charts),
             scope=answer.scope,
+            commands=_usable(answer.commands),
         )
 
     async def extract_transcript(
@@ -1083,7 +1093,7 @@ def _verification(response: Message) -> VerificationDraft:
                 a.target,
                 a.expected,
                 a.link,
-                commands=usable_commands((c.command, c.run_in) for c in a.commands),
+                commands=_usable(a.commands),
             )
             for a in draft.actions
         ),
@@ -1103,7 +1113,11 @@ def _chat_draft(response: Message) -> ChatDraft:
         raise InvalidAnalysisError("resultado fora do formato da resposta do chat") from error
     if not draft.reply.strip() and draft.scope is Scope.DOMAIN:  # a recusa troca o texto
         raise InvalidAnalysisError("resposta do chat vazia")
-    return ChatDraft(text=draft.reply.strip(), scope=draft.scope)
+    return ChatDraft(text=draft.reply.strip(), scope=draft.scope, commands=_usable(draft.commands))
+
+
+def _usable(commands: list[_Command]) -> tuple[Command, ...]:
+    return usable_commands((c.command, c.run_in) for c in commands)
 
 
 def _describe(error: anthropic.APIError) -> str:

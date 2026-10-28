@@ -65,7 +65,14 @@ from grolla.application.investigation import (
     Toolbox,
     TriageBrief,
 )
-from grolla.domain.analysis import Analysis, AnalysisDraft, VerificationDraft, check_plan
+from grolla.domain.analysis import (
+    MAX_COMMANDS,
+    Analysis,
+    AnalysisDraft,
+    Command,
+    VerificationDraft,
+    check_plan,
+)
 from grolla.domain.chat import ChatDraft
 from grolla.domain.console import CHART_SIGNALS, ConsoleDraft
 from grolla.domain.follow_up import Cycle, CycleDraft, CycleStatus, Trend
@@ -287,6 +294,17 @@ CONTEXT = f"Incidente: Taxa de erro alta\nServiços: {SERVICE}"
 QUESTION = "o rollback resolveu?"
 
 
+def assert_usable(commands: tuple[Command, ...]) -> None:
+    """Os comandos sugeridos já vêm filtrados: cada um numa linha e com onde rodar."""
+    assert isinstance(commands, tuple)
+    assert len(commands) <= MAX_COMMANDS
+    for command in commands:
+        assert isinstance(command, Command)
+        assert command.command.strip()
+        assert "\n" not in command.command
+        assert command.run_in.strip()
+
+
 class ChatReplyContract(LanguageModelFixtures):
     @pytest.fixture
     def replying_model(self) -> LanguageModel:
@@ -308,6 +326,7 @@ class ChatReplyContract(LanguageModelFixtures):
         assert isinstance(draft, ChatDraft)
         assert draft.text.strip()
         assert isinstance(draft.scope, Scope)
+        assert_usable(draft.commands)
 
     async def test_reply_calls_tools_and_spends_with_its_stage(
         self,
@@ -691,6 +710,7 @@ class ConsoleModelContract(LanguageModelFixtures):
         assert isinstance(draft, ConsoleDraft)
         assert draft.text.strip()
         assert isinstance(draft.scope, Scope)
+        assert_usable(draft.commands)
         assert isinstance(draft.charts, tuple)
         for chart in draft.charts:
             assert chart.service.strip()

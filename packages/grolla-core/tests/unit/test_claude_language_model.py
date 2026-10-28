@@ -516,6 +516,29 @@ async def test_verification_without_its_own_stage_inherits_the_investigation_set
     assert api.bodies[0]["output_config"]["effort"] == "medium"
 
 
+COMMANDS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"command": {"type": "string"}, "run_in": {"type": "string"}},
+        "required": ["command", "run_in"],
+        "additionalProperties": False,
+    },
+}
+SCALE = {"command": "kubectl scale deployment captura-api --replicas=2 -n loja", "run_in": "eks"}
+# Comandos que o modelo devolve e os que ficam: sem onde rodar ou em duas linhas, saem.
+RAW_COMMANDS = [
+    SCALE,
+    {"command": "`kubectl rollout status deployment/captura-api -n loja`", "run_in": "eks"},
+    {"command": "kubectl get pods", "run_in": " "},
+    {"command": "kubectl rollout undo deploy/x\nkubectl get pods", "run_in": "eks"},
+]
+USABLE = (
+    Command("kubectl scale deployment captura-api --replicas=2 -n loja", "eks"),
+    Command("kubectl rollout status deployment/captura-api -n loja", "eks"),
+)
+
+
 async def test_verification_schema_asks_for_the_commands_of_each_action() -> None:
     api = ScriptedApi(ok(final(verification())))
 
@@ -524,15 +547,7 @@ async def test_verification_schema_asks_for_the_commands_of_each_action() -> Non
     action = api.bodies[0]["output_config"]["format"]["schema"]["properties"]["actions"]["items"]
 
     assert action["required"] == ["action", "target", "expected", "link", "commands"]
-    assert action["properties"]["commands"] == {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {"command": {"type": "string"}, "run_in": {"type": "string"}},
-            "required": ["command", "run_in"],
-            "additionalProperties": False,
-        },
-    }
+    assert action["properties"]["commands"] == COMMANDS_SCHEMA
 
 
 async def test_commands_become_the_steps_of_the_action_in_order() -> None:
@@ -651,11 +666,14 @@ async def reply(
     )
 
 
+CHAT_ANSWER = {"reply": "Os erros pararam às 10:20.", "scope": "dominio", "commands": [SCALE]}
+
+
 class TestClaudeChatReplyContract(ChatReplyContract):
     @pytest.fixture
     def replying_model(self) -> LanguageModel:
         tool_use = ok(fixture("anthropic_tool_use.json"))
-        return chatter(ScriptedApi(tool_use, ok(final({"reply": "Os erros pararam às 10:20."}))))
+        return chatter(ScriptedApi(tool_use, ok(final(CHAT_ANSWER))))
 
     @pytest.fixture
     def failing_replier(self) -> LanguageModel:
@@ -690,8 +708,12 @@ async def test_reply_request_uses_the_chat_prompt_schema_and_stage_settings() ->
         "type": "json_schema",
         "schema": {
             "type": "object",
-            "properties": {"reply": {"type": "string"}, "scope": SCOPE_SCHEMA},
-            "required": ["reply", "scope"],
+            "properties": {
+                "reply": {"type": "string"},
+                "scope": SCOPE_SCHEMA,
+                "commands": COMMANDS_SCHEMA,
+            },
+            "required": ["reply", "scope", "commands"],
             "additionalProperties": False,
         },
     }
@@ -730,6 +752,15 @@ async def test_reply_without_scope_is_from_the_domain() -> None:
     draft = await reply(ScriptedApi(ok(final({"reply": "texto"}))))
 
     assert draft.scope is Scope.DOMAIN
+    assert draft.commands == ()
+
+
+async def test_reply_keeps_the_usable_commands_in_order() -> None:
+    answer = {"reply": "Escale e acompanhe o rollout.", "commands": RAW_COMMANDS}
+
+    draft = await reply(ScriptedApi(ok(final(answer))))
+
+    assert draft.commands == USABLE
 
 
 async def test_reply_api_error_becomes_language_model_error() -> None:
@@ -754,6 +785,7 @@ async def test_reply_refusal_becomes_language_model_error() -> None:
         {},
         {"reply": "  "},
         {"reply": "ok", "scope": "poesia"},
+        {"reply": "ok", "commands": [{"command": "kubectl get pods"}]},
     ],
 )
 async def test_reply_outside_the_schema_is_invalid(answer: object) -> None:
@@ -1623,6 +1655,7 @@ CONSOLE_QUESTION = "como está a taxa de erro do captura-api?"
 CONSOLE_ANSWER = {
     "text": "  Erro em 0,4% no captura-api, estável.  ",
     "charts": [{"service": "captura-api", "signal": "taxa_de_erro", "minutes": 60}],
+    "commands": RAW_COMMANDS,
 }
 
 
@@ -1679,6 +1712,7 @@ async def test_consult_runs_the_tools_and_returns_the_text_and_the_charts() -> N
     assert draft == ConsoleDraft(
         text="Erro em 0,4% no captura-api, estável.",
         charts=(ChartRequest("captura-api", "taxa_de_erro", 60),),
+        commands=USABLE,
     )
     assert [name for name, _ in toolbox.calls] == ["query_metric", "recent_deploys"]
 
@@ -1708,9 +1742,10 @@ async def test_consult_request_uses_the_console_prompt_schema_and_stage_settings
         "properties": {
             "text": {"type": "string"},
             "scope": SCOPE_SCHEMA,
+            "commands": COMMANDS_SCHEMA,
             "charts": {"type": "array", "items": chart},
         },
-        "required": ["text", "scope", "charts"],
+        "required": ["text", "scope", "commands", "charts"],
         "additionalProperties": False,
     }
     assert body["system"][0]["text"] == CONSOLE_PROMPT
@@ -1781,6 +1816,7 @@ async def test_consult_api_error_and_refusal_become_language_model_error() -> No
         {"text": "ok", "charts": [], "extra": 1},
         {"text": "  ", "charts": []},
         {"text": "ok", "charts": [], "scope": "executar_agora"},
+        {"text": "ok", "charts": [], "commands": "kubectl get pods"},
     ],
 )
 async def test_consult_outside_the_schema_is_invalid(answer: object) -> None:
@@ -2014,11 +2050,24 @@ class TestClaudeOnBedrockChatReplyContract(ChatReplyContract):
     @pytest.fixture
     def replying_model(self) -> LanguageModel:
         tool_use = ok(fixture("anthropic_tool_use.json"))
-        answer = ok(final({"reply": "Os erros pararam às 10:20."}))
-        return on_bedrock(ScriptedApi(tool_use, answer), chat=CHAT_SETTINGS)
+        return on_bedrock(ScriptedApi(tool_use, ok(final(CHAT_ANSWER))), chat=CHAT_SETTINGS)
 
     @pytest.fixture
     def failing_replier(self) -> LanguageModel:
+        overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
+        response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
+        return on_bedrock(ScriptedApi(response, response, response))
+
+
+@pytest.mark.usefixtures("aws_credentials")
+class TestClaudeOnBedrockConsoleModelContract(ConsoleModelContract):
+    @pytest.fixture
+    def consulting_model(self) -> LanguageModel:
+        tool_use = ok(fixture("anthropic_tool_use.json"))
+        return on_bedrock(ScriptedApi(tool_use, ok(final(CONSOLE_ANSWER))))
+
+    @pytest.fixture
+    def failing_consultant(self) -> LanguageModel:
         overloaded = {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}
         response = httpx2.Response(529, json=overloaded, headers={"retry-after-ms": "1"})
         return on_bedrock(ScriptedApi(response, response, response))
