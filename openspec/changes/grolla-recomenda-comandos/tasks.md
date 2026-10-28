@@ -42,9 +42,9 @@
 
 ## 6. Integração (agente pai)
 
-- [ ] 6.1 Merge dos branches e conflitos resolvidos.
-- [ ] 6.2 Code review do todo: consistência entre o schema do adapter, o fake, o `jsonb` e o `Step`; duplicação; desvio de contrato; simplicidade; cobertura das specs. Ajustes.
-- [ ] 6.3 `docs/decisoes.md` e o roadmap.
-- [ ] 6.4 Revisar e atualizar os READMEs do `grolla-core`, do `grolla-api`, do `e2e/fakes` e do pai (Features, Roadmap e badge de status).
-- [ ] 6.5 `make e2e` com todos os cenários verdes.
-- [ ] 6.6 `make fmt && make check` com tudo verde.
+- [x] 6.1 Merge dos branches e conflitos resolvidos.
+- [x] 6.2 Code review do todo: consistência entre o schema do adapter, o fake, o `jsonb` e o `Step`; duplicação; desvio de contrato; simplicidade; cobertura das specs. Ajustes.
+- [x] 6.3 `docs/decisoes.md` e o roadmap.
+- [x] 6.4 Revisar e atualizar os READMEs do `grolla-core`, do `grolla-api`, do `e2e/fakes` e do pai (Features, Roadmap e badge de status).
+- [x] 6.5 `make e2e` com todos os cenários verdes.
+- [x] 6.6 `make fmt && make check` com tudo verde.

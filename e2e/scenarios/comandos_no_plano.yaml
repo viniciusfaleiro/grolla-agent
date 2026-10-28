@@ -56,11 +56,13 @@ then:
       contains:
         - Para voltar ao normal
         - Fazer rollback do comandos-api para o deploy anterior
+        - "Onde rodar:"
+        - Azure DevOps, pipeline comandos-api-cd
         - az pipelines build queue --definition-name comandos-api-cd --branch main
-        - "Onde rodar: Azure DevOps, pipeline comandos-api-cd"
         - Apliquei
+        - "Onde rodar:"
+        - cluster loja-e2e, namespace loja
         - kubectl rollout status deploy/comandos-api -n loja
-        - "Onde rodar: cluster loja-e2e, namespace loja"
         - Apliquei
       absent: [aplicado por]
   # Ana clica "Apliquei" no primeiro comando.
