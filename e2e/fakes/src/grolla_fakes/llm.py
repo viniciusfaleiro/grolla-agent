@@ -86,6 +86,12 @@ nos participantes e, pela fala (que é também o `excerpt`):
   primeira do contexto com uma palavra de 4+ letras citada na fala, ou a primeira; sem hipótese
   no contexto, nada.
 
+O chat e o console devolvem também os comandos sugeridos (`commands`): quando a pergunta (o texto
+depois do último "Pergunta:") cita "comando", sem diferenciar maiúsculas, a resposta final traz,
+em ordem, `kubectl scale deployment <serviço> --replicas=2 -n loja` e
+`kubectl rollout status deployment/<serviço> -n loja`, os dois com onde rodar "cluster loja-e2e,
+namespace loja"; senão, e nos roteiros abaixo, `commands` vem vazio.
+
 O chat e o console devolvem o escopo do pedido (`scope`), `dominio` no padrão. O roteiro de
 segurança (`POST /_control/llm {"script": ...}`, vale para o chat, o console e a validação; o
 `/_control/reset` e `padrao` voltam ao normal) muda isso:
@@ -194,6 +200,12 @@ FIX_COMMANDS = (
     ("kubectl rollout status deploy/{service} -n loja", CLUSTER_PLACE),
 )
 DESTRUCTIVE_COMMANDS = (("kubectl delete pod -l app={service} -n loja", CLUSTER_PLACE),)
+# No chat e no console, a pergunta que cita "comando" recebe estes, em ordem.
+COMMAND_WORD = "comando"
+ASKED_COMMANDS = (
+    ("kubectl scale deployment {service} --replicas=2 -n loja", CLUSTER_PLACE),
+    ("kubectl rollout status deployment/{service} -n loja", CLUSTER_PLACE),
+)
 
 
 class Phase(StrEnum):
@@ -364,8 +376,9 @@ def scripted_answer(
 ) -> dict[str, Any] | None:
     """A resposta do roteiro de segurança no chat e no console, ou None para seguir o padrão.
 
-    `answer` é a resposta sem o texto: `{"charts": []}` no console, `{}` no chat. O texto vai no
-    campo `reply` (chat) ou `text` (console), conforme o schema recebido.
+    `answer` é a resposta sem o texto: `{"charts": [], "commands": []}` no console,
+    `{"commands": []}` no chat. O texto vai no campo `reply` (chat) ou `text` (console), conforme
+    o schema recebido.
     """
     field = "text" if "charts" in answer else "reply"
     if script in REFUSED:
@@ -385,21 +398,28 @@ def scripted_answer(
 
 def chat_reply(body: dict[str, Any], script: LlmScript = LlmScript.DEFAULT) -> dict[str, Any]:
     """Resposta do chat: consulta os logs do serviço e responde citando-os e a pergunta."""
-    scripted = scripted_answer(body, script, _service(_first_text(body["messages"][0])), {})
+    first = _first_text(body["messages"][0])
+    service = _service(first)
+    scripted = scripted_answer(body, script, service, {"commands": []})
     if scripted is not None:
         return scripted
     results = _tool_results(body["messages"])
     if not results:
         return _message(body, _tool_calls(body, CHAT_TOOLS), "tool_use")
-    first = _first_text(body["messages"][0])
     _, _, question = first.rpartition(_QUESTION)
     logs = results.get("search_logs", "sem logs")
     text = (
-        f"Consultei os logs de {_service(first)}: {_excerpt(logs)} "
+        f"Consultei os logs de {service}: {_excerpt(logs)} "
         f'Sobre "{_excerpt(question.strip(), 80)}": os logs acima são o que encontrei; '
         "se quiser, registre a ação no war room."
     )
-    return _final(body, {"reply": text, "scope": DOMAIN_SCOPE})
+    commands = _asked_commands(question, service)
+    return _final(body, {"reply": text, "scope": DOMAIN_SCOPE, "commands": commands})
+
+
+def _asked_commands(question: str, service: str) -> list[dict[str, str]]:
+    """Os comandos de `ASKED_COMMANDS` quando a pergunta cita "comando"; senão, nenhum."""
+    return _commands(ASKED_COMMANDS, service) if COMMAND_WORD in question.lower() else []
 
 
 def console_reply(body: dict[str, Any], script: LlmScript = LlmScript.DEFAULT) -> dict[str, Any]:
@@ -411,7 +431,7 @@ def console_reply(body: dict[str, Any], script: LlmScript = LlmScript.DEFAULT) -
     question = question.strip()
     found = _API_SERVICE.findall(question) or _API_SERVICE.findall(first)[-1:]
     service = found[0] if found else UNKNOWN_SERVICE
-    scripted = scripted_answer(body, script, service, {"charts": []})
+    scripted = scripted_answer(body, script, service, {"charts": [], "commands": []})
     if scripted is not None:
         return scripted
     fact = question.removeprefix(REGISTER).strip() if question.startswith(REGISTER) else None
@@ -435,7 +455,9 @@ def console_reply(body: dict[str, Any], script: LlmScript = LlmScript.DEFAULT) -
         if wants_chart
         else []
     )
-    return _final(body, {"text": text, "scope": DOMAIN_SCOPE, "charts": charts})
+    commands = _asked_commands(question, service)
+    answer = {"text": text, "scope": DOMAIN_SCOPE, "charts": charts, "commands": commands}
+    return _final(body, answer)
 
 
 def follow_up_reply(body: dict[str, Any], script: FollowUpScript) -> dict[str, Any]:
