@@ -6,7 +6,7 @@ reinicia os fakes, carrega o roteiro (`given`), executa as ações (`when`) e co
 Ações: `http` (corpo em `json` ou em `form` urlencoded, `cookies`, e `content_type` para
 conferir o início do header da resposta), `expect_status`,
 `expect_page` (espera o GET responder 200 com todos os trechos `contains` no HTML e nenhum dos
-trechos `absent`),
+trechos `absent`; com `in_order: true`, os `contains` aparecem nessa ordem; aceita `cookies`),
 `wait_for_db_row`, `expect_db_count`, `expect_fake_requests` (contagem exata por trechos do
 corpo), `wait_for_fake_request` (espera ao menos uma requisição com os trechos),
 `expect_fake_request_order` (a primeira requisição com os trechos `first` chegou antes da com
@@ -104,6 +104,8 @@ def run_step(step: Step, captured: Captured) -> None:
                 cast(list[str], args.get("contains") or []),
                 cast(list[str], args.get("absent") or []),
                 args.get("timeout_seconds", 30),
+                in_order=bool(args.get("in_order")),
+                cookies=cast(dict[str, str] | None, args.get("cookies")),
             )
         case "wait_for_db_row":
             wait_for_db_row(args["sql"], args["at_least"], args["timeout_seconds"])
@@ -183,16 +185,36 @@ def wait_for_db_row(sql: str, at_least: int, timeout_seconds: float) -> None:
     pytest.fail(f"esperava ao menos {at_least} em `{sql}`, achei {count} em {timeout_seconds}s")
 
 
-def expect_page(
-    service: str, path: str, contains: list[str], absent: list[str], timeout_seconds: float
+def missing_in(page: str, contains: list[str], *, in_order: bool) -> list[str]:
+    """Os trechos que faltam; com `in_order`, cada um é procurado depois do anterior."""
+    if not in_order:
+        return [text for text in contains if text not in page]
+    start = 0
+    for i, text in enumerate(contains):
+        found = page.find(text, start)
+        if found < 0:
+            return contains[i:]
+        start = found + len(text)
+    return []
+
+
+def expect_page(  # noqa: PLR0913 — cada opção do passo vira um argumento
+    service: str,
+    path: str,
+    contains: list[str],
+    absent: list[str],
+    timeout_seconds: float,
+    *,
+    in_order: bool = False,
+    cookies: dict[str, str] | None = None,
 ) -> None:
-    """Espera o GET da página responder 200 com todos os trechos `contains` e nenhum dos
-    `absent` (o HTML vem desescapado)."""
+    """Espera o GET da página responder 200 com todos os trechos `contains` (na ordem, com
+    `in_order`) e nenhum dos `absent` (o HTML vem desescapado)."""
     deadline = time.monotonic() + timeout_seconds
     while True:
-        response = http(service, "GET", path)
+        response = http(service, "GET", path, {"cookies": cookies})
         page = html.unescape(response.text)
-        missing = [text for text in contains if text not in page]
+        missing = missing_in(page, contains, in_order=in_order)
         present = [text for text in absent if text in page]
         ok = response.status_code == 200 and not missing and not present
         if ok or time.monotonic() >= deadline:

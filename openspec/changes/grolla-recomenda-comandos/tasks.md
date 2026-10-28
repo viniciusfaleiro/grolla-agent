@@ -38,7 +38,7 @@
 
 ## 5. grolla-e2e
 
-- [ ] 5.1 `causa_raiz.yaml` (ou cenário novo `comandos_no_plano.yaml`): o war room mostra "Para voltar ao normal", os dois comandos na ordem e o "Onde rodar" de cada um; "Apliquei" no primeiro comando, que passa a "aplicado por", com o item na timeline; ao resolver, o post mortem traz o comando aplicado na timeline.
+- [x] 5.1 `causa_raiz.yaml` (ou cenário novo `comandos_no_plano.yaml`): o war room mostra "Para voltar ao normal", os dois comandos na ordem e o "Onde rodar" de cada um; "Apliquei" no primeiro comando, que passa a "aplicado por", com o item na timeline; ao resolver, o post mortem traz o comando aplicado na timeline.
 
 ## 6. Integração (agente pai)
 
