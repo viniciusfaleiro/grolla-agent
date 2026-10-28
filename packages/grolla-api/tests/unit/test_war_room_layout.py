@@ -19,9 +19,16 @@ from grolla.testing.builders import T0, make_incident
 from grolla.testing.clock import FakeClock
 from grolla.testing.incidents import InMemoryIncidentRepository
 from grolla_api.app import Services, create_app
-from grolla_api.war_room import AUTHOR_COOKIE, event_kind, hypothesis_rows, situation_of
+from grolla_api.war_room import (
+    AUTHOR_COOKIE,
+    StepCommand,
+    event_kind,
+    hypothesis_rows,
+    situation_of,
+)
 
 NOW = T0 + timedelta(minutes=20)
+SCALE = "kubectl scale deploy/antifraude-api --replicas=2 -n loja"
 
 
 def analysis(status: AnalysisStatus = AnalysisStatus.COMPLETED, **changes: object) -> Analysis:
@@ -84,8 +91,8 @@ def test_situation_prefers_the_confirmed_root_cause_and_its_plan() -> None:
     assert s.title == "Antifraude-api  sem réplicas"
     assert s.text == "Deployment antifraude-api com 0 réplicas desde 15:16."
     assert not s.steps_from_analysis
-    assert s.steps[0].command == "kubectl scale deploy/antifraude-api --replicas=2 -n loja"
-    assert s.steps[1].command is None
+    assert s.steps[0].commands == (StepCommand(SCALE, None, False),)
+    assert s.steps[1].commands == ()
 
 
 @pytest.mark.parametrize(
@@ -110,7 +117,7 @@ def test_situation_without_a_cause_shows_the_best_hypothesis(ver: str | None, ki
     assert s.text == "O antifraude-api está com 0 réplicas."
     assert s.confidence == 75
     assert s.steps_from_analysis
-    assert s.steps[0].command == "kubectl get deploy -n loja"
+    assert s.steps[0].commands[0].command == "kubectl get deploy -n loja"
     if kind == "sem_causa":
         assert s.missing == "faltou o log do cluster"
 

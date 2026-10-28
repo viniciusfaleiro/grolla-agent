@@ -5,6 +5,29 @@
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 {% set s = situation %}
+{% set can_apply = author and "record" in header.actions %}
+{# O passo a passo do passo: onde rodar, o comando com Copiar e o "Apliquei" (ou quem já aplicou). #}
+{% macro step_commands(step, applied, can_apply, record_url) %}
+<ol class="step-commands">
+  {% for c in step.commands %}
+  {% set done = applied.get(c.command) %}
+  <li class="step-command">
+    {% if c.run_in %}<p class="run-in">Onde rodar: <strong>{{ c.run_in }}</strong></p>{% endif %}
+    <div class="command{% if c.destructive %} command-destructive{% endif %}"><code>{{ c.command }}</code><button type="button" class="button-copy" data-copy="{{ c.command }}"{% if c.destructive %} data-confirm="Este comando apaga, derruba ou zera algo. Confira o alvo antes de rodar. Copiar mesmo assim?"{% endif %}>{{ icon("copy") }}<span>Copiar</span></button></div>
+    {% if done %}
+    <p class="applied">{{ icon("check") }}aplicado por {{ display_name(done.author) }} às {{ hhmm(done.at) }}</p>
+    {% elif can_apply %}
+    <form class="apply" hx-post="{{ record_url }}" hx-target="#war-room" hx-swap="outerHTML">
+      <input type="hidden" name="texto" value="{{ step.what }}">
+      <input type="hidden" name="comando" value="{{ c.command }}">
+      {% if c.run_in %}<input type="hidden" name="onde" value="{{ c.run_in }}">{% endif %}
+      <button class="button-quiet button-small">Apliquei</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% endmacro %}
 <section id="war-room">
 {{ incident_status(incident, header, impact, alarm, author, now, alerts, merge_candidates | length > 0) }}
 
@@ -75,20 +98,19 @@
     {% if s.steps %}
     {% set first = s.steps[0] %}
     <div class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}">
-      <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Comece por aqui" }}</h3>
+      <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Para voltar ao normal" }}</h3>
       <p class="next-move-what">{{ first.what }}</p>
       {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
-      {% if first.command %}
       {% if first.destructive %}<p>{{ destructive_badge }}</p>{% endif %}
-      <div class="command{% if first.destructive %} command-destructive{% endif %}"><code>{{ first.command }}</code><button type="button" class="button-copy" data-copy="{{ first.command }}"{% if first.destructive %} data-confirm="Este comando apaga, derruba ou zera algo. Confira o alvo antes de rodar. Copiar mesmo assim?"{% endif %}>{{ icon("copy") }}<span>Copiar</span></button></div>
-      {% endif %}
+      {% if first.commands %}{{ step_commands(first, applied, can_apply, base ~ "record") }}{% endif %}
       {% if first.expected %}<p class="next-move-why">Esperado: {{ first.expected }}</p>{% endif %}
       {% if s.steps | length > 1 %}
       <details class="more-steps">
         <summary>Depois: mais {{ s.steps | length - 1 }} {{ "passo" if s.steps | length == 2 else "passos" }}</summary>
         <ol start="2">
           {% for step in s.steps[1:] %}
-          <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
+          <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}
+            {% if step.commands %}{{ step_commands(step, applied, can_apply, base ~ "record") }}{% endif %}</li>
           {% endfor %}
         </ol>
       </details>
