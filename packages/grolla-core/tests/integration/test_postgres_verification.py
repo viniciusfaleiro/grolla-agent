@@ -28,6 +28,7 @@ from grolla.domain.analysis import (
     Action,
     Analysis,
     AnalysisStatus,
+    Command,
     Evaluation,
     Evidence,
     Hypothesis,
@@ -470,3 +471,41 @@ async def test_outbox_card_without_verification_key_reads_as_no_verification(
         if item.notification.incident_id == incident.id
     ]
     assert item.notification == make_notification(incident.id)
+
+
+async def test_actions_keep_their_commands_and_old_rows_read_without_them(
+    repository: PostgresIncidentRepository,
+    queue: PostgresAnalysisQueue,
+    database: PostgresDatabase,
+) -> None:
+    incident_id = await analyzed(repository, queue)
+    await queue.claim_verification(STARTED)
+    base = confirmed(incident_id)
+    rollback, restart = base.actions
+    with_commands = replace(
+        rollback,
+        commands=(
+            Command("kubectl rollout history deploy/capture-api -n loja", "cluster loja-prod"),
+            Command("kubectl rollout undo deploy/capture-api -n loja", "cluster loja-prod"),
+        ),
+    )
+    verification = replace(base, actions=(with_commands, restart))
+    card = make_notification(incident_id, NotificationKind.ROOT_CAUSE, verification=verification)
+    await queue.finish_verification(verification, [], card, [], FINISHED)
+
+    assert await repository.verification_of(incident_id) == verification
+
+    # Linha gravada antes dos comandos recomendados: as ações não têm a chave `commands`.
+    async with database.engine.begin() as connection:
+        await connection.execute(
+            sa.text(
+                "UPDATE verifications SET actions ="
+                " (SELECT jsonb_agg(a - 'commands') FROM jsonb_array_elements(actions) a)"
+                " WHERE incident_id = :id"
+            ),
+            {"id": incident_id},
+        )
+
+    assert await repository.verification_of(incident_id) == replace(
+        verification, actions=(rollback, restart)
+    )
