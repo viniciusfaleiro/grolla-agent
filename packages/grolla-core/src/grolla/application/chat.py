@@ -29,6 +29,7 @@ from grolla.application.memory_store import MemoryStore, TextEmbedder
 from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
+    Command,
     Evaluation,
     PartialReason,
     Verification,
@@ -171,7 +172,8 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
 
     Com o teto de tokens do chat do incidente atingido, responde CHAT_LIMIT_REACHED sem chamar
     o modelo. Qualquer falha vira "não consegui responder: <motivo>", com as consultas feitas.
-    Pedido fora do domínio ou de execução vira a recusa fixa do escopo, sem as consultas.
+    Pedido fora do domínio ou de execução vira a recusa fixa do escopo, sem as consultas e sem
+    os comandos; só a resposta do domínio leva o passo a passo do modelo.
     """
     job = await queue.claim(clock.now())
     if job is None:
@@ -209,10 +211,11 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
             draft = await model.reply(brief, context, job.text, toolbox, budget)
     except Exception as error:  # qualquer falha vira "não consegui responder": a resposta chega
         reason = failure_reason(error, timed_out=deadline.expired())
-        text, ok, refusal = _failed(reason), False, None
+        text, ok, refusal, commands = _failed(reason), False, None, ()
     else:
         refusal = None if draft.scope is Scope.DOMAIN else draft.scope
         text, ok = (draft.text if refusal is None else REFUSALS[refusal]), True
+        commands = draft.commands if refusal is None else ()
     await _answer(
         queue,
         job,
@@ -222,6 +225,7 @@ async def run_next_reply(  # noqa: PLR0913 — o caso de uso liga os ports da in
         evaluations=toolbox.evaluations if refusal is None else (),
         usages=budget.usages,
         refusal=refusal,
+        commands=commands,
     )
     return True
 
@@ -252,6 +256,7 @@ async def _answer(  # noqa: PLR0913 — a resposta reúne o texto, as consultas 
     evaluations: Sequence[Evaluation] = (),
     usages: Sequence[LlmUsage] = (),
     refusal: Scope | None = None,
+    commands: tuple[Command, ...] = (),
 ) -> None:
     reply = ChatMessage(
         id=0,
@@ -263,6 +268,7 @@ async def _answer(  # noqa: PLR0913 — a resposta reúne o texto, as consultas 
         reply_status=ReplyStatus.ANSWERED if ok else ReplyStatus.FAILED,
         reply_to=job.message_id,
         refusal=refusal,
+        commands=commands,
     )
     data = {"reply_to": job.message_id, "ok": ok, "text": text}
     event = IncidentEvent(job.incident_id, now, EventType.AGENT_MESSAGE, data, AGENT_AUTHOR)

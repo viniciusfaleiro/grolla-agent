@@ -19,7 +19,7 @@ from grolla.application.investigation import (
     LanguageModelError,
 )
 from grolla.application.war_room import ask
-from grolla.domain.analysis import AnalysisStatus
+from grolla.domain.analysis import AnalysisStatus, Command
 from grolla.domain.chat import AGENT_AUTHOR, ChatDraft, ChatMessage, ReplyStatus
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState, Severity
 from grolla.domain.safety import REFUSALS, Scope
@@ -52,6 +52,16 @@ POLICY = AnalysisPolicy(
     chat_max_tokens_per_incident=400_000,
 )
 TOOLS = [("search_logs", {"service": "pedidos-db", "text": "connection"})]
+COMMANDS = (
+    Command(
+        "kubectl scale deployment antifraude-api --replicas=2 -n loja",
+        "cluster lab-k3s, namespace loja",
+    ),
+    Command(
+        "kubectl rollout status deployment/antifraude-api -n loja",
+        "cluster lab-k3s, namespace loja",
+    ),
+)
 
 
 class World:
@@ -322,3 +332,36 @@ async def test_request_in_the_domain_is_not_a_refusal(world: World) -> None:
 
     _, answer = await world.reply(incident_id)
     assert (answer.text, answer.refusal) == (draft.text, None)
+
+
+async def test_reply_in_the_domain_keeps_the_commands_in_order(world: World) -> None:
+    incident_id = await world.ask("quais comandos eu posso executar pra voltar ao normal e aonde?")
+    draft = ChatDraft("Volte as réplicas do antifraude-api.", commands=COMMANDS)
+
+    assert await world.run(ScriptedLanguageModel(chat=draft))
+
+    _, answer = await world.reply(incident_id)
+    assert (answer.text, answer.commands) == (draft.text, COMMANDS)
+
+
+@pytest.mark.parametrize("scope", [Scope.OFF_TOPIC, Scope.EXECUTION])
+async def test_refused_reply_never_has_commands(world: World, scope: Scope) -> None:
+    incident_id = await world.ask("escala o antifraude-api pra mim")
+    draft = ChatDraft("Pronto.", scope, commands=COMMANDS)
+
+    assert await world.run(ScriptedLanguageModel(chat=draft))
+
+    _, answer = await world.reply(incident_id)
+    assert (answer.refusal, answer.commands) == (scope, ())
+
+
+async def test_failed_reply_never_has_commands(world: World) -> None:
+    incident_id = await world.ask()
+    model = ScriptedLanguageModel(
+        chat=ChatDraft("x", commands=COMMANDS), chat_error=LanguageModelError("fora")
+    )
+
+    assert await world.run(model)
+
+    question, answer = await world.reply(incident_id)
+    assert (question.reply_status, answer.commands) == (ReplyStatus.FAILED, ())

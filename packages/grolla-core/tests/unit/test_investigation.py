@@ -334,22 +334,65 @@ def test_verification_prompt_asks_verdicts_root_cause_and_a_concrete_plan() -> N
         assert expected in VERIFICATION_PROMPT
 
 
-def test_verification_prompt_asks_commands_with_where_to_run_them() -> None:
+COMMAND_RULES = (
+    "O passo a passo, em ordem, no máximo 5 itens",
+    "o comando exato numa linha (command) e onde rodar (run_in)",
+    "O comando vai só nesse campo, nunca no texto",
+    "Use só os nomes e valores que as ferramentas ou o contexto mostraram",
+    "nunca escreva `<placeholder>` nem um valor chutado",
+    "o comando que dependeria dele fica de fora",
+    "Lugares diferentes viram itens separados",
+    "Encadeie (`&&`, `|`) só comandos curtos que rodam no mesmo lugar e fazem sentido juntos",
+    "o nome do cluster e o namespace, ou a conta e a região, ou o pipeline",
+    "escala o deployment antifraude-api para 2 réplicas no namespace loja",
+    'run_in "cluster loja-prod, namespace loja"',
+    'run_in "conta producao, região us-east-1"',
+    "você nunca executa um comando",
+)
+
+
+@pytest.mark.parametrize(
+    "prompt", [VERIFICATION_PROMPT, CHAT_PROMPT, CONSOLE_PROMPT], ids=["plano", "chat", "console"]
+)
+def test_prompts_ask_commands_with_where_to_run_them(prompt: str) -> None:
+    for expected in COMMAND_RULES:
+        assert expected in prompt
+
+
+def test_verification_prompt_says_what_is_missing_when_a_command_is_left_out() -> None:
     for expected in (
-        "commands de cada ação: o passo a passo que faz a ação, em ordem, no máximo 5 itens",
-        "o comando exato numa linha (command) e onde rodar (run_in)",
-        "Use só os nomes e valores que as ferramentas mostraram",
-        "nunca escreva `<placeholder>` nem um valor chutado",
-        "o comando que dependeria dele fica de fora e o expected diz o que falta",
+        "commands de cada ação: o passo a passo que faz a ação",
+        "o expected diz o que falta",
         "commands fica vazio",
-        "Lugares diferentes viram itens separados",
-        "Encadeie (`&&`, `|`) só comandos curtos que rodam no mesmo lugar e fazem sentido juntos",
-        "o nome do cluster e o namespace, ou a conta e a região, ou o pipeline",
-        "escala o deployment antifraude-api para 2 réplicas no namespace loja",
-        'run_in "cluster loja-prod, namespace loja"',
-        'run_in "conta producao, região us-east-1"',
     ):
         assert expected in VERIFICATION_PROMPT
+
+
+def test_chat_prompt_aims_to_end_the_crisis_with_ordered_actions_and_asks_what_is_missing() -> None:
+    for expected in (
+        "ajudar o time a resolver o incidente o mais rápido possível",
+        'uma linha "Ações:" com elas em ordem',
+        "Os comandos dessas ações vão no campo `commands`, nunca no texto",
+        '"Preciso de: ..." pedindo ao time exatamente o que falta e onde conseguir',
+        "mande o print do painel",
+        "Pedir isso é escopo `dominio`",
+        "até 60 palavras de texto; o passo a passo em `commands` não conta",
+    ):
+        assert expected in " ".join(CHAT_PROMPT.split())
+    assert "Sugestão:" not in CHAT_PROMPT
+    assert "uma ação só" not in CHAT_PROMPT
+
+
+def test_console_prompt_aims_to_solve_the_problem_and_asks_what_is_missing() -> None:
+    for expected in (
+        "resolver o problema da pessoa o mais rápido possível",
+        'uma linha "Ações:" com elas em ordem',
+        "Os comandos dessas ações vão no campo `commands`, nunca no texto",
+        '"Preciso de: ..." pedindo à pessoa exatamente o que falta e onde conseguir',
+        "até 60 palavras de texto; o passo a passo em `commands` não conta",
+    ):
+        assert expected in " ".join(CONSOLE_PROMPT.split())
+    assert "Sugestão:" not in CONSOLE_PROMPT
 
 
 def test_verification_text_has_the_services_line_hypotheses_and_evaluations() -> None:
