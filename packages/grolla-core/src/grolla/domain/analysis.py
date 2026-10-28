@@ -207,10 +207,16 @@ class Action:
 def usable_commands(raw: Iterable[tuple[str, str]]) -> tuple[Command, ...]:
     """Os comandos do modelo que cabem no plano, em ordem e no máximo MAX_COMMANDS.
 
-    Provisório do contrato: só limpa as pontas e corta; as regras de descarte vêm do domínio.
+    Cada um perde os espaços e as crases em volta; sai, sozinho, o que tem mais de uma linha,
+    passa de MAX_COMMAND_CHARS ou vem sem onde rodar. Encadear (`&&`, `|`, `;`) numa linha vale.
     """
-    cleaned = (Command(c.strip().strip("`").strip(), r.strip()) for c, r in raw)
-    return tuple(c for c in cleaned if c.command and c.run_in)[:MAX_COMMANDS]
+    kept: list[Command] = []
+    for raw_command, raw_run_in in raw:
+        command, run_in = raw_command.strip().strip("`").strip(), raw_run_in.strip()
+        one_line = "\n" not in command and "\r" not in command
+        if command and run_in and one_line and len(command) <= MAX_COMMAND_CHARS:
+            kept.append(Command(command, run_in))
+    return tuple(kept[:MAX_COMMANDS])
 
 
 @dataclass(frozen=True)

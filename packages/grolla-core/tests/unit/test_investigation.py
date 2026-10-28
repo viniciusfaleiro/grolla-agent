@@ -334,6 +334,24 @@ def test_verification_prompt_asks_verdicts_root_cause_and_a_concrete_plan() -> N
         assert expected in VERIFICATION_PROMPT
 
 
+def test_verification_prompt_asks_commands_with_where_to_run_them() -> None:
+    for expected in (
+        "commands de cada ação: o passo a passo que faz a ação, em ordem, no máximo 5 itens",
+        "o comando exato numa linha (command) e onde rodar (run_in)",
+        "Use só os nomes e valores que as ferramentas mostraram",
+        "nunca escreva `<placeholder>` nem um valor chutado",
+        "o comando que dependeria dele fica de fora e o expected diz o que falta",
+        "commands fica vazio",
+        "Lugares diferentes viram itens separados",
+        "Encadeie (`&&`, `|`) só comandos curtos que rodam no mesmo lugar e fazem sentido juntos",
+        "o nome do cluster e o namespace, ou a conta e a região, ou o pipeline",
+        "escala o deployment antifraude-api para 2 réplicas no namespace loja",
+        'run_in "cluster loja-prod, namespace loja"',
+        'run_in "conta producao, região us-east-1"',
+    ):
+        assert expected in VERIFICATION_PROMPT
+
+
 def test_verification_text_has_the_services_line_hypotheses_and_evaluations() -> None:
     incident = make_incident(services=(SERVICE, "capture-api"))
     analysis = make_analysis(incident.id)

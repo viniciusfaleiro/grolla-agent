@@ -110,6 +110,25 @@ async def test_closing_card_carries_root_cause_and_team_actions(world: World) ->
     assert card.verification == make_verification(incident_id)
 
 
+async def test_closing_card_lists_the_applied_command_and_where(world: World) -> None:
+    incident_id = await world.open_incident(IncidentState.HANDLING)
+    applied = RecordAction(
+        "Restaurar as réplicas do antifraude-api",
+        "kubectl scale deploy/antifraude-api --replicas=2 -n loja",
+        "cluster loja-prod, namespace loja",
+    )
+    await world.act(incident_id, applied)
+
+    await world.act(incident_id, Resolve("réplicas restauradas"))
+
+    card = world.repository.outbox[-1].notification
+    assert card.evidence.splitlines()[-1] == (
+        "- Aplicou: Restaurar as réplicas do antifraude-api — "
+        "kubectl scale deploy/antifraude-api --replicas=2 -n loja "
+        "(cluster loja-prod, namespace loja) (Ana)"
+    )
+
+
 async def test_closing_card_without_actions_or_verification(world: World) -> None:
     incident_id = await world.open_incident()
 

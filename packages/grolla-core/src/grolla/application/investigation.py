@@ -1069,6 +1069,21 @@ reduz o impacto mais rápido. Cada ação diz o que fazer (action), onde (target
 esperado (expected), por exemplo "fazer rollback para o build X", "religar o recurso Y" ou \
 "escalar Z"; para uma mudança no cluster, reverter o valor ou a revisão anterior (o time \
 executa, você nunca). Use o link de uma ferramenta quando houver.
+- commands de cada ação: o passo a passo que faz a ação, em ordem, no máximo 5 itens, cada \
+um com o comando exato numa linha (command) e onde rodar (run_in), na ferramenta que o time usa \
+para aquele lugar (a CLI do cluster, a do provedor de nuvem, a do pipeline, a de um banco). \
+Use só os nomes e valores que as ferramentas mostraram (cluster, namespace, workload, réplicas \
+ou revisão anteriores, build, recurso, conta, região); nunca escreva `<placeholder>` nem um valor \
+chutado. Sem um dado necessário, o comando que dependeria dele fica de fora e o expected diz o \
+que falta (por exemplo, "falta o valor anterior de DB_POOL_SIZE"); sem nenhum comando possível, \
+commands fica vazio. Lugares diferentes viram itens separados, na ordem (por exemplo, \
+reimplantar o build anterior no pipeline e depois acompanhar o rollout no cluster). Encadeie \
+(`&&`, `|`) só comandos curtos que rodam no mesmo lugar e fazem sentido juntos.
+- run_in de cada comando: onde rodar, com o nome do cluster e o namespace, ou a conta e a \
+região, ou o pipeline. Exemplos: o comando da CLI do cluster que escala o deployment \
+antifraude-api para 2 réplicas no namespace loja, com run_in "cluster loja-prod, namespace \
+loja"; o comando da CLI do provedor de nuvem que religa o banco grolla-lab-db na região \
+us-east-1, com run_in "conta producao, região us-east-1".
 - Nunca coloque passos de investigação no plano (investigar, verificar, checar, analisar, \
 consultar, confirmar, avaliar, revisar, examinar, observar, acompanhar, monitorar): isso você \
 já fez. Plano assim é recusado.
@@ -1485,6 +1500,9 @@ tempo a causa foi confirmada? O que o agente deixou passar ou demorou a ver?
 E `actions`: itens do plano de ação, cada um com a descrição (concreta e verificável) e o tipo: \
 prevenir (evitar que se repita), detectar (perceber antes) ou mitigar (resolver mais rápido). \
 Não atribua dono nem prazo: quem decide é o time.
+
+Os itens "Aplicou: <passo> — <comando> (<onde rodou>)" da timeline são os comandos que o time \
+diz ter rodado: cite o comando e o lugar ao contar como o incidente terminou e no plano.
 
 Não escreva as métricas nem a timeline: o núcleo calcula as duas do log. Não invente números, \
 horários nem links: o que o log não mostra fica como "não registrado". O contexto, o chat e o \

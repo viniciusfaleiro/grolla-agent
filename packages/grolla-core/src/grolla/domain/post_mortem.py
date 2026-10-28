@@ -22,6 +22,7 @@ from grolla.domain.incidents import (
     duration_text,
 )
 from grolla.domain.transcript import TRANSCRIPT_ORIGIN, HypothesisVerdict, TranscriptItemKind
+from grolla.domain.war_room import action_text
 
 AGENT_AUTHOR = "Grolla"
 
@@ -335,8 +336,11 @@ def timeline_text(events: Sequence[IncidentEvent]) -> str:
             lines.append(_transcript_line(event))
             continue
         who = f"{event.author}: " if origin in (CHAT_ORIGIN, PERSON_ORIGIN) else ""
-        what = EVENT_TEXT.get(event.type, event.type.value)
-        lines.append(f"- {event.at:%H:%M} [{origin}] {who}{what}{_detail(event.data)}")
+        if event.type is EventType.ACTION_RECORDED and event.data.get("command"):
+            what = " ".join(action_text(event.data).split())  # o comando aplicado vai inteiro
+        else:
+            what = EVENT_TEXT.get(event.type, event.type.value) + _detail(event.data)
+        lines.append(f"- {event.at:%H:%M} [{origin}] {who}{what}")
     return "\n".join(lines) or "- nenhum evento registrado"
 
 

@@ -6,9 +6,11 @@ from uuid import uuid4
 
 import pytest
 from grolla.domain.analysis import (
+    MAX_COMMAND_CHARS,
     PARTIAL_REASON_TEXT,
     Action,
     AnalysisStatus,
+    Command,
     Evaluation,
     NotConcreteError,
     PartialReason,
@@ -16,6 +18,7 @@ from grolla.domain.analysis import (
     Verification,
     VerificationDraft,
     check_plan,
+    usable_commands,
     verification_partial,
     verified,
 )
@@ -172,3 +175,55 @@ def test_builder_verification_states() -> None:
     assert partial.partial_reason is PartialReason.TIMEOUT
     assert partial.root_cause is None
     assert make_verification(incident_id).root_cause is not None
+
+
+CLUSTER = "cluster loja-prod, namespace loja"
+SCALE = "kubectl scale deploy/antifraude-api --replicas=2 -n loja"
+
+
+def test_usable_commands_trims_spaces_and_backticks() -> None:
+    assert usable_commands([(f"  `{SCALE}`  ", f" {CLUSTER} ")]) == (Command(SCALE, CLUSTER),)
+
+
+def test_short_chained_command_is_kept_whole() -> None:
+    chained = (
+        "kubectl rollout undo deploy/pedidos-api -n loja && "
+        "kubectl rollout status deploy/pedidos-api -n loja | tail -1; echo fim"
+    )
+
+    assert usable_commands([(chained, CLUSTER)]) == (Command(chained, CLUSTER),)
+
+
+@pytest.mark.parametrize(
+    ("command", "run_in"),
+    [
+        ("kubectl scale deploy/a --replicas=2 \\\n -n loja", CLUSTER),
+        ("kubectl get pods\r\nkubectl delete pod x", CLUSTER),
+        ("x" * (MAX_COMMAND_CHARS + 1), CLUSTER),
+        (SCALE, "   "),
+        ("  ``  ", CLUSTER),
+    ],
+)
+def test_unusable_command_is_dropped_alone(command: str, run_in: str) -> None:
+    pipeline = ("az pipelines run --name pedidos-api-cd", "pipeline pedidos-api-cd")
+
+    assert usable_commands([pipeline, (command, run_in), (SCALE, CLUSTER)]) == (
+        Command(*pipeline),
+        Command(SCALE, CLUSTER),
+    )
+
+
+def test_command_at_the_char_limit_is_kept() -> None:
+    longest = "x" * MAX_COMMAND_CHARS
+
+    assert usable_commands([(longest, CLUSTER)]) == (Command(longest, CLUSTER),)
+
+
+def test_only_the_first_five_usable_commands_stay_in_order() -> None:
+    raw = [("", CLUSTER)] + [(f"cmd {n}", CLUSTER) for n in range(7)]
+
+    assert [c.command for c in usable_commands(raw)] == [f"cmd {n}" for n in range(5)]
+
+
+def test_action_without_commands_has_an_empty_list() -> None:
+    assert Action("religar o banco", "grolla-lab-db", "banco disponível", None).commands == ()
