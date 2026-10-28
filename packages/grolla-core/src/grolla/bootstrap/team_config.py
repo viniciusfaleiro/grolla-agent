@@ -55,6 +55,9 @@ class StageConfig(_Section):
 
 
 class LlmConfig(_Section):
+    # Provedor do modelo; com `bedrock`, credenciais da cadeia padrão da AWS e IDs do Bedrock.
+    provider: Literal["anthropic", "bedrock"] = "anthropic"
+    region: str | None = None
     stages: dict[
         Literal[
             "investigation",
@@ -70,6 +73,14 @@ class LlmConfig(_Section):
         ],
         StageConfig,
     ]
+
+    @model_validator(mode="after")
+    def _region_only_with_bedrock(self) -> Self:
+        if self.provider == "bedrock" and not self.region:
+            raise ValueError("llm.region é obrigatória com provider bedrock")
+        if self.provider == "anthropic" and self.region is not None:
+            raise ValueError("llm.region só vale com provider bedrock")
+        return self
 
 
 class TelemetryConfig(_Section):

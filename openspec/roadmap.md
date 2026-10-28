@@ -248,6 +248,13 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   recusada, selo em comando destrutivo, limite por pessoa, teste de capacidade e evals de ataque.
 - **Ports:** `MessageCounter`.
 
+## S11.6 · Modelo no Bedrock
+
+- **Valor:** times que só podem usar LLM pela própria conta AWS rodam o Grolla com o mesmo Claude.
+- **Escopo:** `llm.provider: bedrock` e `llm.region` no YAML, credencial padrão da AWS, IDs do Bedrock
+  em `llm.stages`, suítes de contrato no modo Bedrock e a política `deploy/iam-bedrock.json`.
+- **Ports:** nenhum; é um modo do adapter da Anthropic.
+
 ## S12 · Times, login e administração
 
 - **Valor:** vários times usam o mesmo Grolla, cada um vendo e trabalhando só no que é seu.

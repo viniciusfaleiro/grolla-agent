@@ -89,3 +89,38 @@ def test_triage_is_requested_only_with_the_noise_section() -> None:
     policy = on.triage_policy()
     assert policy is not None
     assert policy.window.total_seconds() == 600
+
+
+LLM = "llm:\n  stages:\n    investigation: { model: m }\n"
+
+
+def test_llm_without_provider_is_the_anthropic_api(tmp_path: Path) -> None:
+    config = load_team_config(write(tmp_path, EXAMPLE + LLM))
+
+    assert config.llm is not None
+    assert config.llm.provider == "anthropic"
+    assert config.llm.region is None
+
+
+def test_bedrock_reads_the_region(tmp_path: Path) -> None:
+    content = EXAMPLE + LLM + "  provider: bedrock\n  region: us-east-1\n"
+
+    config = load_team_config(write(tmp_path, content))
+
+    assert config.llm is not None
+    assert (config.llm.provider, config.llm.region) == ("bedrock", "us-east-1")
+
+
+@pytest.mark.parametrize(
+    ("extra", "field"),
+    [
+        ("  provider: bedrock\n", r"llm\.region"),
+        ("  region: us-east-1\n", r"llm\.region"),
+        ("  provider: vertex\n", r"llm\.provider"),
+    ],
+)
+def test_invalid_provider_or_region_points_to_the_field(
+    tmp_path: Path, extra: str, field: str
+) -> None:
+    with pytest.raises(ConfigError, match=field):
+        load_team_config(write(tmp_path, EXAMPLE + LLM + extra))

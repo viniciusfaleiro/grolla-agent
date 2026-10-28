@@ -17,7 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
-from grolla.adapters.anthropic import ClaudeLanguageModel, ModelSettings
+from grolla.adapters.anthropic import AnthropicApi, Bedrock, ClaudeLanguageModel, ModelSettings
 from grolla.application.investigation import (
     STAGE_INVESTIGATION,
     InvestigationBrief,
@@ -199,11 +199,15 @@ async def run(model: LanguageModel) -> list[tuple[Case, str | None]]:
 def model_from(config: Path) -> ClaudeLanguageModel:
     team = load_team_config(config)
     stage = team.llm.stages[STAGE_INVESTIGATION] if team.llm else None
-    key = os.environ.get("GROLLA_ANTHROPIC_API_KEY")
-    if stage is None or not key:
-        raise SystemExit(f"evals: precisa de GROLLA_ANTHROPIC_API_KEY e llm.stages em {config}")
+    if stage is None:
+        raise SystemExit(f"evals: precisa de llm.stages em {config}")
     settings = ModelSettings(model=stage.model, max_tokens=stage.max_tokens, effort=stage.effort)
-    return ClaudeLanguageModel(key, settings)
+    if team.llm and team.llm.provider == "bedrock" and team.llm.region:
+        return ClaudeLanguageModel(Bedrock(team.llm.region), settings)
+    key = os.environ.get("GROLLA_ANTHROPIC_API_KEY")
+    if not key:
+        raise SystemExit("evals: precisa de GROLLA_ANTHROPIC_API_KEY com llm.provider anthropic")
+    return ClaudeLanguageModel(AnthropicApi(key), settings)
 
 
 def main() -> None:

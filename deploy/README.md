@@ -55,7 +55,7 @@ Cada incidente novo recebe dois cards: "Estou investigando", na hora, e "Anális
 
 | Fonte | Como | Configuração |
 |---|---|---|
-| **LLM** | API da Anthropic, modelo da etapa `investigation` | `llm.stages.investigation` · `GROLLA_ANTHROPIC_API_KEY` |
+| **LLM** | Claude pela API da Anthropic (padrão) ou pelo Amazon Bedrock, modelo da etapa `investigation` | `llm.provider` · `llm.stages.investigation` · `GROLLA_ANTHROPIC_API_KEY` (só com `anthropic`) |
 | **SigNoz** | Container `signoz-mcp` (servidor MCP oficial), só na rede interna. O agente chama apenas ferramentas de leitura de uma lista fechada | `signoz.mcp_url` e `signoz.base_url` · `GROLLA_SIGNOZ_URL` e `GROLLA_SIGNOZ_API_KEY` |
 | **Azure DevOps** | API REST de builds, para os deploys recentes | `azure_devops.base_url` e `projects` · `GROLLA_AZURE_DEVOPS_TOKEN` |
 | **AWS** | Somente leitura: estado dos recursos do serviço (RDS, EC2, ELB, ECS, EKS), mudanças no CloudTrail, alarmes do CloudWatch, eventos do AWS Health e cotas, numa ou em várias contas | `cloud.regions` · `cloud.accounts` · role da EC2 ou `AWS_*` |
@@ -67,6 +67,14 @@ Cada incidente passa por duas fases. A **análise inicial** gera as hipóteses e
 - Use uma role somente leitura na EC2 do agente ou um usuário IAM com a política [`iam-somente-leitura.json`](iam-somente-leitura.json). A política lista só ações de leitura (Describe, List, Get, Lookup) e o `sts:AssumeRole` das roles `grolla-somente-leitura`.
 - **Várias contas:** em cada conta extra, crie a role `grolla-somente-leitura` com a mesma política (sem o statement de AssumeRole) e a confiança de [`iam-confianca-role.json`](iam-confianca-role.json), trocando `<CONTA_PRINCIPAL>` pelo id da conta do agente. Depois liste a conta em `cloud.accounts` (`name`, `role_arn`, `regions`). A falha de uma conta aparece na resposta e não esconde as outras. Nenhuma credencial vai no YAML.
 - O AWS Health só responde com plano de suporte Business ou Enterprise; sem ele, a ferramenta diz que os eventos estão indisponíveis e a investigação segue.
+
+**Modelo pelo Amazon Bedrock (opcional):**
+
+- No YAML, use `llm.provider: bedrock` e `llm.region` (a região em que o modelo é chamado). Sem `llm.provider`, vale a API da Anthropic com `GROLLA_ANTHROPIC_API_KEY`. Com `bedrock`, a chave não é usada.
+- Os IDs em `llm.stages` passam a ser os do Bedrock: o ID do modelo ou o de um inference profile (prefixo da região, como `us.`), conforme o console do Bedrock mostra na sua conta. Os modelos e os recursos chegam ao Bedrock no ritmo da AWS. Antes de subir, confira se cada modelo configurado está disponível na região.
+- No console do Bedrock, libere o acesso a cada modelo usado.
+- Dê à credencial do worker (a role da EC2) a política [`iam-bedrock.json`](iam-bedrock.json), com `bedrock:InvokeModel` só nos modelos e profiles usados. As roles `grolla-somente-leitura` das outras contas não recebem essa permissão. O agente continua sem nenhuma ferramenta de escrita, e o teste de capacidade do `make check` garante isso.
+- A investigação faz rajadas de chamadas. Se aparecer throttling (429), o SDK repete a chamada sozinho. Se o throttling continuar, peça aumento das cotas de tokens por minuto do modelo no Service Quotas.
 
 **Clusters (Kubernetes, somente leitura):**
 

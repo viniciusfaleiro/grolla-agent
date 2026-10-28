@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GrollaChamaOModelo",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/<ID_DO_MODELO>",
+        "arn:aws:bedrock:<REGIAO>:<CONTA_PRINCIPAL>:inference-profile/<ID_DO_PROFILE>"
+      ]
+    }
+  ]
+}

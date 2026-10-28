@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![HTMX](https://img.shields.io/badge/HTMX-war%20room-3366CC?logo=htmx&logoColor=white)](https://htmx.org/)
 
-[![Claude](https://img.shields.io/badge/LLM-Claude%20(Anthropic)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Claude](https://img.shields.io/badge/LLM-Claude%20(Anthropic%20%C2%B7%20Bedrock)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 [![Memória viva](https://img.shields.io/badge/mem%C3%B3ria-viva-8A2BE2)](#-a-memória-viva-do-grolla)
 [![RAG](https://img.shields.io/badge/RAG-h%C3%ADbrido%20%C2%B7%20embeddings%20locais-FF6F00?logo=onnx&logoColor=white)](#-como-funciona-o-rag)
 [![MCP](https://img.shields.io/badge/MCP-SigNoz-6E56CF)](#-features)
@@ -25,7 +25,7 @@
 [![Coverage floor](https://img.shields.io/badge/cobertura-domain%2090%2F80%20%C2%B7%20application%2080%2F70-success)](#-gates-de-qualidade--o-harness)
 [![Code style](https://img.shields.io/badge/estilo-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Workflow](https://img.shields.io/badge/workflow-spec--driven%20(OpenSpec)-9cf)](#-spec-driven-development)
-[![Status](https://img.shields.io/badge/status-agente%20cercado%20%E2%9C%93-brightgreen)](#-roadmap)
+[![Status](https://img.shields.io/badge/status-modelo%20no%20Bedrock%20%E2%9C%93-brightgreen)](#-roadmap)
 
 ### ▶️ Veja o Grolla em ação
 
@@ -226,7 +226,8 @@ usa, com suíte de contrato, fake e adapter real. Hoje existem `Clock`, `AlertIn
 - **pydantic** / **pydantic-settings** para contratos e configuração (`GROLLA_*`).
 - **Jinja2** para as páginas server-side; **httpx2** como cliente HTTP dos adapters.
 - **Anthropic SDK** (Claude) com laço de ferramentas manual e structured outputs; **mcp** como
-  cliente do servidor MCP do SigNoz. Modelo por etapa no YAML.
+  cliente do servidor MCP do SigNoz. Modelo por etapa no YAML, pela API da Anthropic ou pelo
+  Amazon Bedrock (`llm.provider: bedrock`, com a role da AWS e sem chave).
 - **Docker Compose**: uma imagem por deployable; deploy manual numa EC2, uma instância por time
   ([`deploy/`](deploy/)).
 
@@ -380,6 +381,7 @@ produção ([`openspec/roadmap.md`](openspec/roadmap.md)):
 - **Post mortem redesenhado** · totais e filtros na lista, próxima ação, índice com o que falta ✅
 - **Chat, memória e métricas redesenhados** · conversas ao lado, assuntos com o frescor, período atual em destaque ✅
 - **Agente cercado** · só investiga e só fala do domínio: recusas fixas, dados externos marcados, memória sem envenenamento, selo destrutivo, evals de ataque ✅
+- **Modelo no Bedrock** · o mesmo Claude pelo Amazon Bedrock da conta do time, com a role da AWS e sem chave, escolhido no YAML ✅
 - **S4 — On-call acionado sozinho** · aguardando conta no Spike.sh
 - **S12 — Times, login e administração** · times ligados ao domínio de alarmes (cada um com os seus alarmes e métricas, tudo separado), login com Entra ID, painel admin com perfis e troca de time para quem participa de mais de um
 
