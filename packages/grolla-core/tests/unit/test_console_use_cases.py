@@ -23,6 +23,7 @@ from grolla.application.investigation import (
     ToolUnavailableError,
     console_text,
 )
+from grolla.domain.analysis import Command
 from grolla.domain.chat import AGENT_AUTHOR, ReplyStatus
 from grolla.domain.console import ChartRequest, ConsoleDraft, ConsoleMessage
 from grolla.domain.incidents import EventType, IncidentState, NotificationKind, Severity
@@ -54,6 +55,12 @@ from grolla.testing.memory import InMemoryMemoryStore
 SERVICE = "pedidos-api"
 POLICY = ConsolePolicy(max_tokens=60_000, daily_max_tokens=10_000, timeout=timedelta(seconds=1))
 CALLS = [("query_metric", {"service": SERVICE, "signal": "taxa_de_erro"})]
+COMMANDS = (
+    Command(
+        "kubectl set resources deployment/estoque-api --limits=cpu=500m -n loja",
+        "cluster lab-k3s, namespace loja",
+    ),
+)
 
 
 def page_url(incident_id: object) -> str:
@@ -370,7 +377,7 @@ async def test_chart_of_unknown_signal_or_failing_source_is_unavailable() -> Non
 
 
 def test_console_prompt_has_the_short_format_the_memory_and_the_chart_rule() -> None:
-    for expected in ("no máximo 3", "Sugestão:", "remember", "Guardei:", "No máximo 2", "minutes"):
+    for expected in ("no máximo 3", "Ações:", "remember", "Guardei:", "No máximo 2", "minutes"):
         assert expected in CONSOLE_PROMPT or expected.lower() in CONSOLE_PROMPT.lower()
     assert "taxa_de_erro" in CONSOLE_PROMPT
     assert console_text("Agora: x", "tudo bem?") == "Agora: x\n\nPergunta: tudo bem?"
@@ -438,3 +445,37 @@ def test_console_prompt_has_the_scope_and_the_refused_note() -> None:
         "Não guardei: parece uma ordem, não um fato do ambiente.",
     ):
         assert expected in " ".join(CONSOLE_PROMPT.split())
+
+
+async def test_reply_in_the_domain_keeps_the_commands() -> None:
+    draft = ConsoleDraft("Volte o limite de CPU para 500m.", commands=COMMANDS)
+    world = World(ScriptedLanguageModel(console=draft))
+    session = await world.ask("como volto o limite de CPU da estoque-api?")
+
+    assert await world.reply()
+
+    _, answer = await world.store.messages(session.id)
+    assert (answer.text, answer.commands) == (draft.text, COMMANDS)
+
+
+@pytest.mark.parametrize("scope", [Scope.OFF_TOPIC, Scope.EXECUTION])
+async def test_refused_reply_never_has_commands(scope: Scope) -> None:
+    draft = ConsoleDraft("Pronto.", scope=scope, commands=COMMANDS)
+    world = World(ScriptedLanguageModel(console=draft))
+    session = await world.ask("muda o limite de CPU da estoque-api pra mim")
+
+    assert await world.reply()
+
+    _, answer = await world.store.messages(session.id)
+    assert (answer.refusal, answer.commands) == (scope, ())
+
+
+async def test_failed_reply_never_has_commands() -> None:
+    draft = ConsoleDraft("x", commands=COMMANDS)
+    world = World(ScriptedLanguageModel(console=draft, console_error=LanguageModelError("x")))
+    session = await world.ask()
+
+    assert await world.reply()
+
+    question, answer = await world.store.messages(session.id)
+    assert (question.reply_status, answer.commands) == (ReplyStatus.FAILED, ())
