@@ -85,7 +85,7 @@
       <p class="next-move-what">{{ first.what }}</p>
       {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
       {% if first.destructive %}<p>{{ destructive_badge }}</p>{% endif %}
-      {% if first.commands %}{{ step_commands(first, applied, can_apply, base ~ "record") }}{% endif %}
+      {% if first.commands %}{{ step_commands(first.commands, first.what, applied, can_apply, base ~ "record") }}{% endif %}
       {% if first.expected %}<p class="next-move-why">Esperado: {{ first.expected }}</p>{% endif %}
       {% if s.steps | length > 1 %}
       <details class="more-steps">
@@ -93,7 +93,7 @@
         <ol start="2">
           {% for step in s.steps[1:] %}
           <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}
-            {% if step.commands %}{{ step_commands(step, applied, can_apply, base ~ "record") }}{% endif %}</li>
+            {% if step.commands %}{{ step_commands(step.commands, step.what, applied, can_apply, base ~ "record") }}{% endif %}</li>
           {% endfor %}
         </ol>
       </details>

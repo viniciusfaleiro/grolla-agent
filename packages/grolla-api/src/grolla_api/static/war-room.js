@@ -26,6 +26,9 @@
   document.addEventListener("htmx:afterRequest", (event) => {
     const form = event.detail.elt;
     if (event.detail.successful && form.matches && form.matches("form[data-reset]")) form.reset();
+    // "Apliquei" no chat redesenha o war room; a conversa busca já o "aplicado por", sem esperar o polling.
+    const chat = form.closest && form.closest("#chat-messages");
+    if (event.detail.successful && chat && form.matches("form.apply")) htmx.trigger(chat, "chat:refresh");
     if (event.detail.successful && form.matches && form.matches("form[data-chat-form]")) {
       form.reset();
       const area = form.querySelector("textarea");

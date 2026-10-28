@@ -162,6 +162,7 @@ from grolla_api.war_room import (
     applied_commands,
     chat_version,
     closed_row,
+    command_steps,
     current_proposal,
     decode_author,
     discarded_hypotheses,
@@ -295,6 +296,7 @@ TEMPLATE_GLOBALS: dict[str, Any] = {
     "percent": percent,
     "trend_label": trend_label,
     "rich_text": rich_text,
+    "command_steps": command_steps,
     "destructive_badge": DESTRUCTIVE_BADGE,
     "visible_events": visible_events,
     "from_transcript": from_transcript,
@@ -484,11 +486,15 @@ def create_app(services: Services) -> FastAPI:  # noqa: PLR0915 — uma função
 
     async def chat_context(incident: Incident, author: str | None) -> dict[str, Any]:
         messages = await repository.chat_of(incident.id)
+        applied = applied_commands(await repository.events_of(incident.id))
+        actions = header_of(incident, services.clock.now(), author).actions
         return {
             "incident": incident,
             "author": author,
             "messages": messages,
-            "chat_version": chat_version(messages),
+            "applied": applied,
+            "chat_can_apply": author is not None and "record" in actions,
+            "chat_version": chat_version(messages, applied),
         }
 
     async def timeline_context(incident: Incident) -> dict[str, Any]:
