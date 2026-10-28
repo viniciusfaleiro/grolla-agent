@@ -77,6 +77,7 @@ def _chat_message(row: sa.Row[Any]) -> ChatMessage:
         reply_status=None if row.reply_status is None else ReplyStatus(row.reply_status),
         reply_to=row.reply_to,
         refusal=None if row.refusal is None else Scope(row.refusal),
+        commands=commands_from(row.commands),
     )
 
 
@@ -114,6 +115,14 @@ def evaluations_data(evaluations: Sequence[Evaluation]) -> list[dict[str, Any]]:
         {"tool": e.tool, "subject": e.subject, "finding": e.finding, "url": e.url, "ok": e.ok}
         for e in evaluations
     ]
+
+
+def commands_data(commands: Sequence[Command]) -> list[dict[str, str]]:
+    return [{"command": c.command, "run_in": c.run_in} for c in commands]
+
+
+def commands_from(data: Sequence[Mapping[str, Any]]) -> tuple[Command, ...]:
+    return tuple(Command(c["command"], c["run_in"]) for c in data)
 
 
 def hypotheses_data(hypotheses: Sequence[Hypothesis]) -> list[dict[str, Any]]:
@@ -154,7 +163,7 @@ def actions_data(actions: Sequence[Action]) -> list[dict[str, Any]]:
             "target": a.target,
             "expected": a.expected,
             "link": a.link,
-            "commands": [{"command": c.command, "run_in": c.run_in} for c in a.commands],
+            "commands": commands_data(a.commands),
         }
         for a in actions
     ]
@@ -204,7 +213,7 @@ def _verification(data: Mapping[str, Any]) -> Verification:
                 expected=a["expected"],
                 link=a["link"],
                 # Ações gravadas antes dos comandos recomendados não têm a chave.
-                commands=tuple(Command(c["command"], c["run_in"]) for c in a.get("commands", [])),
+                commands=commands_from(a.get("commands", [])),
             )
             for a in data["actions"]
         ),
@@ -412,10 +421,10 @@ async def insert_message(
     result = await connection.execute(
         sa.text(
             "INSERT INTO chat_messages (incident_id, author, text, at, evaluations,"
-            " reply_status, reply_to, refusal) VALUES (:incident_id, :author, :text, :at,"
-            " CAST(:evaluations AS jsonb), :reply_status, :reply_to, :refusal)"
-            " RETURNING id, incident_id, author, text, at, evaluations, reply_status, reply_to,"
-            " refusal"
+            " reply_status, reply_to, refusal, commands) VALUES (:incident_id, :author, :text,"
+            " :at, CAST(:evaluations AS jsonb), :reply_status, :reply_to, :refusal,"
+            " CAST(:commands AS jsonb)) RETURNING id, incident_id, author, text, at,"
+            " evaluations, reply_status, reply_to, refusal, commands"
         ),
         {
             "incident_id": message.incident_id,
@@ -426,6 +435,7 @@ async def insert_message(
             "reply_status": None if reply_status is None else reply_status.value,
             "reply_to": reply_to,
             "refusal": None if message.refusal is None else message.refusal.value,
+            "commands": json.dumps(commands_data(message.commands)),
         },
     )
     return _chat_message(result.one())
@@ -687,7 +697,7 @@ class PostgresIncidentRepository:
             result = await connection.execute(
                 sa.text(
                     "SELECT id, incident_id, author, text, at, evaluations, reply_status, reply_to,"
-                    " refusal FROM chat_messages"
+                    " refusal, commands FROM chat_messages"
                     " WHERE incident_id = :id ORDER BY at, id"
                 ),
                 {"id": incident_id},

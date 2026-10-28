@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from grolla.adapters.postgres.analysis import record_usages
 from grolla.adapters.postgres.database import PostgresDatabase
-from grolla.adapters.postgres.incidents import evaluations_data, evaluations_from
+from grolla.adapters.postgres.incidents import (
+    commands_data,
+    commands_from,
+    evaluations_data,
+    evaluations_from,
+)
 from grolla.application.console import ConsoleJob
 from grolla.application.investigation import STAGE_CONSOLE, LlmUsage
 from grolla.domain.chat import ReplyStatus
@@ -58,6 +63,7 @@ def _message(row: sa.Row[Any]) -> ConsoleMessage:
         reply_status=None if row.reply_status is None else ReplyStatus(row.reply_status),
         reply_to=row.reply_to,
         refusal=None if row.refusal is None else Scope(row.refusal),
+        commands=commands_from(row.commands),
     )
 
 
@@ -85,10 +91,10 @@ async def _insert_message(
     result = await connection.execute(
         sa.text(
             "INSERT INTO console_messages (session_id, author, text, at, charts, evaluations,"
-            " reply_status, reply_to, refusal) VALUES (:session_id, :author, :text, :at,"
-            " CAST(:charts AS jsonb), CAST(:evaluations AS jsonb), :reply_status, :reply_to,"
-            " :refusal) RETURNING id, session_id, author, text, at, charts, evaluations,"
-            " reply_status, reply_to, refusal"
+            " reply_status, reply_to, refusal, commands) VALUES (:session_id, :author, :text,"
+            " :at, CAST(:charts AS jsonb), CAST(:evaluations AS jsonb), :reply_status,"
+            " :reply_to, :refusal, CAST(:commands AS jsonb)) RETURNING id, session_id, author,"
+            " text, at, charts, evaluations, reply_status, reply_to, refusal, commands"
         ),
         {
             "session_id": message.session_id,
@@ -100,6 +106,7 @@ async def _insert_message(
             "reply_status": None if reply_status is None else reply_status.value,
             "reply_to": reply_to,
             "refusal": None if message.refusal is None else message.refusal.value,
+            "commands": json.dumps(commands_data(message.commands)),
         },
     )
     return _message(result.one())
@@ -173,7 +180,8 @@ class PostgresConsoleStore:
             result = await connection.execute(
                 sa.text(
                     "SELECT id, session_id, author, text, at, charts, evaluations,"
-                    " reply_status, reply_to, refusal FROM console_messages WHERE session_id = :id"
+                    " reply_status, reply_to, refusal, commands FROM console_messages"
+                    " WHERE session_id = :id"
                     " ORDER BY at, id"
                 ),
                 {"id": session_id},

@@ -19,6 +19,7 @@ from grolla.adapters.postgres import (
 from grolla.adapters.postgres.urls import sqlalchemy_url
 from grolla.application.console import ConsoleStore
 from grolla.application.investigation import STAGE_CONSOLE, STAGE_WARROOM_CHAT
+from grolla.domain.analysis import Command
 from grolla.domain.chat import AGENT_AUTHOR, ReplyStatus
 from grolla.domain.console import ChartRequest, ConsoleMessage, ConsoleSession
 from grolla.testing.builders import T0, make_evaluations, make_incident
@@ -30,6 +31,10 @@ pytestmark = pytest.mark.integration
 PARALLEL_CLAIMS = 12
 STARTED = T0 + timedelta(seconds=5)
 CHART = ChartRequest(service="checkout", signal="taxa_de_erro", minutes=30)
+COMMANDS = (
+    Command("aws ecs describe-services --cluster loja", "conta prod, us-east-1"),
+    Command("aws ecs update-service --cluster loja --force-new-deployment", "conta prod"),
+)
 
 
 @pytest.fixture(scope="module")
@@ -108,6 +113,7 @@ async def test_reply_keeps_charts_and_evaluations_and_records_usage_without_inci
     assert answer.evaluations == make_evaluations()
     assert answer.reply_to == question.id
     assert answer.reply_status is None
+    assert answer.commands == ()
     async with database.engine.connect() as connection:
         incidents = (
             await connection.execute(
@@ -116,6 +122,22 @@ async def test_reply_keeps_charts_and_evaluations_and_records_usage_without_inci
             )
         ).scalars()
         assert set(incidents) == {None}
+
+
+async def test_reply_commands_round_trip_in_order(store: PostgresConsoleStore) -> None:
+    await drain(store)
+    session_id, _ = await started(store, "como reinicio o checkout?")
+    job = await store.claim(STARTED)
+    assert job is not None
+    reply = ConsoleMessage(
+        0, session_id, AGENT_AUTHOR, "Force um deploy novo.", STARTED, commands=COMMANDS
+    )
+
+    await store.answer(job, reply, [], STARTED)
+
+    question, answer = await store.messages(session_id)
+    assert answer.commands == COMMANDS
+    assert question.commands == ()
 
 
 async def test_tokens_since_counts_only_the_console_stage_in_the_window(

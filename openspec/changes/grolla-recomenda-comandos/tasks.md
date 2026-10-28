@@ -45,7 +45,7 @@
 - [x] 7.0 Contratos (agente pai): `commands` em `ChatDraft`, `ChatMessage`, `ConsoleDraft` e `ConsoleMessage`; migração 0015; macro `step_commands` num arquivo compartilhado de templates; commit de contrato.
 - [x] 7.1 grolla-dominio: o chat e o console levam `draft.commands` para a mensagem (nunca na recusa); `CHAT_PROMPT` e `CONSOLE_PROMPT` com ações em ordem, comandos em `commands`, pedido da evidência que falta e o objetivo de resolver rápido; testes; `make check`.
 - [x] 7.2 grolla-integracoes: `commands` nos schemas do chat e do console, com `usable_commands`; o fake responde com dois comandos quando a pergunta cita "comando"; testes; `make check`.
-- [ ] 7.3 grolla-persistencia: grava e lê `commands` de `chat_messages` e `console_messages`; testes; `make check`.
+- [x] 7.3 grolla-persistencia: grava e lê `commands` de `chat_messages` e `console_messages`; testes; `make check`.
 - [x] 7.4 grolla-web: o chat e o console desenham os comandos com o macro do plano; "Apliquei" só no chat do war room ("Sugerido no chat"); testes; `make check`.
 - [x] 7.5 grolla-e2e: no war room, a pergunta "quais comandos eu posso executar pra voltar ao normal e aonde?" recebe os comandos com onde rodar e "Apliquei"; no console, os comandos com Copiar.
 
