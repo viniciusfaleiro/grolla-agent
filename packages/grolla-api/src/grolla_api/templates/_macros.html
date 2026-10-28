@@ -35,10 +35,11 @@
 {# Ícones de traço, na cor do texto; decorativos (o texto ao lado diz o que é). #}
 {% macro icon(name) %}<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{% if name == "check" %}<path d="M5 12.5l4.2 4.2L19 7"/>{% elif name == "back" %}<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>{% elif name == "more" %}<circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/>{% elif name == "clock" %}<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>{% elif name == "copy" %}<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>{% elif name == "merge" %}<path d="M8 7h8M8 12h8M8 17h5"/><rect x="3" y="3" width="18" height="18" rx="4"/>{% elif name == "history" %}<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/>{% elif name == "alert" %}<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>{% elif name == "search" %}<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>{% elif name == "filter" %}<path d="M4 5h16l-6 7.5V19l-4 1.5v-8Z"/>{% elif name == "plus" %}<path d="M12 5v14M5 12h14"/>{% elif name == "shield" %}<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/>{% endif %}</svg>{% endmacro %}
 
-{# O passo a passo do passo: onde rodar, o comando com Copiar e o "Apliquei" (ou quem já aplicou). #}
-{% macro step_commands(step, applied, can_apply, record_url) %}
+{# O passo a passo de comandos (do plano, do chat ou do console): onde rodar, o comando com Copiar e
+   o "Apliquei" (ou quem já aplicou). `text` é o que o "Apliquei" registra; sem `can_apply`, só Copiar. #}
+{% macro step_commands(commands, text, applied, can_apply, record_url) %}
 <ol class="step-commands">
-  {% for c in step.commands %}
+  {% for c in commands %}
   {% set done = applied.get(c.command) %}
   <li class="step-command">
     {% if c.run_in %}<p class="run-in">Onde rodar: <strong>{{ c.run_in }}</strong></p>{% endif %}
@@ -46,8 +47,8 @@
     {% if done %}
     <p class="applied">{{ icon("check") }}aplicado por {{ display_name(done.author) }} às {{ hhmm(done.at) }}</p>
     {% elif can_apply %}
-    <form class="apply" hx-post="{{ record_url }}" hx-target="#war-room" hx-swap="outerHTML">
-      <input type="hidden" name="texto" value="{{ step.what }}">
+    <form class="apply" hx-post="{{ record_url }}" hx-target="#war-room" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="texto" value="{{ text }}">
       <input type="hidden" name="comando" value="{{ c.command }}">
       {% if c.run_in %}<input type="hidden" name="onde" value="{{ c.run_in }}">{% endif %}
       <button class="button-quiet button-small">Apliquei</button>

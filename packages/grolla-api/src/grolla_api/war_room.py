@@ -708,10 +708,16 @@ def is_waiting(message: ChatMessage) -> bool:
     return message.reply_status in (ReplyStatus.PENDING, ReplyStatus.RUNNING)
 
 
-def chat_version(messages: Sequence[ChatMessage]) -> str:
-    """Muda quando chega mensagem ou uma pergunta deixa de esperar: o polling só troca o chat aí."""
+def chat_version(
+    messages: Sequence[ChatMessage], applied: Mapping[str, IncidentEvent] | None = None
+) -> str:
+    """Muda quando chega mensagem, uma pergunta deixa de esperar ou alguém aplica um comando: o
+    polling só troca o chat aí (o "Apliquei" do chat vira "aplicado por").
+    """
     waiting = sum(1 for message in messages if is_waiting(message))
-    return f"{len(messages)}-{waiting}"
+    last = max((event.at for event in (applied or {}).values()), default=None)
+    version = f"{len(messages)}-{waiting}"
+    return f"{version}-{last.isoformat()}" if last else version
 
 
 def linked_incident(event: IncidentEvent) -> UUID | None:
@@ -815,6 +821,11 @@ class Situation:
     steps_from_analysis: bool  # plano da análise: o que investigar, não o que executar
 
 
+def command_steps(commands: Sequence[Command]) -> tuple[StepCommand, ...]:
+    """O passo a passo para a tela: cada comando com onde rodar e o selo de destrutivo."""
+    return tuple(StepCommand(c.command, c.run_in, is_destructive(c.command)) for c in commands)
+
+
 def _step(
     what: str,
     target: str = "",
@@ -824,8 +835,7 @@ def _step(
 ) -> Step:
     """Os comandos da ação; sem eles, o primeiro trecho entre crases, sem onde rodar."""
     if commands:
-        steps = tuple(StepCommand(c.command, c.run_in, is_destructive(c.command)) for c in commands)
-        return Step(what, target, expected, link, steps)
+        return Step(what, target, expected, link, command_steps(commands))
     found = _COMMAND.search(what)
     quoted = found.group(1).strip() if found else ""
     steps = (StepCommand(quoted, None, is_destructive(quoted)),) if quoted else ()

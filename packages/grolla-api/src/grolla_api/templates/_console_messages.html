@@ -1,5 +1,5 @@
 {# Conversa do console; o polling só troca este bloco quando a versão muda. #}
-{% from "_macros.html" import lookups, hhmm, avatar, icon %}
+{% from "_macros.html" import lookups, hhmm, avatar, icon, step_commands %}
 <div id="chat-messages"
      hx-get="/console/{{ session.id }}/mensagens?visto={{ console_version }}"
      hx-trigger="every 3s" hx-swap="outerHTML">
@@ -18,6 +18,12 @@
       <p class="refusal">{{ icon("shield") }}<span>{{ message.text }}</span></p>
       {% elif agent %}
       <div class="rich">{{ rich_text(message.text) }}</div>
+      {% if message.commands %}
+      {% set steps = command_steps(message.commands) %}
+      {% if steps | selectattr("destructive") | first %}<p class="commands-badge">{{ destructive_badge }}</p>{% endif %}
+      {# Fora de um incidente não há timeline onde registrar: só Copiar, sem "Apliquei". #}
+      {{ step_commands(steps, "", {}, false, "") }}
+      {% endif %}
       {% for chart in charts.get(message.id, []) %}
       <figure class="chart">
         <figcaption>{{ chart.title }}</figcaption>

@@ -1,8 +1,8 @@
-{# Conversa; o polling só troca este bloco quando a versão muda. #}
-{% from "_macros.html" import lookups, hhmm, avatar, icon %}
+{# Conversa; o polling só troca este bloco quando a versão muda (mensagem nova ou "Apliquei"). #}
+{% from "_macros.html" import lookups, hhmm, avatar, icon, step_commands %}
 <div id="chat-messages"
      hx-get="/incidents/{{ incident.id }}/chat?visto={{ chat_version }}"
-     hx-trigger="every 3s" hx-swap="outerHTML">
+     hx-trigger="every 3s, chat:refresh" hx-swap="outerHTML">
 {% if messages %}
 <ol class="messages">
   {% set ns = namespace(day=None) %}
@@ -19,6 +19,11 @@
       <p class="refusal">{{ icon("shield") }}<span>{{ message.text }}</span></p>
       {% elif agent %}
       <div class="rich">{{ rich_text(message.text) }}</div>
+      {% if message.commands %}
+      {% set steps = command_steps(message.commands) %}
+      {% if steps | selectattr("destructive") | first %}<p class="commands-badge">{{ destructive_badge }}</p>{% endif %}
+      {{ step_commands(steps, "Sugerido no chat", applied, chat_can_apply, "/incidents/" ~ incident.id ~ "/actions/record") }}
+      {% endif %}
       {% if message.evaluations %}
       <details>
         <summary>Consultei {{ message.evaluations | length }} {{ "fonte" if message.evaluations | length == 1 else "fontes" }}</summary>

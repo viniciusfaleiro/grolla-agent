@@ -753,6 +753,14 @@ a.button-primary:hover { color: var(--brand-ink); }
 .apply { display: flex; }
 .applied { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.86rem; color: var(--ok); font-weight: 600; }
 @media (prefers-color-scheme: dark) { .command { border-color: var(--line); } }
+/* Na bolha do chat e do console: o código ocupa a linha toda e rola sozinho, sem alargar a bolha. */
+.message .bubble { min-width: 0; }
+.bubble .step-commands { margin-top: 0.65rem; padding-left: 1.2rem; font-size: 0.95rem; }
+.bubble .step-command, .bubble .command, .bubble .command code { min-width: 0; }
+.bubble .command { flex-wrap: wrap; padding: 0.5rem; }
+.bubble .command code { flex-basis: 100%; padding: 0.2rem 0.3rem; }
+.bubble .button-copy { margin-left: auto; }
+.commands-badge { margin-top: 0.5rem; }
 @media (max-width: 34rem) {
   .step-commands { padding-left: 1.1rem; }
   .step-command .command { flex-wrap: wrap; padding: 0.5rem; }
