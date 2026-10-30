@@ -1,0 +1,86 @@
+# Arquivo de implantação: tudo o que uma instância do Grolla precisa, num lugar só.
+#   cp deploy/implantacao.exemplo.yaml ~/grolla-implantacao.yaml && chmod 600 ~/grolla-implantacao.yaml
+#   deploy/implantar.sh                       # lê ~/grolla-implantacao.yaml
+#   deploy/implantar.sh --config outro.yaml
+# Tem segredos: fica FORA do repositório. O script gera a partir dele os arquivos da pasta da
+# instância (.env, grolla.env, grolla.yaml, Caddyfile) a cada implantação; mude aqui, não lá.
+
+instancia:
+  pasta: ~/grolla            # onde ficam os arquivos gerados, o banco (volume) e os backups
+  porta: 8000                # porta publicada da api: o webhook do SigNoz chega aqui
+  senha_banco: troque-esta-senha   # vale só na primeira subida, quando o banco é criado
+  # rag: small               # embeddings na imagem do worker; padrão: memory.rag.size abaixo
+
+# Canal do time: a URL do Workflow "Post to a channel when a webhook request is received".
+# No laboratório, "fake" sobe o grolla-fakes no lugar do Teams.
+teams:
+  webhook_url: https://prod-00.westus.logic.azure.com/workflows/...
+
+# Opcional: HTTPS automático (Let's Encrypt) e senha em todas as páginas, menos no webhook dos
+# alertas (que tem a senha própria) e no /health. Precisa das portas 80 e 443 abertas.
+# https:
+#   host: grolla.exemplo.com.br
+#   usuario: grolla
+#   senha: troque-esta-senha
+#   cloudfront:              # opcional: origem HTTP para uma distribuição do CloudFront
+#     origem: ec2-1-2-3-4.compute-1.amazonaws.com
+#     segredo: valor-do-cabecalho-X-Grolla-Origin
+
+# Opcional: sobe o servidor MCP oficial do SigNoz ao lado do agente (API key de papel Viewer).
+# Com ele, use grolla.signoz.mcp_url: http://signoz-mcp:8000/mcp.
+signoz_mcp:
+  url: https://signoz.interno
+  api_key: chave-viewer-do-signoz
+
+# Opcional: kubeconfig dos clusters com `access: kubeconfig` (caminho nesta máquina).
+# kubeconfig: ~/kubeconfig-grolla.yaml
+
+# Variáveis de ambiente do agente. As quatro primeiras são obrigatórias (a da Anthropic, só
+# com llm.provider anthropic). Qualquer outra entra igual no ambiente da api e do worker.
+segredos:
+  GROLLA_ALERTS_WEBHOOK_USER: signoz
+  GROLLA_ALERTS_WEBHOOK_PASSWORD: troque-esta-senha
+  GROLLA_ANTHROPIC_API_KEY: sk-ant-...
+  GROLLA_AZURE_DEVOPS_TOKEN: pat-somente-leitura
+  # AWS_ACCESS_KEY_ID: ...   # sem elas, vale a role da EC2
+  # AWS_SECRET_ACCESS_KEY: ...
+  # AWS_DEFAULT_REGION: us-east-1
+  # GROLLA_FAKES_API_USER: ...      # console do grolla-fakes (teams: fake)
+  # GROLLA_FAKES_API_PASSWORD: ...
+
+# A configuração do time, igual ao YAML que o agente lê (todas as opções, comentadas, em
+# deploy/credenciadora.yaml). O script a valida antes de trocar qualquer coisa. Sem
+# page_base_url, vale https://<https.host>.
+grolla:
+  team: credenciadora
+  page_base_url: http://grolla-credenciadora.interno:8000
+  alert_filter:
+    team: credenciadora
+  service_labels: [service_name, service.name]
+  grouping_window_minutes: 15
+  default_severity: P3
+  severity_rules:
+    - match: { severity: critical }
+      severity: P1
+    - match: { severity: warning }
+      severity: P2
+  investigation:
+    timeout_seconds: 240
+  llm:
+    stages:
+      investigation: { model: claude-sonnet-5-5, effort: medium, max_tokens: 8000 }
+  signoz:
+    mcp_url: http://signoz-mcp:8000/mcp
+    base_url: https://signoz.interno
+  azure_devops:
+    base_url: https://dev.azure.com/sua-organizacao
+    projects: [seu-projeto]
+  cloud:
+    regions: [us-east-1]
+  memory:
+    rag:
+      size: small
+  console:
+    max_tokens: 60000
+    daily_max_tokens: 400000
+    timeout_seconds: 120
