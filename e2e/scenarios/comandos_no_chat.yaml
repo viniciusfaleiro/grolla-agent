@@ -110,7 +110,8 @@ then:
         AND q.reply_status = 'respondida'
       at_least: 1
       timeout_seconds: 60
-  # No console, os comandos com onde rodar e "Copiar"; sem incidente, não há "Apliquei".
+  # No console, os comandos com onde rodar e "Copiar"; sem incidente, não há o form do "Apliquei"
+  # (a palavra aparece na cena das boas-vindas, que vem em toda página).
   - expect_page:
       service: api
       path: /console/{sessao}
@@ -125,4 +126,4 @@ then:
         - cluster loja-e2e, namespace loja
         - kubectl rollout status deployment/chatcmd-api -n loja
         - Copiar
-      absent: [Apliquei]
+      absent: [actions/record]

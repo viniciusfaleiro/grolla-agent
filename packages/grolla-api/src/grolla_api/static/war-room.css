@@ -1023,3 +1023,88 @@ html:has(script) .filters-apply { display: none; }
 .bar-value { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
 .bar-label { font-size: 0.82rem; color: var(--muted); }
 .metrics-empty th, .metrics-empty td { color: var(--muted); opacity: 0.7; }
+
+/* Boas-vindas: o Grolla se apresenta num balão de quadrinho (static/welcome.js) */
+.welcome-again { margin-left: auto; font-weight: 600; }
+.welcome-again + .me { margin-left: 0; }
+.welcome {
+  width: min(760px, calc(100% - 2rem)); padding: 0; border: 0; border-radius: 22px;
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow); overflow: hidden;
+}
+.welcome[open] { animation: welcome-pop 0.28s ease-out; }
+.welcome::backdrop { background: rgb(20 26 36 / 55%); }
+@keyframes welcome-pop { from { transform: translateY(12px) scale(0.98); opacity: 0; } }
+.welcome-stage {
+  display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0.5rem; align-items: end;
+  padding: 1.75rem 1.75rem 0.5rem; min-height: 330px; cursor: pointer;
+  background: radial-gradient(120% 90% at 0% 100%, var(--brand-soft), transparent 60%), var(--surface);
+}
+.welcome-grolla svg { width: 100%; height: auto; display: block; overflow: visible; }
+.welcome-speech { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.9rem; align-self: center; padding-bottom: 1.1rem; min-width: 0; }
+.welcome-bubble {
+  position: relative; min-height: 104px; padding: 1rem 1.1rem;
+  background: var(--surface); border: 2px solid var(--ink); border-radius: 18px;
+  box-shadow: 4px 4px 0 var(--ink); font-size: 1.12rem; line-height: 1.45;
+}
+.welcome-bubble::before, .welcome-bubble::after { content: ""; position: absolute; border-style: solid; border-color: transparent; }
+.welcome-bubble::before { left: -25px; bottom: 25px; border-width: 10px 14px 10px 10px; border-right-color: var(--ink); }
+.welcome-bubble::after { left: -19px; bottom: 27px; border-width: 8px 12px 8px 8px; border-right-color: var(--surface); }
+.welcome-who { display: block; margin-bottom: 0.25rem; font: 700 0.8rem/1 var(--display); color: var(--brand); letter-spacing: 0.02em; }
+.welcome-caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1px; vertical-align: -2px; background: var(--brand); animation: welcome-caret 0.8s steps(1) infinite; }
+.welcome-bubble.done .welcome-caret { display: none; }
+@keyframes welcome-caret { 50% { opacity: 0; } }
+.welcome-scene { min-height: 92px; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }
+.welcome-scene.show { opacity: 1; transform: none; }
+.welcome-mini { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.4rem; padding: 0.65rem 0.75rem; font-size: 0.9rem; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.welcome-mini .command code { min-width: 0; }
+.welcome-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.welcome-pill { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+.welcome-pill-p1 { background: var(--danger-soft); color: var(--danger); }
+.welcome-pill-ok { background: var(--ok-soft); color: var(--ok); }
+.welcome-pill-info { background: var(--brand-soft); color: var(--brand); }
+.welcome-checks { grid-template-columns: repeat(3, auto); justify-content: start; gap: 0.3rem 0.9rem; }
+.welcome-checks span { display: flex; align-items: center; gap: 0.45rem; }
+.welcome-checks i {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--ok); color: var(--surface); font-style: normal; font-size: 0.7rem; font-weight: 700;
+}
+.welcome-fake-button { padding: 0.15rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; }
+.welcome-fake-primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.welcome-chat { gap: 0.35rem; }
+.welcome-msg { justify-self: start; max-width: 85%; padding: 0.35rem 0.65rem; border-radius: 12px 12px 12px 4px; background: var(--brand-soft); font-size: 0.82rem; }
+.welcome-msg-me { justify-self: end; border-radius: 12px 12px 4px 12px; background: var(--mine); color: var(--mine-ink); }
+.welcome-spark { display: block; width: 100%; height: 44px; }
+.welcome-spark-area { fill: var(--danger-soft); }
+.welcome-spark-line { fill: none; stroke: var(--danger); stroke-width: 2; }
+.welcome-spark-end { fill: var(--ok); }
+.welcome-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.85rem 1.75rem 1.2rem; border-top: 1px solid var(--line); }
+.welcome-dots { display: flex; gap: 6px; }
+.welcome-dot { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; background: var(--line); cursor: pointer; transition: width 0.2s, background 0.2s; }
+.welcome-dot[aria-current="step"] { width: 22px; background: var(--brand); }
+.welcome-actions { display: flex; align-items: center; gap: 0.6rem; }
+.welcome-actions .button-primary { min-width: 120px; }
+.welcome-skip { padding: 0.5rem; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.welcome-skip:hover { color: var(--ink); text-decoration: underline; }
+/* O mascote: boca acompanha a fala, pisca, acena na primeira fala e balança a cabeça falando. */
+#boca { transform-box: fill-box; transform-origin: 50% 0%; transform: scaleY(0.38); transition: transform 0.07s; }
+.talking #boca { transform: scaleY(var(--abre, 1)); }
+#olhos { transform-box: fill-box; transform-origin: 50% 70%; animation: welcome-blink 4.2s infinite; }
+@keyframes welcome-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+#braco { transform-box: fill-box; transform-origin: 20% 100%; }
+.waving #braco { animation: welcome-wave 0.5s ease-in-out 3; }
+@keyframes welcome-wave { 50% { transform: rotate(16deg); } }
+#cabeca { transform-box: view-box; transform-origin: 120px 200px; }
+.talking #cabeca { animation: welcome-nod 1.4s ease-in-out infinite; }
+@keyframes welcome-nod { 25% { transform: rotate(-1.5deg); } 75% { transform: rotate(1.5deg); } }
+@media (max-width: 620px) {
+  .welcome-stage { grid-template-columns: minmax(0, 1fr); min-height: 0; padding: 1.1rem 1rem 0.25rem; }
+  .welcome-grolla { width: 110px; }
+  .welcome-bubble { font-size: 1rem; }
+  .welcome-bubble::before, .welcome-bubble::after { display: none; }
+  .welcome-checks { grid-template-columns: repeat(2, auto); }
+  .welcome-foot { padding: 0.75rem 1rem 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome[open], .welcome-caret, .waving #braco, .talking #cabeca, #olhos { animation: none; }
+  .welcome-scene, #boca { transition: none; }
+}

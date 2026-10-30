@@ -1,0 +1,57 @@
+# Boas-vindas: toda página traz o Grolla se apresentando (as 6 falas e o "Conhecer o Grolla"), e
+# a lista abre a apresentação sozinha na primeira visita. O war room de um incidente recém-aberto
+# não abre sozinho, para não atrapalhar quem chega pelo card do Teams no meio da crise.
+name: Grolla se apresenta na primeira visita
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no boasvindas-api
+              service_name: boasvindas-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 6% no boasvindas-api
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=191
+            fingerprint: e2e-boas-vindas-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'boasvindas-api' = ANY(services)
+then:
+  - expect_page:
+      service: api
+      path: /incidents
+      in_order: true
+      contains:
+        - <body data-welcome="auto">
+        - Conhecer o Grolla
+        - Opa! Eu sou o Grolla
+        - Tocou um alarme?
+        - Enquanto vocês chegam
+        - "Onde rodar:"
+        - kubectl scale deployment antifraude-api --replicas=2 -n loja
+        - No war room, me chama no chat.
+        - Bora?
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}
+      contains:
+        - <body data-welcome="manual">
+        - Conhecer o Grolla
+        - Opa! Eu sou o Grolla

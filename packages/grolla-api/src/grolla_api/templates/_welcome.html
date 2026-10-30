@@ -1,0 +1,117 @@
+{# Boas-vindas: o Grolla se apresenta na primeira visita (static/welcome.js). Cada fala é um
+   <template data-fala> com o texto e a cena; o "já vi" fica no navegador. #}
+<dialog class="welcome" id="boas-vindas" aria-labelledby="welcome-quem" aria-describedby="welcome-fala">
+  <div class="welcome-stage" id="welcome-stage" title="Clique para continuar">
+    <div class="welcome-grolla" id="welcome-grolla" aria-hidden="true">
+      <svg viewBox="0 0 240 280" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="welcome-skin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6d2b4"/><stop offset="1" stop-color="#e9b893"/></linearGradient>
+          <linearGradient id="welcome-shirt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f80ed"/><stop offset="1" stop-color="#1f5fbf"/></linearGradient>
+          <linearGradient id="welcome-beard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3b3d"/><stop offset="1" stop-color="#2a2a2c"/></linearGradient>
+        </defs>
+        <ellipse cx="120" cy="268" rx="78" ry="9" fill="#000" opacity="0.12"/>
+        <path d="M46 214 C46 186 72 170 120 170 C168 170 194 186 194 214 L194 262 C194 266 191 268 187 268 L53 268 C49 268 46 266 46 262 Z" fill="url(#welcome-shirt)"/>
+        <path d="M50 196 C36 202 26 218 24 236 L46 242 L56 208 Z" fill="#1f5fbf"/>
+        <path d="M190 196 C204 202 214 218 216 236 L194 242 L184 208 Z" fill="#1f5fbf"/>
+        <path d="M26 234 C24 246 26 252 32 256" stroke="url(#welcome-skin)" stroke-width="16" stroke-linecap="round" fill="none"/>
+        <circle cx="34" cy="257" r="10" fill="#efc4a2"/>
+        <g id="braco">
+          <path d="M214 234 C222 222 226 210 224 198" stroke="url(#welcome-skin)" stroke-width="16" stroke-linecap="round" fill="none"/>
+          <circle cx="223" cy="194" r="11" fill="#efc4a2"/>
+          <rect x="219" y="174" width="8" height="18" rx="4" fill="#efc4a2"/>
+        </g>
+        <path d="M74 236 L100 236 L108 220 L118 252 L128 228 L134 236 L166 236" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.95"/>
+        <g id="cabeca">
+          <ellipse cx="50" cy="104" rx="12" ry="17" fill="#e9b893"/>
+          <ellipse cx="190" cy="104" rx="12" ry="17" fill="#e9b893"/>
+          <ellipse cx="120" cy="96" rx="70" ry="78" fill="url(#welcome-skin)"/>
+          <ellipse cx="96" cy="40" rx="20" ry="9" fill="#fff" opacity="0.45" transform="rotate(-18 96 40)"/>
+          <path d="M52 104 C52 150 70 196 120 204 C170 196 188 150 188 104 C180 128 168 136 156 136 C146 128 134 124 120 124 C106 124 94 128 84 136 C72 136 60 128 52 104 Z" fill="url(#welcome-beard)"/>
+          <path d="M98 168 C102 180 108 188 114 192" stroke="#8d8d90" stroke-width="3" stroke-linecap="round" fill="none"/>
+          <path d="M124 174 C126 184 128 190 132 196" stroke="#8d8d90" stroke-width="3" stroke-linecap="round" fill="none"/>
+          <path d="M146 162 C148 172 148 180 146 188" stroke="#8d8d90" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <path d="M80 150 C84 160 88 168 94 174" stroke="#8d8d90" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <g id="boca">
+            <path d="M96 146 C104 166 136 166 144 146 Z" fill="#7a2e2e"/>
+            <path d="M100 147 L140 147 C138 152 102 152 100 147 Z" fill="#ffffff"/>
+            <ellipse cx="120" cy="158" rx="11" ry="5" fill="#e8737a"/>
+          </g>
+          <path d="M86 140 C96 128 112 130 120 138 C128 130 144 128 154 140 C142 138 132 142 120 144 C108 142 98 138 86 140 Z" fill="#1c1c1e"/>
+          <ellipse cx="72" cy="118" rx="10" ry="6" fill="#f08a8a" opacity="0.45"/>
+          <ellipse cx="168" cy="118" rx="10" ry="6" fill="#f08a8a" opacity="0.45"/>
+          <path d="M76 62 C84 55 98 55 108 60" stroke="#3b3b3d" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <path d="M132 60 C142 55 156 55 164 62" stroke="#3b3b3d" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <g id="olhos">
+            <path d="M82 98 C87 90 99 90 104 98" stroke="#2a2a2c" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+            <path d="M136 98 C141 90 153 90 158 98" stroke="#2a2a2c" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+          </g>
+          <g fill="none" stroke="#141414" stroke-width="7">
+            <circle cx="93" cy="96" r="22"/><circle cx="147" cy="96" r="22"/>
+            <path d="M115 94 C118 90 122 90 125 94"/><path d="M71 92 L52 96"/><path d="M169 92 L188 96"/>
+          </g>
+          <path d="M80 86 C83 81 88 79 92 79" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+          <path d="M134 86 C137 81 142 79 146 79" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+        </g>
+      </svg>
+    </div>
+    <div class="welcome-speech">
+      <div class="welcome-bubble" id="welcome-bubble" aria-live="polite">
+        <span class="welcome-who" id="welcome-quem">Grolla</span>
+        <span id="welcome-fala"></span><span class="welcome-caret"></span>
+      </div>
+      <div class="welcome-scene" id="welcome-scene"></div>
+    </div>
+  </div>
+  <div class="welcome-foot">
+    <div class="welcome-dots" id="welcome-dots" aria-label="Etapas"></div>
+    <div class="welcome-actions">
+      <button type="button" class="welcome-skip" id="welcome-pular">Pular</button>
+      <button type="button" class="button-primary" id="welcome-proximo">Próximo</button>
+    </div>
+  </div>
+
+  <template data-fala data-acena>
+    <p data-texto>Opa! Eu sou o Grolla, o SRE de plantão que não dorme. Em um minuto eu te mostro como eu trabalho.</p>
+    <div class="welcome-mini"><div class="welcome-row"><span class="welcome-pill welcome-pill-info">de plantão 24h</span><span class="muted">só leitura · nunca executo nada sozinho</span></div></div>
+  </template>
+  <template data-fala>
+    <p data-texto>Tocou um alarme? Eu abro o incidente, dou a severidade e aviso o time no Teams na hora.</p>
+    <div class="welcome-mini">
+      <div class="welcome-row"><span class="welcome-pill welcome-pill-p1">P1</span><strong>Erros na pagamentos-api</strong></div>
+      <div class="welcome-row muted">alerta recebido · card no Teams enviado · "Estou investigando"</div>
+    </div>
+  </template>
+  <template data-fala>
+    <p data-texto>Enquanto vocês chegam, eu já estou fuçando: métricas, logs, traces, deploys, AWS e o cluster.</p>
+    <div class="welcome-mini welcome-checks">
+      <span><i>✓</i>métricas</span><span><i>✓</i>logs</span><span><i>✓</i>traces</span>
+      <span><i>✓</i>deploys</span><span><i>✓</i>AWS</span><span><i>✓</i>cluster</span>
+    </div>
+  </template>
+  <template data-fala>
+    <p data-texto>Testo cada hipótese até a causa raiz e te passo o comando, dizendo onde rodar. Quem aplica é você.</p>
+    <div class="welcome-mini">
+      <div class="welcome-row"><span class="welcome-pill welcome-pill-ok">causa confirmada</span><span class="muted">Onde rodar: <strong>cluster lab-k3s, namespace loja</strong></span></div>
+      <div class="command"><code>kubectl scale deployment antifraude-api --replicas=2 -n loja</code></div>
+      <div class="welcome-row"><span class="welcome-fake-button">Copiar</span><span class="welcome-fake-button welcome-fake-primary">Apliquei</span></div>
+    </div>
+  </template>
+  <template data-fala>
+    <p data-texto>No war room, me chama no chat. Eu respondo com evidência e anoto tudo o que o time fez.</p>
+    <div class="welcome-mini welcome-chat">
+      <span class="welcome-msg welcome-msg-me">quais comandos eu rodo pra voltar ao normal?</span>
+      <span class="welcome-msg">Escale o antifraude-api para 2 réplicas e acompanhe o rollout.</span>
+    </div>
+  </template>
+  <template data-fala>
+    <p data-texto>Normalizou? Eu aviso. Encerrou? Escrevo o post mortem e aprendo para a próxima. Bora?</p>
+    <div class="welcome-mini">
+      <div class="welcome-row"><span class="welcome-pill welcome-pill-ok">normalizado</span><span class="muted">post mortem em rascunho · memória atualizada</span></div>
+      <svg class="welcome-spark" viewBox="0 0 300 44" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 34 L40 33 L70 35 L95 8 L120 6 L150 9 L175 30 L210 34 L250 33 L300 34 L300 44 L0 44 Z" class="welcome-spark-area"/>
+        <path d="M0 34 L40 33 L70 35 L95 8 L120 6 L150 9 L175 30 L210 34 L250 33 L300 34" class="welcome-spark-line"/>
+        <circle cx="300" cy="34" r="3" class="welcome-spark-end"/>
+      </svg>
+    </div>
+  </template>
+</dialog>

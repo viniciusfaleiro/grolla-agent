@@ -265,6 +265,15 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   que falta; réplicas do último apply no `cluster_state`.
 - **Ports:** nenhum.
 
+## S11.8 · Grolla se apresenta
+
+- **Valor:** quem abre o Grolla pela primeira vez entende em meio minuto o que ele faz quando toca um alarme e onde
+  estão as funcionalidades.
+- **Escopo:** modal de boas-vindas com o mascote falando (boca mexendo, balão, fala digitada), 6 falas com uma cena
+  da tela real, clique que completa e avança, Pular, "Conhecer o Grolla" na barra do topo, "já vi" no navegador, sem
+  abrir sozinho no war room de incidente aberto e sem animação com "reduzir movimento".
+- **Ports:** nenhum.
+
 ## S12 · Times, login e administração
 
 - **Valor:** vários times usam o mesmo Grolla, cada um vendo e trabalhando só no que é seu.
