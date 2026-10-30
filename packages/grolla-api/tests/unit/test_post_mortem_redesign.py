@@ -100,7 +100,7 @@ async def test_list_shows_totals_cause_plan_and_filters_the_unevaluated(
     )
 
     page = ana.get("/postmortems").text
-    only = ana.get("/postmortems?sem_avaliacao=1").text
+    only = ana.get("/postmortems?sem_avaliacao=1").text.split('<dialog class="welcome"')[0]
 
     assert "Rascunhos para revisar" in page
     assert "O limite de CPU caiu para 50m." in page

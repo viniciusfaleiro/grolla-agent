@@ -80,6 +80,7 @@ def first_step(page: str) -> str:
         page.split('<div class="next-move')[1]
         .split('class="more-steps"', maxsplit=1)[0]
         .split("Esperado:", maxsplit=1)[0]
+        .split('<dialog class="welcome"', maxsplit=1)[0]  # as boas-vindas também mostram um comando
     )
 
 
@@ -182,7 +183,7 @@ def test_applied_posts_the_step_the_command_and_where_to_run(
 def test_applied_needs_a_name(app: TestClient, repository: InMemoryIncidentRepository) -> None:
     incident_id = with_plan(repository, TWO_COMMANDS)
 
-    page = app.get(f"/incidents/{incident_id}").text
+    page = app.get(f"/incidents/{incident_id}").text.split('<dialog class="welcome"')[0]
 
     assert f'data-copy="{SCALE}"' in page
     assert "Apliquei" not in page

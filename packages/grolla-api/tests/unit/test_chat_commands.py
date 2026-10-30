@@ -221,7 +221,9 @@ async def console_reply(ana: TestClient, store: InMemoryConsoleStore, *commands:
         commands=commands,
     )
     await store.answer(job, answer, [], NOW)
-    return ana.get(f"/console/{session_id}").text
+    return ana.get(f"/console/{session_id}").text.split('<dialog class="welcome"')[
+        0
+    ]  # sem as boas-vindas
 
 
 async def test_console_shows_the_commands_with_copy_and_no_applied(

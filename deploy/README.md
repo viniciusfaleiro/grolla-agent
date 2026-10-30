@@ -22,9 +22,10 @@ ser manual.
 
 | Arquivo | Papel |
 |---|---|
-| [`compose.yml`](compose.yml) | `db`, `api`, `worker` e `signoz-mcp` com `restart: unless-stopped` e volume do banco |
-| [`credenciadora.yaml`](credenciadora.yaml) | Configuração do time: filtro, labels de serviço, janela, regras de severidade e a investigação (modelo, limites, SigNoz, Azure DevOps) |
-| [`.env.example`](.env.example) | Modelo do `.env` com os segredos (o `.env` nunca vai para o git) |
+| [`implantacao.exemplo.yaml`](implantacao.exemplo.yaml) | Modelo do **arquivo de implantação**: tudo o que a instância precisa num lugar só (pasta, porta, senha do banco, Teams, HTTPS, MCP do SigNoz, kubeconfig, segredos e a configuração do time). Fica fora do repositório |
+| [`implantar.sh`](implantar.sh) | Implanta a partir do clone e do arquivo de implantação: atualiza o código, constrói as imagens, gera e valida a configuração, faz o backup do banco, troca o agente e confere a saúde, com progresso na tela |
+| [`compose.yml`](compose.yml) | `db`, `api` e `worker`, mais os perfis `https` (Caddy), `teams-fake` (grolla-fakes) e `signoz-mcp`; o script copia para a pasta da instância |
+| [`credenciadora.yaml`](credenciadora.yaml) | Configuração do time com todas as opções comentadas: o que vai na seção `grolla:` do arquivo de implantação |
 
 ## 🛡️ Segurança
 
@@ -98,7 +99,7 @@ docker compose exec db psql -U grolla -c \
 
 ## 🧠 Memória viva e RAG
 
-A seção `memory` do `credenciadora.yaml` liga o estudo do ambiente (`memory.study`) e o RAG
+A seção `memory` da configuração do time liga o estudo do ambiente (`memory.study`) e o RAG
 (`memory.rag`). Com `memory.rag`, o worker gera embeddings localmente: os modelos vêm dentro da
 imagem e nada é baixado em produção, o que funciona mesmo sem internet.
 
@@ -107,11 +108,8 @@ imagem e nada é baixado em produção, o que funciona mesmo sem internet.
 | `small` (padrão) | `paraphrase-multilingual-MiniLM-L12-v2` | 384 dimensões · 0,22 GB | máquina pequena; bom em português |
 | `large` | `intfloat/multilingual-e5-large` | 1024 dimensões · 2,2 GB | mais precisão na busca por significado |
 
-A imagem do worker embute os dois. Para uma imagem menor, construa só com um:
-
-```bash
-docker compose build --build-arg GROLLA_RAG_MODELS=small worker
-```
+O script embute na imagem do worker só o tamanho escolhido em `memory.rag.size` (ou em
+`instancia.rag` do arquivo de implantação); sem nenhum, os dois.
 
 Trocar o `size` e reiniciar o worker reindexa a memória sozinho. Sem `memory.rag`, a memória usa
 só a busca textual.
@@ -119,19 +117,54 @@ só a busca textual.
 O banco precisa da extensão **pgvector**. O compose já usa `pgvector/pgvector:pg16`, e no RDS a
 extensão vem incluída.
 
-## 🚀 Primeiro deploy
+## 🚀 Implantar
+
+Tudo do ambiente fica num **arquivo de implantação**, fora do repositório (tem segredos). O
+script lê esse arquivo, gera a pasta da instância e implanta:
 
 ```bash
-git clone <repositório> agent-grolla && cd agent-grolla/deploy
-git checkout master                     # ou o commit da versão a subir
-cp .env.example .env && chmod 600 .env  # preencha senhas e a URL do Teams
-docker compose up -d --build
-docker compose ps                       # api healthy, worker running
-curl -fsS localhost:8000/health         # {"status":"ok"}
-curl -fsS localhost:8000/health/worker  # 200 com o último heartbeat
+git clone https://github.com/viniciusfaleiro/grolla-agent.git && cd grolla-agent
+cp deploy/implantacao.exemplo.yaml ~/grolla-implantacao.yaml && chmod 600 ~/grolla-implantacao.yaml
+vi ~/grolla-implantacao.yaml             # preencha uma vez
+deploy/implantar.sh                      # implanta o branch atual
+deploy/implantar.sh --ref master         # ou uma branch, tag ou commit
+deploy/implantar.sh --config outro.yaml  # outro arquivo de implantação
 ```
 
-As migrações do banco rodam sozinhas no startup da api e do worker.
+| Seção do arquivo | O que define |
+|---|---|
+| `instancia` | `pasta` da instância (padrão `~/grolla`), `porta` da api, `senha_banco` (vale na criação do banco) e, opcional, `rag` |
+| `teams` | `webhook_url` do canal, ou `fake` para o grolla-fakes no laboratório |
+| `https` | Opcional: `host`, `usuario` e `senha` do Caddy, e a origem do CloudFront |
+| `signoz_mcp` | Opcional: `url` e `api_key` (Viewer) do SigNoz; sobe o container do MCP |
+| `kubeconfig` | Opcional: o kubeconfig dos clusters com `access: kubeconfig` |
+| `segredos` | Variáveis do agente: senha do webhook, chave da Anthropic, PAT do Azure DevOps e o que mais precisar (AWS, …) |
+| `grolla` | A configuração do time (todas as opções em [`credenciadora.yaml`](credenciadora.yaml)) |
+
+| Etapa | O que faz |
+|---|---|
+| Conferindo a máquina | uma linha por ferramenta, com a versão: git, Docker, compose v2 (2.20 ou mais novo), buildx (recomendado) e o acesso ao Docker (daemon rodando, usuário no grupo `docker`). O que faltar sai com os comandos de instalação para o sistema da máquina (Amazon Linux, Ubuntu/Debian, RHEL/Fedora), e o script para antes de construir. Depois, o arquivo de implantação (avisa se não estiver com `chmod 600`) e pelo menos 4 GB livres |
+| Atualizando o código | `git pull --ff-only` do branch atual ou do `--ref`; recusa mudança não commitada, a não ser com `--local`; mostra a versão e o commit |
+| Construindo as imagens | `grolla-api`, `grolla-worker` (com os embeddings escolhidos) e `grolla-fakes`, todas `:local`; a imagem em uso fica como `:anterior` |
+| Configurando o ambiente | gera na pasta da instância o `.env`, o `grolla.env`, o `grolla.yaml`, o `Caddyfile`, o `signoz-mcp.env` e o `kubeconfig.yaml` (os com segredo em `600`; o `grolla.yaml`, que o agente lê com outro usuário, em `644`) e copia o `compose.yml`; os arquivos em uso ficam em `.anterior/`; valida a configuração do time como o agente valida e lista todos os problemas de uma vez. Nada é trocado se algo estiver errado |
+| Backup do banco | `pg_dump` em `backups/`, guardando os 5 mais recentes |
+| Trocando o agente | `stop` só da api, do worker e do fakes e `up -d`: o banco segue com os mesmos dados. Nunca `down`, nunca volume removido. Se o `Caddyfile` mudou, reinicia o Caddy |
+| Conferindo a saúde | `/health` da api (migrações aplicadas) e um heartbeat do worker posterior à troca; se não vier em 3 min, volta para as imagens `:anterior` e para a configuração de `.anterior/` |
+| Arrumando | grava o commit em `.implantado` e remove só as camadas de imagem órfãs |
+
+Cada etapa mostra a barra de progresso, o que está sendo feito e o tempo. A saída dos comandos
+vai para um log em `/tmp`, e as últimas linhas dele aparecem quando algo falha. Para mudar
+qualquer configuração, edite o arquivo de implantação e rode o script de novo: os arquivos da
+pasta da instância são gerados a cada vez.
+
+As migrações do banco rodam sozinhas no startup da api e do worker. Os comandos do dia a dia
+rodam na pasta da instância:
+
+```bash
+cd ~/grolla
+docker compose ps                        # api, worker, db e os perfis ligados
+docker compose logs -f api worker
+```
 
 ## 🔔 Webhook no SigNoz
 
@@ -143,7 +176,7 @@ As migrações do banco rodam sozinhas no startup da api e do worker.
 
 ## 🏷️ Labels dos alertas
 
-Os nomes dos labels são todos configuráveis em `credenciadora.yaml`:
+Os nomes dos labels são todos configuráveis na seção `grolla:` do arquivo de implantação:
 
 - `alert_filter`: só entram alertas que têm **todos** esses labels. Os outros são ignorados.
 - `service_labels`: o serviço do alerta é o primeiro desses labels que estiver presente. Sem
@@ -151,23 +184,24 @@ Os nomes dos labels são todos configuráveis em `credenciadora.yaml`:
 - `severity_rules[].match`: casam com qualquer label do alerta, incluindo `alertname`.
 
 Para descobrir os labels reais, mande um alerta para a instância e abra a página do incidente,
-que mostra os labels de cada alerta. Ajuste o YAML e rode `docker compose up -d` para recriar a
-api (a configuração é lida no startup). Se o filtro estiver errado, nada entra. Para ver todos os
+que mostra os labels de cada alerta. Ajuste o arquivo de implantação e rode o script de novo (a
+configuração é lida no startup). Se o filtro estiver errado, nada entra. Para ver todos os
 alertas, comece com `alert_filter: {}`.
 
-## 🔄 Atualizar
+## 🔄 Atualizar e voltar atrás
+
+Atualizar é rodar o `deploy/implantar.sh` de novo. Se a versão nova não passar na saúde, o
+script volta sozinho para as imagens e a configuração anteriores. Para voltar depois, à mão:
 
 ```bash
-cd agent-grolla && git pull            # ou git checkout <commit>
-cd deploy && docker compose up -d --build
+docker tag grolla-api:anterior grolla-api:local
+docker tag grolla-worker:anterior grolla-worker:local
+docker tag grolla-fakes:anterior grolla-fakes:local
+cd ~/grolla && docker compose up -d
 ```
 
-**A partir da memória com RAG (0.0.10):** a imagem do banco muda de `postgres:16-alpine` para
-`pgvector/pgvector:pg16`. É o mesmo Postgres 16, e o volume continua. Faça o backup, rode
-`docker compose up -d --build` e a migração 0007 cria a extensão.
-
-Rollback: volte para o commit anterior e rode o mesmo comando. As migrações só avançam, então
-volte só para commits que já rodaram com o schema atual. Na dúvida, restaure o backup.
+As migrações só avançam: volte só para versões que já rodaram com o schema atual. Na dúvida,
+restaure o backup de `~/grolla/backups`.
 
 ## 💾 Backup do banco
 
@@ -176,7 +210,7 @@ bucket):
 
 ```bash
 # /etc/cron.d/grolla-backup — 03:00 todo dia
-0 3 * * * ec2-user cd /home/ec2-user/agent-grolla/deploy && docker compose exec -T db pg_dump -U grolla -Fc grolla | aws s3 cp - s3://<bucket>/grolla/credenciadora/$(date +\%F).dump
+0 3 * * * ec2-user cd /home/ec2-user/grolla && docker compose exec -T db pg_dump -U grolla -Fc grolla | aws s3 cp - s3://<bucket>/grolla/credenciadora/$(date +\%F).dump
 ```
 
 Restaurar numa instância vazia:
@@ -195,5 +229,5 @@ aws s3 cp s3://<bucket>/grolla/credenciadora/<data>.dump - \
 
 ## ⏪ Desligar
 
-Desligue o canal de webhook no SigNoz. O banco guarda tudo o que já entrou. `docker compose down`
-para os processos e mantém o volume.
+Desligue o canal de webhook no SigNoz. O banco guarda tudo o que já entrou. `cd ~/grolla &&
+docker compose stop` para os processos e mantém o volume.

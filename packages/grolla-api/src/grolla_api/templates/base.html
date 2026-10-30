@@ -13,8 +13,9 @@
 <link rel="stylesheet" href="/static/war-room.css">
 <script src="/static/htmx.min.js"></script>
 <script src="/static/war-room.js" defer></script>
+<script src="/static/welcome.js" defer></script>
 </head>
-<body>
+<body data-welcome="{{ welcome_mode or 'auto' }}">
 <header class="topbar">
   <a class="brand" href="/incidents"><img src="/static/grolla-avatar.svg" alt=""><strong>Grolla</strong></a>
   <nav>
@@ -24,6 +25,7 @@
     <a href="/memoria"{% if nav == "memory" %} aria-current="page"{% endif %}>Memória</a>
     <a href="/metricas"{% if nav == "metrics" %} aria-current="page"{% endif %}>Métricas</a>
   </nav>
+  <button type="button" class="button-quiet welcome-again" id="conhecer-grolla">Conhecer o Grolla</button>
   {% if author %}
   <div class="me">
     <span>Você é <strong>{{ author }}</strong></span>
@@ -46,5 +48,6 @@
 <main class="page">
 {% block content %}{% endblock %}
 </main>
+{% include "_welcome.html" %}
 </body>
 </html>

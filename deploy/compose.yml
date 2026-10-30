@@ -1,8 +1,20 @@
-# Produção de uma instância do agent-grolla (deploy manual numa EC2).
-#   cd deploy && cp .env.example .env   # preencha os segredos
-#   docker compose up -d --build
-# Passo a passo completo em deploy/README.md.
+# Uma instância do agent-grolla. Não rode à mão: o deploy/implantar.sh gera, a partir do arquivo de
+# implantação, os arquivos da pasta da instância (.env, grolla.env, grolla.yaml, …), constrói as
+# imagens e sobe este compose com --project-directory nessa pasta. Os caminhos relativos abaixo
+# são dela. Partes opcionais entram por perfil (COMPOSE_PROFILES no .env gerado):
+#   https       Caddy com certificado automático e senha na frente da api
+#   teams-fake  grolla-fakes no lugar do Teams (laboratório)
+#   signoz-mcp  servidor MCP oficial do SigNoz ao lado do agente
 name: grolla
+
+x-grolla: &grolla
+  restart: unless-stopped
+  env_file: grolla.env
+  depends_on:
+    db:
+      condition: service_healthy
+  # host.docker.internal: o que roda no host (um túnel até o SigNoz, a API de um k3s local).
+  extra_hosts: ["host.docker.internal:host-gateway"]
 
 services:
   db:
@@ -11,7 +23,7 @@ services:
     environment:
       POSTGRES_DB: grolla
       POSTGRES_USER: grolla
-      POSTGRES_PASSWORD: ${GROLLA_DB_PASSWORD:?defina GROLLA_DB_PASSWORD no .env}
+      POSTGRES_PASSWORD: ${GROLLA_DB_PASSWORD:?rode o deploy/implantar.sh}
     volumes:
       - grolla-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,64 +33,55 @@ services:
       retries: 30
 
   api:
-    build:
-      context: ..
-      dockerfile: packages/grolla-api/Dockerfile
-    image: grolla-api:${GROLLA_VERSION:-local}
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    <<: *grolla
+    image: grolla-api:local
     environment:
       GROLLA_DATABASE_URL: postgresql://grolla:${GROLLA_DB_PASSWORD}@db:5432/grolla
       GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
-      GROLLA_LOG_LEVEL: ${GROLLA_LOG_LEVEL:-INFO}
-      GROLLA_ALERTS_WEBHOOK_USER: ${GROLLA_ALERTS_WEBHOOK_USER:?defina no .env}
-      GROLLA_ALERTS_WEBHOOK_PASSWORD: ${GROLLA_ALERTS_WEBHOOK_PASSWORD:?defina no .env}
     volumes:
-      - ./${GROLLA_TEAM_CONFIG:-credenciadora.yaml}:/etc/grolla/grolla.yaml:ro
+      - ./grolla.yaml:/etc/grolla/grolla.yaml:ro
     ports:
       - "${GROLLA_API_PORT:-8000}:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 3s
-      retries: 30
 
   worker:
-    build:
-      context: ..
-      dockerfile: packages/grolla-worker/Dockerfile
-    image: grolla-worker:${GROLLA_VERSION:-local}
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    <<: *grolla
+    image: grolla-worker:local
     environment:
       GROLLA_DATABASE_URL: postgresql://grolla:${GROLLA_DB_PASSWORD}@db:5432/grolla
-      GROLLA_LOG_LEVEL: ${GROLLA_LOG_LEVEL:-INFO}
-      GROLLA_TEAMS_WEBHOOK_URL: ${GROLLA_TEAMS_WEBHOOK_URL:?defina no .env}
       GROLLA_CONFIG_FILE: /etc/grolla/grolla.yaml
-      GROLLA_ANTHROPIC_API_KEY: ${GROLLA_ANTHROPIC_API_KEY:?defina no .env}
-      GROLLA_AZURE_DEVOPS_TOKEN: ${GROLLA_AZURE_DEVOPS_TOKEN:?defina no .env}
-      # Vazias: o SDK usa a role da EC2 (instance profile).
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     volumes:
-      - ./${GROLLA_TEAM_CONFIG:-credenciadora.yaml}:/etc/grolla/grolla.yaml:ro
+      - ./grolla.yaml:/etc/grolla/grolla.yaml:ro
+      # Vazio quando nenhum cluster é lido por kubeconfig.
+      - ./kubeconfig.yaml:/etc/grolla/kubeconfig.yaml:ro
 
-  # Servidor MCP oficial do SigNoz: a telemetria da investigação. Só na rede interna do compose
-  # (sem porta publicada); a API key (papel Viewer) fica só aqui. O agente só chama ferramentas
-  # de leitura de uma lista fechada.
+  fakes:
+    profiles: [teams-fake]
+    image: grolla-fakes:local
+    restart: unless-stopped
+    env_file: grolla.env
+    environment:
+      GROLLA_FAKES_API_URL: http://api:8000
+
+  # A telemetria da investigação: só na rede interna (sem porta publicada), com a API key de
+  # papel Viewer. O agente só chama ferramentas de leitura de uma lista fechada.
   signoz-mcp:
+    profiles: [signoz-mcp]
     image: signoz/signoz-mcp-server:v0.16.0
     restart: unless-stopped
+    env_file: signoz-mcp.env
     environment:
       TRANSPORT_MODE: http
       MCP_SERVER_PORT: "8000"
-      SIGNOZ_URL: ${GROLLA_SIGNOZ_URL:?defina no .env}
-      SIGNOZ_API_KEY: ${GROLLA_SIGNOZ_API_KEY:?defina no .env}
+
+  caddy:
+    profiles: [https]
+    image: caddy:2.8.4
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
 
 volumes:
   grolla-pgdata:
+  caddy-data:

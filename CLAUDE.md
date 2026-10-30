@@ -62,7 +62,7 @@ o veredito e linha do tempo filtrável. `lista-de-incidentes-com-filtros`, `post
 `console-memoria-metricas-redesenhados`: as outras telas na mesma linguagem, com filtros na lista e
 nos post mortems e o console como "Chat", em primeiro no menu. `agente-cercado`: o agente só investiga e só fala do
 domínio (recusas fixas por escopo, dados externos marcados, nota do chat `aprendido`, selo em comando destrutivo,
-limite por pessoa, teste de capacidade no check e `make evals-seguranca`). `modelo-no-bedrock`: o mesmo Claude pelo Amazon Bedrock (`llm.provider: bedrock` e `llm.region`, credencial padrão da AWS, sem chave). Pendente: S4 (on-call), que espera a conta no
+limite por pessoa, teste de capacidade no check e `make evals-seguranca`). `modelo-no-bedrock`: o mesmo Claude pelo Amazon Bedrock (`llm.provider: bedrock` e `llm.region`, credencial padrão da AWS, sem chave). `grolla-recomenda-comandos`: passo a passo de comandos com onde rodar no plano, no chat e no console, "Apliquei" que vai para o post mortem e o plano recolhido em "O que o Grolla faria?". `grolla-se-apresenta`: o mascote se apresenta num modal na primeira visita. Implantação por um arquivo só (`~/grolla-implantacao.yaml`) com `deploy/implantar.sh`. Pendente: S4 (on-call), que espera a conta no
 Spike.sh — ver
 [`openspec/roadmap.md`](openspec/roadmap.md).
 
