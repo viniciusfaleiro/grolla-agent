@@ -13,6 +13,7 @@ from grolla.domain.analysis import (
     PARTIAL_REASON_TEXT,
     Analysis,
     AnalysisStatus,
+    Command,
     Evidence,
     PartialReason,
     Verdict,
@@ -42,6 +43,7 @@ from grolla.domain.war_room import (
     RecordAction,
     Reopen,
     Resolve,
+    action_text,
 )
 from markupsafe import Markup, escape
 
@@ -163,7 +165,9 @@ def _severity(form: Mapping[str, str]) -> ChangeSeverity:
 _ACTIONS: Mapping[str, Callable[[Mapping[str, str]], HumanAction]] = {
     "assume": lambda _: AssumeCommander(),
     "severity": _severity,
-    "record": lambda form: RecordAction(form.get("texto", "")),
+    "record": lambda form: RecordAction(
+        form.get("texto", ""), form.get("comando") or None, form.get("onde") or None
+    ),
     "discard-hypothesis": lambda form: DiscardHypothesis(
         form.get("titulo", ""), form.get("motivo", "")
     ),
@@ -390,6 +394,8 @@ def _proposal(value: object) -> Proposal | None:
 
 def event_label(event: IncidentEvent, labels: Mapping[EventType, str]) -> str:
     """O rótulo do evento; o do ciclo já diz a tendência e o resumo."""
+    if event.type is EventType.ACTION_RECORDED and event.data.get("command"):
+        return applied_label(event.data)
     build = _TRANSCRIPT_LABELS.get(event.type)
     return build(event) if build else _event_label(event, labels)
 
@@ -447,7 +453,9 @@ def event_detail(event: IncidentEvent) -> str:
     transcript = _TRANSCRIPT_DETAILS.get(event.type)
     if transcript is not None:
         return transcript(data)
-    if event.type is EventType.CYCLE_COMPLETED:
+    if event.type is EventType.CYCLE_COMPLETED or (
+        event.type is EventType.ACTION_RECORDED and data.get("command")
+    ):
         return ""  # o rótulo já diz tudo
     if event.type is EventType.CYCLE_PARTIAL:
         reason = data.get("reason")
@@ -700,10 +708,16 @@ def is_waiting(message: ChatMessage) -> bool:
     return message.reply_status in (ReplyStatus.PENDING, ReplyStatus.RUNNING)
 
 
-def chat_version(messages: Sequence[ChatMessage]) -> str:
-    """Muda quando chega mensagem ou uma pergunta deixa de esperar: o polling só troca o chat aí."""
+def chat_version(
+    messages: Sequence[ChatMessage], applied: Mapping[str, IncidentEvent] | None = None
+) -> str:
+    """Muda quando chega mensagem, uma pergunta deixa de esperar ou alguém aplica um comando: o
+    polling só troca o chat aí (o "Apliquei" do chat vira "aplicado por").
+    """
     waiting = sum(1 for message in messages if is_waiting(message))
-    return f"{len(messages)}-{waiting}"
+    last = max((event.at for event in (applied or {}).values()), default=None)
+    version = f"{len(messages)}-{waiting}"
+    return f"{version}-{last.isoformat()}" if last else version
 
 
 def linked_incident(event: IncidentEvent) -> UUID | None:
@@ -775,13 +789,23 @@ _RUNNING = frozenset({AnalysisStatus.PENDING, AnalysisStatus.RUNNING})
 
 
 @dataclass(frozen=True)
+class StepCommand:
+    command: str
+    run_in: str | None  # onde rodar; None no comando tirado das crases (verificação antiga)
+    destructive: bool  # apaga, derruba ou zera algo: selo e copiar confirma
+
+
+@dataclass(frozen=True)
 class Step:
     what: str
     target: str
     expected: str
     link: str | None
-    command: str | None  # primeiro trecho entre crases da ação, para copiar
-    destructive: bool = False  # o comando apaga, derruba ou zera algo: selo e copiar confirma
+    commands: tuple[StepCommand, ...] = ()  # o passo a passo da ação, ou o trecho entre crases
+
+    @property
+    def destructive(self) -> bool:
+        return any(c.destructive for c in self.commands)
 
 
 @dataclass(frozen=True)
@@ -797,17 +821,47 @@ class Situation:
     steps_from_analysis: bool  # plano da análise: o que investigar, não o que executar
 
 
-def _step(what: str, target: str = "", expected: str = "", link: str | None = None) -> Step:
+def command_steps(commands: Sequence[Command]) -> tuple[StepCommand, ...]:
+    """O passo a passo para a tela: cada comando com onde rodar e o selo de destrutivo."""
+    return tuple(StepCommand(c.command, c.run_in, is_destructive(c.command)) for c in commands)
+
+
+def _step(
+    what: str,
+    target: str = "",
+    expected: str = "",
+    link: str | None = None,
+    commands: Sequence[Command] = (),
+) -> Step:
+    """Os comandos da ação; sem eles, o primeiro trecho entre crases, sem onde rodar."""
+    if commands:
+        return Step(what, target, expected, link, command_steps(commands))
     found = _COMMAND.search(what)
-    command = found.group(1) if found else None
-    destructive = command is not None and is_destructive(command)
-    return Step(what, target, expected, link, command, destructive)
+    quoted = found.group(1).strip() if found else ""
+    steps = (StepCommand(quoted, None, is_destructive(quoted)),) if quoted else ()
+    return Step(what, target, expected, link, steps)
+
+
+def applied_commands(events: Iterable[IncidentEvent]) -> dict[str, IncidentEvent]:
+    """Comando → o último "Apliquei" dele, para o "Agora" mostrar quem aplicou e quando."""
+    return {
+        str(event.data["command"]): event
+        for event in events
+        if event.type is EventType.ACTION_RECORDED and event.data.get("command")
+    }
+
+
+def applied_label(data: Data) -> str:
+    """O "Aplicou: <passo> — <comando> (<onde rodar>)" do domínio, com o passo sem markdown."""
+    return action_text({**data, "text": plain_text(str(data.get("text", "")))})
 
 
 def situation_of(analysis: Analysis | None, verification: Verification | None) -> Situation:
     """Causa confirmada, validação rodando, hipótese mais provável, investigando ou sem análise."""
     if verification is not None and verification.root_cause:
-        steps = tuple(_step(a.action, a.target, a.expected, a.link) for a in verification.actions)
+        steps = tuple(
+            _step(a.action, a.target, a.expected, a.link, a.commands) for a in verification.actions
+        )
         confirmed = [v.hypothesis for v in verification.verdicts if v.verdict is Verdict.CONFIRMED]
         title, text = _title_and_text(
             confirmed[0] if confirmed else first_sentence(verification.root_cause),

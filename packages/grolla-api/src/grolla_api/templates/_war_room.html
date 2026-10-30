@@ -1,10 +1,12 @@
 {# Barra do incidente, cartão "Agora" e a investigação; é o fragmento devolvido pelas rotas de ação. #}
-{% from "_macros.html" import lookups, evidence_list, hhmm, icon %}
+{% from "_macros.html" import lookups, evidence_list, hhmm, icon, step_commands %}
 {% from "_follow_up.html" import proposal_notice, follow_up_section %}
 {% from "_live.html" import incident_status %}
 {% set base = "/incidents/" ~ incident.id ~ "/actions/" %}
 {% set open = header.actions | length > 0 %}
 {% set s = situation %}
+{# "Apliquei" só no plano da causa confirmada: o da análise é o que investigar, não o que rodar. #}
+{% set can_apply = author and "record" in header.actions and s and not s.steps_from_analysis %}
 <section id="war-room">
 {{ incident_status(incident, header, impact, alarm, author, now, alerts, merge_candidates | length > 0) }}
 
@@ -74,27 +76,31 @@
 
     {% if s.steps %}
     {% set first = s.steps[0] %}
-    <div class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}">
-      <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Comece por aqui" }}</h3>
+    {% set commands = s.steps | map(attribute="commands") | map("length") | sum %}
+    {# Fechado de início, para o "Agora" ficar limpo; quem quer o plano abre a barra. #}
+    <details class="next-move{% if s.steps_from_analysis %} next-move-analysis{% endif %}" id="grolla-faria" data-keep-open>
+      <summary class="next-move-bar"><span class="next-move-bar-title">O que o Grolla faria?</span><span class="muted">{{ s.steps | length }} {{ "passo" if s.steps | length == 1 else "passos" }}{% if commands %} · {{ commands }} {{ "comando" if commands == 1 else "comandos" }}{% endif %}</span></summary>
+      <div class="next-move-body">
+      <h3 class="eyebrow">{{ "O Grolla investigaria primeiro" if s.steps_from_analysis else "Para voltar ao normal" }}</h3>
       <p class="next-move-what">{{ first.what }}</p>
       {% if first.target %}<p class="muted">{{ first.target }}{% if first.link %} · <a href="{{ first.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</p>{% endif %}
-      {% if first.command %}
       {% if first.destructive %}<p>{{ destructive_badge }}</p>{% endif %}
-      <div class="command{% if first.destructive %} command-destructive{% endif %}"><code>{{ first.command }}</code><button type="button" class="button-copy" data-copy="{{ first.command }}"{% if first.destructive %} data-confirm="Este comando apaga, derruba ou zera algo. Confira o alvo antes de rodar. Copiar mesmo assim?"{% endif %}>{{ icon("copy") }}<span>Copiar</span></button></div>
-      {% endif %}
+      {% if first.commands %}{{ step_commands(first.commands, first.what, applied, can_apply, base ~ "record") }}{% endif %}
       {% if first.expected %}<p class="next-move-why">Esperado: {{ first.expected }}</p>{% endif %}
       {% if s.steps | length > 1 %}
       <details class="more-steps">
         <summary>Depois: mais {{ s.steps | length - 1 }} {{ "passo" if s.steps | length == 2 else "passos" }}</summary>
         <ol start="2">
           {% for step in s.steps[1:] %}
-          <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}</li>
+          <li><strong>{{ step.what }}</strong>{% if step.destructive %} {{ destructive_badge }}{% endif %}{% if step.target %}<span class="muted"> · {{ step.target }}</span>{% endif %}{% if step.expected %}<span class="muted"> — {{ step.expected }}</span>{% endif %}{% if step.link %} · <a href="{{ step.link }}" target="_blank" rel="noopener">abrir</a>{% endif %}
+            {% if step.commands %}{{ step_commands(step.commands, step.what, applied, can_apply, base ~ "record") }}{% endif %}</li>
           {% endfor %}
         </ol>
       </details>
       {% endif %}
       {% if not s.steps_from_analysis %}<p class="next-move-note">O Grolla não executa nada; quem roda é o time.</p>{% endif %}
-    </div>
+      </div>
+    </details>
     {% endif %}
 
     {% if merge %}

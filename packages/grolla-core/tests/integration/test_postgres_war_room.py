@@ -22,7 +22,8 @@ from grolla.adapters.postgres import (
 from grolla.adapters.postgres.urls import sqlalchemy_url
 from grolla.application.chat import ChatQueue
 from grolla.application.incidents import IncidentRepository
-from grolla.domain.chat import ChatMessage
+from grolla.domain.analysis import Command
+from grolla.domain.chat import AGENT_AUTHOR, ChatMessage
 from grolla.domain.incidents import IncidentState
 from grolla.testing.builders import T0, make_incident
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -32,6 +33,10 @@ pytestmark = pytest.mark.integration
 PARALLEL_CLAIMS = 12
 STARTED = T0 + timedelta(seconds=5)
 LOCK_WAIT = 0.3  # segundos: tempo de a segunda transação mostrar que está esperando
+COMMANDS = (
+    Command("kubectl rollout undo deployment/checkout", "cluster prod, namespace loja"),
+    Command("kubectl rollout status deployment/checkout", "cluster prod, namespace loja"),
+)
 
 
 @pytest.fixture(scope="module")
@@ -146,3 +151,26 @@ async def test_simultaneous_claims_never_take_the_same_question(
 
     taken = [job.message_id for job in jobs if job is not None]
     assert sorted(taken) == sorted(pending)  # cada pergunta uma vez, e nenhuma perdida
+
+
+async def test_reply_commands_round_trip_in_order_and_old_messages_read_none(
+    repository: PostgresIncidentRepository, queue: PostgresChatQueue
+) -> None:
+    while await queue.claim(STARTED) is not None:  # fila vazia: só as perguntas deste teste
+        pass
+    incident_id = await saved(repository)
+    async with repository.transaction() as uow:
+        await uow.add_message(
+            ChatMessage(0, incident_id, "Ana", "como volto ao normal?", T0), wants_reply=True
+        )
+    job = await queue.claim(STARTED)
+    assert job is not None
+    reply = ChatMessage(
+        0, incident_id, AGENT_AUTHOR, "Reverta o deploy.", STARTED, commands=COMMANDS
+    )
+
+    await queue.answer(job, reply, [], [], STARTED)
+
+    question, answer = await repository.chat_of(incident_id)
+    assert answer.commands == COMMANDS
+    assert question.commands == ()

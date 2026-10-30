@@ -218,6 +218,17 @@ def test_complete_verification_confirms_the_first_hypothesis_and_plans_a_rollbac
             "target": "pedidos-api",
             "expected": "A taxa de erro volta ao patamar anterior ao deploy",
             "link": None,
+            "commands": [
+                {
+                    "command": "az pipelines build queue --definition-name pedidos-api-cd "
+                    "--branch main",
+                    "run_in": "Azure DevOps, pipeline pedidos-api-cd",
+                },
+                {
+                    "command": "kubectl rollout status deploy/pedidos-api -n loja",
+                    "run_in": "cluster loja-e2e, namespace loja",
+                },
+            ],
         }
     ]
     assert result["missing"] == ""
@@ -326,9 +337,11 @@ def chat_request(messages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def chat_turns(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:
+def chat_turns(
+    client: TestClient, message: str = CHAT_MESSAGE
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """A primeira resposta (ferramentas) e a final do chat."""
-    question = {"role": "user", "content": CHAT_MESSAGE}
+    question = {"role": "user", "content": message}
     calls = client.post(PATH, json=chat_request([question])).json()
     results = [
         {"type": "tool_result", "tool_use_id": block["id"], "content": "timeout no pool às 21:42"}
@@ -356,12 +369,41 @@ def test_chat_answers_citing_the_logs_and_the_question() -> None:
 
     assert final["stop_reason"] == "end_turn"
     answer = json.loads(final["content"][0]["text"])
-    assert set(answer) == {"reply", "scope"}
+    assert set(answer) == {"reply", "scope", "commands"}
     assert answer["scope"] == "dominio"
+    assert answer["commands"] == []
     assert answer["reply"].startswith(
         'Consultei os logs de pedidos-db: timeout no pool às 21:42 Sobre "olha os logs do '
         'pedidos-db desde 21:40":'
     )
+
+
+def asked_commands(service: str) -> list[dict[str, str]]:
+    place = "cluster loja-e2e, namespace loja"
+    return [
+        {"command": f"kubectl scale deployment {service} --replicas=2 -n loja", "run_in": place},
+        {"command": f"kubectl rollout status deployment/{service} -n loja", "run_in": place},
+    ]
+
+
+def test_chat_question_about_commands_gets_two_commands_in_order() -> None:
+    message = CHAT_MESSAGE.replace(
+        "Pergunta: olha os logs", "Pergunta: Quais COMANDOS eu rodo? olha os logs"
+    )
+
+    _, final = chat_turns(TestClient(create_app()), message)
+
+    answer = json.loads(final["content"][0]["text"])
+    assert answer["reply"].startswith("Consultei os logs de pedidos-db")
+    assert answer["commands"] == asked_commands("pedidos-db")
+
+
+def test_chat_command_only_in_an_earlier_message_gets_no_command() -> None:
+    message = CHAT_MESSAGE.replace("Pergunta: antiga", "Pergunta: qual comando?")
+
+    _, final = chat_turns(TestClient(create_app()), message)
+
+    assert json.loads(final["content"][0]["text"])["commands"] == []
 
 
 def test_chat_down_mode_answers_overloaded_and_leaves_the_analysis_alone() -> None:
@@ -846,6 +888,7 @@ def test_console_queries_the_service_of_the_question_and_draws_the_error_rate() 
         "text": "Consultei o captura-api: achado de query_metric",
         "scope": "dominio",
         "charts": [{"service": "captura-api", "signal": "taxa_de_erro", "minutes": 60}],
+        "commands": [],
     }
 
 
@@ -856,7 +899,15 @@ def test_console_without_chart_words_has_no_chart_and_falls_back_to_the_history(
         "text": "Consultei o liquidacao-api: achado de query_metric",
         "scope": "dominio",
         "charts": [],
+        "commands": [],
     }
+
+
+def test_console_question_about_commands_gets_two_commands_in_order() -> None:
+    _, answer = console_turns("que comando escala o captura-api?", CONSOLE_HISTORY)
+
+    assert answer["text"] == "Consultei o captura-api: achado de query_metric"
+    assert answer["commands"] == asked_commands("captura-api")
 
 
 def test_console_without_any_service_uses_the_unknown_one() -> None:
@@ -877,6 +928,7 @@ def test_console_remembers_what_the_question_asks_to_register() -> None:
         "text": f"Guardei: {fact}. Consultei o lote-api: achado de query_metric",
         "scope": "dominio",
         "charts": [],
+        "commands": [],
     }
 
 
@@ -1107,7 +1159,7 @@ def test_refusal_scripts_answer_the_scope_right_away_in_the_chat_and_the_console
     script: str, scope: str, text: str
 ) -> None:
     client = scripted(script)
-    question = [{"role": "user", "content": CHAT_MESSAGE}]
+    question = [{"role": "user", "content": f"{CHAT_MESSAGE}, qual comando?"}]
 
     chat = client.post(PATH, json=chat_request(question)).json()
     console = client.post(PATH, json=console_request(question)).json()
@@ -1116,10 +1168,11 @@ def test_refusal_scripts_answer_the_scope_right_away_in_the_chat_and_the_console
     reply = json.loads(chat["content"][0]["text"])
     assert reply["scope"] == scope
     assert reply["reply"].startswith(text)
+    assert reply["commands"] == []
     answer = json.loads(console["content"][0]["text"])
     assert answer["scope"] == scope
     assert answer["text"].startswith(text)
-    assert answer["charts"] == []
+    assert answer["charts"] == answer["commands"] == []
 
 
 def test_order_note_script_asks_to_remember_an_order_and_cites_the_result() -> None:
@@ -1146,6 +1199,7 @@ def test_order_note_script_asks_to_remember_an_order_and_cites_the_result() -> N
         "text": "Tentei guardar a nota: não guardado: ordem",
         "scope": "dominio",
         "charts": [],
+        "commands": [],
     }
 
 
@@ -1174,6 +1228,12 @@ def test_destructive_plan_script_deletes_a_pod_in_the_first_step() -> None:
     [step] = json.loads(final["content"][0]["text"])["actions"]
     assert step["action"] == "Apagar o pod travado: `kubectl delete pod pedidos-api-7d4f -n loja`"
     assert step["target"] == "pedidos-api"
+    assert step["commands"] == [
+        {
+            "command": "kubectl delete pod -l app=pedidos-api -n loja",
+            "run_in": "cluster loja-e2e, namespace loja",
+        }
+    ]
 
 
 def test_destructive_plan_script_does_not_change_the_chat_nor_an_inconclusive_plan() -> None:

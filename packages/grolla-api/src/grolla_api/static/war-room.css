@@ -720,7 +720,18 @@ a.button-primary:hover { color: var(--brand-ink); }
 .tile .tile-text { font-size: 1.05rem; line-height: 1.35; overflow-wrap: anywhere; }
 .tile .tile-bad { color: var(--danger); }
 .tile span { font-size: 0.8rem; }
-.next-move { border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 55%, var(--surface)); border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; display: grid; gap: 0.55rem; }
+.next-move { border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 55%, var(--surface)); border-radius: var(--radius-lg); }
+/* A barra "O que o Grolla faria?": fechada de início, abre o passo a passo */
+.next-move-bar { display: flex; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0.7rem 1.2rem; cursor: pointer; list-style: none; border-radius: var(--radius-lg); }
+.next-move-bar::-webkit-details-marker { display: none; }
+.next-move-bar::after { content: ""; margin-left: auto; width: 0.55rem; height: 0.55rem; border-right: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(45deg); transition: transform 0.15s; }
+.next-move[open] > .next-move-bar::after { transform: rotate(-135deg); }
+.next-move-bar:hover { background: color-mix(in srgb, var(--brand-soft) 80%, var(--surface)); }
+.next-move-bar:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.next-move-bar-title { font-weight: 700; color: var(--brand); }
+.next-move-analysis .next-move-bar-title { color: var(--ink); }
+.next-move-body { display: grid; gap: 0.55rem; padding: 0.2rem 1.2rem 1.1rem; border-top: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); padding-top: 0.9rem; }
+@media (prefers-reduced-motion: reduce) { .next-move-bar::after { transition: none; } }
 .next-move .eyebrow { color: var(--brand); }
 .next-move-analysis { border-color: var(--line); background: var(--bg); }
 .next-move-analysis .eyebrow { color: var(--muted); }
@@ -731,6 +742,32 @@ a.button-primary:hover { color: var(--brand-ink); }
 .command-destructive { box-shadow: inset 4px 0 0 var(--danger); }
 .button-copy { display: inline-flex; align-items: center; gap: 0.35rem; background: #ffffff; color: #1d2129; border: 0; font-size: 0.82rem; padding: 0.5rem 0.75rem; }
 .more-steps ol { margin: 0.5rem 0 0; padding-left: 1.25rem; display: grid; gap: 0.35rem; font-size: 0.92rem; }
+/* O passo a passo de cada passo: onde rodar, o comando com Copiar e o "Apliquei" */
+.step-commands { margin: 0.15rem 0 0; padding-left: 1.4rem; display: grid; gap: 0.7rem; }
+.more-steps .step-commands { margin-top: 0.45rem; font-size: 0.95rem; }
+.step-command { display: grid; gap: 0.35rem; padding-left: 0.15rem; }
+.step-command::marker { color: var(--brand); font-weight: 700; }
+.run-in { font-size: 0.86rem; color: var(--muted); overflow-wrap: anywhere; }
+.run-in strong { color: var(--ink); font-weight: 600; }
+.command { border: 1px solid transparent; }
+.apply { display: flex; }
+.applied { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.86rem; color: var(--ok); font-weight: 600; }
+@media (prefers-color-scheme: dark) { .command { border-color: var(--line); } }
+/* Na bolha do chat e do console: o código ocupa a linha toda e rola sozinho, sem alargar a bolha. */
+.message .bubble { min-width: 0; }
+.bubble .step-commands { margin-top: 0.65rem; padding-left: 1.2rem; font-size: 0.95rem; }
+.bubble .step-command, .bubble .command, .bubble .command code { min-width: 0; }
+.bubble .command { flex-wrap: wrap; padding: 0.5rem; }
+.bubble .command code { flex-basis: 100%; padding: 0.2rem 0.3rem; }
+.bubble .button-copy { margin-left: auto; }
+.commands-badge { margin-top: 0.5rem; }
+@media (max-width: 34rem) {
+  .step-commands { padding-left: 1.1rem; }
+  .step-command .command { flex-wrap: wrap; padding: 0.5rem; }
+  .step-command .command code { flex-basis: 100%; padding: 0.2rem 0.3rem; }
+  .step-command .button-copy { margin-left: auto; }
+  .apply button { width: 100%; justify-content: center; }
+}
 .signal { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.85rem; padding: 0.75rem 0.95rem; border-radius: var(--radius); background: var(--bg); }
 .signal > .icon { color: var(--muted); }
 .signal-text { flex: 1 1 16rem; min-width: 0; display: grid; gap: 0.2rem; }

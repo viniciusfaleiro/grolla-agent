@@ -141,10 +141,7 @@ class KubernetesClusterInventory:
         api_clients: _Json = None,  # testes injetam um ApiClient por cluster
     ) -> None:
         injected = dict(api_clients or _NONE)
-        many = len(clusters) > 1
-        self._clusters = [
-            _Cluster(target, injected.get(target.name), labeled=many) for target in clusters
-        ]
+        self._clusters = [_Cluster(target, injected.get(target.name)) for target in clusters]
 
     async def state(self, service: str, since: datetime) -> ToolResult:
         answers, failures = await self._across(lambda cluster: cluster.state(service, since))
@@ -226,11 +223,11 @@ class _Workload:
 class _Cluster:
     """Um cluster: o acesso dele, as leituras e o que ele responde sobre o serviço."""
 
-    def __init__(self, target: ClusterTarget, api_client: Any, *, labeled: bool) -> None:
+    def __init__(self, target: ClusterTarget, api_client: Any) -> None:
         self.target = target
         self._client: Any = api_client
         self._lock = threading.Lock()
-        self._on = f" no cluster {target.name}" if labeled else ""
+        self._on = f" no cluster {target.name}"  # sempre: o comando sugerido precisa do lugar
 
     def attempt[T](self, query: Callable[["_Cluster"], T]) -> T | _Failure:
         try:
@@ -749,7 +746,20 @@ def _replicas(workload: _Workload) -> str:
     generation = _at(workload.body, "metadata", "generation") or 0
     rolling = rolling or (status.get("observedGeneration") or 0) < generation
     text = f"{ready} de {desired} réplicas prontas"
+    applied = _applied_replicas(workload.body)
+    if applied is not None and applied != desired and workload.kind != "DaemonSet":
+        text += f" ({applied} no último apply)"  # o kubectl scale não deixa o valor anterior
     return text + (", rollout em andamento" if rolling else "")
+
+
+def _applied_replicas(body: _Json) -> int | None:
+    """As réplicas do manifesto do último `apply`, quando a anotação existe e traz o campo."""
+    raw = _at(body, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+    try:
+        replicas = _at(json.loads(raw), "spec", "replicas") if isinstance(raw, str) else None
+    except ValueError:
+        return None
+    return replicas if isinstance(replicas, int) else None
 
 
 def _ready(pod: _Json) -> bool:

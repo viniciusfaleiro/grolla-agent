@@ -14,7 +14,7 @@ from grolla.domain.incidents import (
     Notification,
     NotificationKind,
 )
-from grolla.domain.war_room import HumanAction, InvalidActionError, decide_action
+from grolla.domain.war_room import HumanAction, InvalidActionError, action_text, decide_action
 
 CLOSING_EVENTS = frozenset({EventType.INCIDENT_RESOLVED, EventType.INCIDENT_DISCARDED})
 
@@ -60,7 +60,9 @@ async def _closing_card(repository: IncidentRepository, card: Notification) -> N
     """O card de encerramento leva a causa raiz da validação e as ações registradas."""
     events = await repository.events_of(card.incident_id)
     actions = [
-        f"- {e.data['text']} ({e.author})" for e in events if e.type is EventType.ACTION_RECORDED
+        f"- {action_text(e.data)} ({e.author})"
+        for e in events
+        if e.type is EventType.ACTION_RECORDED
     ]
     evidence = "\n".join([card.evidence, "Ações do time:", *actions]) if actions else card.evidence
     verification = await repository.verification_of(card.incident_id)

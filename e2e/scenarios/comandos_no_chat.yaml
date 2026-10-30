@@ -1,0 +1,128 @@
+# Comandos no chat e no console: Ana pergunta no chat do war room que comandos executar para
+# voltar ao normal e onde. A resposta traz os dois comandos em ordem, cada um com onde rodar e o
+# "Apliquei"; Ana confirma o primeiro e o evento grava o comando e onde rodou. No console, fora de
+# incidente, a mesma pergunta traz os comandos com onde rodar e "Copiar", sem "Apliquei". No
+# roteiro padrão, o LLM fake devolve dois comandos quando a pergunta cita "comando".
+name: comandos no chat e no console
+given:
+  fakes:
+    routes:
+      - { method: POST, path: /teams/webhook, status: 202 }
+when:
+  - http:
+      service: api
+      method: POST
+      path: /webhooks/alerts
+      auth: [signoz, segredo-do-e2e]
+      status: 202
+      json:
+        receiver: grolla-credenciadora
+        status: firing
+        version: "4"
+        alerts:
+          - status: firing
+            labels:
+              alertname: Taxa de erro alta no chatcmd-api
+              service_name: chatcmd-api
+              severity: critical
+              team: credenciadora
+            annotations:
+              summary: Taxa de erro de 7,2% no chatcmd-api
+              description: A taxa de erro HTTP 5xx do chatcmd-api está em 7,2% (limite 2%).
+            startsAt: "2026-01-01T10:00:00Z"
+            endsAt: "0001-01-01T00:00:00Z"
+            generatorURL: https://signoz.interno/alerts/edit?ruleId=191
+            fingerprint: e2e-chatcmd-1
+  - capture:
+      name: incidente
+      sql: SELECT id FROM incidents WHERE 'chatcmd-api' = ANY(services)
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/chat
+      cookies: { grolla_author: Ana }
+      form: { texto: "quais comandos eu posso executar pra voltar ao normal e aonde?" }
+      status: 200
+then:
+  # A resposta do chat grava os dois comandos.
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM chat_messages r JOIN chat_messages q ON q.id = r.reply_to
+        WHERE r.incident_id = '{incidente}' AND r.author = 'agente'
+        AND jsonb_array_length(r.commands) = 2
+        AND q.author = 'Ana'
+        AND q.text = 'quais comandos eu posso executar pra voltar ao normal e aonde?'
+        AND q.reply_status = 'respondida'
+      at_least: 1
+      timeout_seconds: 60
+  # O chat, para quem tem nome: os dois comandos em ordem, onde rodar acima de cada um e o
+  # "Apliquei" de cada comando.
+  - expect_page:
+      service: api
+      path: /incidents/{incidente}/chat
+      cookies: { grolla_author: Ana }
+      in_order: true
+      contains:
+        - "Onde rodar:"
+        - cluster loja-e2e, namespace loja
+        - kubectl scale deployment chatcmd-api --replicas=2 -n loja
+        - Apliquei
+        - "Onde rodar:"
+        - cluster loja-e2e, namespace loja
+        - kubectl rollout status deployment/chatcmd-api -n loja
+        - Apliquei
+  # Ana clica "Apliquei" no primeiro comando do chat.
+  - http:
+      service: api
+      method: POST
+      path: /incidents/{incidente}/actions/record
+      cookies: { grolla_author: Ana }
+      form:
+        texto: Sugerido no chat
+        comando: kubectl scale deployment chatcmd-api --replicas=2 -n loja
+        onde: cluster loja-e2e, namespace loja
+      status: 200
+  - expect_db_count:
+      sql: >-
+        SELECT count(*) FROM incident_events WHERE incident_id = '{incidente}' AND author = 'Ana'
+        AND type = 'action_recorded'
+        AND data ->> 'command' = 'kubectl scale deployment chatcmd-api --replicas=2 -n loja'
+        AND data ->> 'run_in' = 'cluster loja-e2e, namespace loja'
+      count: 1
+  # Console: uma conversa nova com a pergunta pelo comando.
+  - http:
+      service: api
+      method: POST
+      path: /console
+      cookies: { grolla_author: Ana }
+      form: { texto: "qual comando volta o chatcmd-api ao normal?" }
+  - capture:
+      name: sessao
+      sql: >-
+        SELECT id FROM console_sessions WHERE author = 'Ana'
+        AND title = 'qual comando volta o chatcmd-api ao normal?'
+  - wait_for_db_row:
+      sql: >-
+        SELECT count(*) FROM console_messages r JOIN console_messages q ON q.id = r.reply_to
+        WHERE r.session_id = '{sessao}' AND r.author = 'agente'
+        AND jsonb_array_length(r.commands) = 2
+        AND q.author = 'Ana' AND q.text = 'qual comando volta o chatcmd-api ao normal?'
+        AND q.reply_status = 'respondida'
+      at_least: 1
+      timeout_seconds: 60
+  # No console, os comandos com onde rodar e "Copiar"; sem incidente, não há "Apliquei".
+  - expect_page:
+      service: api
+      path: /console/{sessao}
+      cookies: { grolla_author: Ana }
+      in_order: true
+      contains:
+        - "Onde rodar:"
+        - cluster loja-e2e, namespace loja
+        - kubectl scale deployment chatcmd-api --replicas=2 -n loja
+        - Copiar
+        - "Onde rodar:"
+        - cluster loja-e2e, namespace loja
+        - kubectl rollout status deployment/chatcmd-api -n loja
+        - Copiar
+      absent: [Apliquei]

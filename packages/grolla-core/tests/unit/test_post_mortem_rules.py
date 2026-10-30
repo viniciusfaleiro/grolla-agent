@@ -10,6 +10,7 @@ import pytest
 from grolla.domain.incidents import EventType, IncidentEvent, IncidentState
 from grolla.domain.post_mortem import (
     AGENT_AUTHOR,
+    DETAIL_LIMIT,
     DETERMINISTIC,
     EDIT_REASON,
     REGENERATE_REASON,
@@ -106,6 +107,25 @@ def test_timeline_has_the_origin_of_each_item_and_skips_card_delivery() -> None:
         "- 10:04 [pessoa] Ana: assumiu como IC",
         "- 10:05 [chat] Bruno: escreveu: o rollback resolveu?",
         "- 10:32 [pessoa] Ana: encerrou o incidente: rollback",
+    ]
+
+
+def test_timeline_shows_the_applied_command_whole_and_where() -> None:
+    command = "kubectl scale deploy/antifraude-api --replicas=2 -n loja " + "x" * DETAIL_LIMIT
+    applied = {
+        "text": "Restaurar as réplicas",
+        "command": command,
+        "run_in": "cluster loja-prod, namespace loja",
+    }
+    events = [
+        event(EventType.ACTION_RECORDED, applied, "Ana", 31),
+        event(EventType.ACTION_RECORDED, {"text": "religuei o banco"}, "Bruno", 32),
+    ]
+
+    assert timeline_text(events).splitlines() == [
+        f"- 10:31 [pessoa] Ana: Aplicou: Restaurar as réplicas — {command} "
+        "(cluster loja-prod, namespace loja)",
+        "- 10:32 [pessoa] Bruno: registrou uma ação: religuei o banco",
     ]
 
 

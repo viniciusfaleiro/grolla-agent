@@ -255,6 +255,16 @@ O básico (recursos por tag, CloudTrail e CloudWatch) entrou no S3.1. Fica para 
   em `llm.stages`, suítes de contrato no modo Bedrock e a política `deploy/iam-bedrock.json`.
 - **Ports:** nenhum; é um modo do adapter da Anthropic.
 
+## S11.7 · Grolla recomenda comandos
+
+- **Valor:** com a causa confirmada, o time recebe o passo a passo de comandos que resolve e onde rodar cada um, e
+  confirma o que aplicou para isso entrar no post mortem.
+- **Escopo:** `commands` com `run_in` em cada ação da validação, descarte de comando inválido, cluster sempre nomeado,
+  "Para voltar ao normal" com Copiar e "Apliquei" no war room, comando aplicado na timeline, no card e no post mortem;
+  o plano recolhido em "O que o Grolla faria?"; o chat e o console com o mesmo passo a passo e o pedido da evidência
+  que falta; réplicas do último apply no `cluster_state`.
+- **Ports:** nenhum.
+
 ## S12 · Times, login e administração
 
 - **Valor:** vários times usam o mesmo Grolla, cada um vendo e trabalhando só no que é seu.

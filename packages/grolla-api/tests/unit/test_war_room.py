@@ -482,7 +482,7 @@ def test_chat_polling_only_swaps_when_something_changed(
 
     first = client.get(url)
     assert first.status_code == 200
-    assert 'hx-trigger="every 3s"' in first.text
+    assert 'hx-trigger="every 3s, chat:refresh"' in first.text
     assert f'hx-get="{url}?visto=1-1"' in first.text
     assert client.get(url, params={"visto": "1-1"}).status_code == 204
 

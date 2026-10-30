@@ -1,7 +1,7 @@
 """Análise inicial de um incidente: o que foi avaliado, hipóteses e plano proposto."""
 
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -181,6 +181,18 @@ class HypothesisVerdict:
     evidence: tuple[Evidence, ...]
 
 
+MAX_COMMANDS = 5  # comandos por ação
+MAX_COMMAND_CHARS = 300  # por comando, numa linha, para quem confere antes de rodar
+
+
+@dataclass(frozen=True)
+class Command:
+    """Um comando do passo a passo de uma ação; o agente não executa."""
+
+    command: str  # exato, numa linha, na ferramenta que o time usa
+    run_in: str  # onde rodar: "cluster loja-prod, namespace loja", "conta producao, us-east-1"
+
+
 @dataclass(frozen=True)
 class Action:
     """Ação concreta para o humano validar e executar; o agente não executa nada."""
@@ -189,6 +201,22 @@ class Action:
     target: str  # componente ou recurso: "pedidos-api", "RDS grolla-lab-db"
     expected: str  # efeito esperado
     link: str | None  # só se veio de uma avaliação
+    commands: tuple[Command, ...] = ()  # o passo a passo, em ordem; vazio quando não deu
+
+
+def usable_commands(raw: Iterable[tuple[str, str]]) -> tuple[Command, ...]:
+    """Os comandos do modelo que cabem no plano, em ordem e no máximo MAX_COMMANDS.
+
+    Cada um perde os espaços e as crases em volta; sai, sozinho, o que tem mais de uma linha,
+    passa de MAX_COMMAND_CHARS ou vem sem onde rodar. Encadear (`&&`, `|`, `;`) numa linha vale.
+    """
+    kept: list[Command] = []
+    for raw_command, raw_run_in in raw:
+        command, run_in = raw_command.strip().strip("`").strip(), raw_run_in.strip()
+        one_line = "\n" not in command and "\r" not in command
+        if command and run_in and one_line and len(command) <= MAX_COMMAND_CHARS:
+            kept.append(Command(command, run_in))
+    return tuple(kept[:MAX_COMMANDS])
 
 
 @dataclass(frozen=True)
